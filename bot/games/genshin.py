@@ -102,7 +102,8 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
     name = assets.gi_text(meta.get("NameTextMapHash")) or f"Character {key}"
     element = meta.get("Element", "None")
     props = {k: float(v) for k, v in info.get("fightPropMap", {}).items()}
-    level = int(info.get("propMap", {}).get("4001", {}).get("val", 0))
+    level_prop = info.get("propMap", {}).get("4001", {})
+    level = int(level_prop.get("val", level_prop.get("ival", 0)))
 
     stats = [
         Stat("HP", fmt_int(props.get(HP, 0))),
