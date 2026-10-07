@@ -34,6 +34,8 @@ SLOTS = {
     "OBJECT": "Link Rope",
 }
 SLOT_ORDER = list(SLOTS.values())
+# The response's own relic "type" field, used when a relic is newer than the store data.
+TYPE_SLOTS = dict(enumerate(SLOT_ORDER, start=1))
 
 FLAT = {"HPDelta", "AttackDelta", "DefenceDelta", "SpeedDelta", "BaseSpeed"}
 PROP_SHORT = {
@@ -67,6 +69,12 @@ def _fmt_prop(prop: str, value: float) -> Stat:
     if prop in FLAT:
         return Stat(name, f"{value:.1f}" if prop == "SpeedDelta" and value % 1 else fmt_int(value))
     return Stat(name, fmt_pct(value))
+
+
+def _norm(prop: str) -> str:
+    # Relic substats in the API response drop the "Base" suffix the meta tables
+    # use (CriticalChance vs CriticalChanceBase); fold them into one key.
+    return prop + "Base" if prop + "Base" in PROP_SHORT else prop
 
 
 def _add(bonus: dict, props: dict | None) -> None:
@@ -106,6 +114,12 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
         lc_hp = lc.get("BaseHP", 0) + lc.get("HPAdd", 0) * (lc_level - 1)
         lc_atk = lc.get("BaseAttack", 0) + lc.get("AttackAdd", 0) * (lc_level - 1)
         lc_def = lc.get("BaseDefence", 0) + lc.get("DefenceAdd", 0) * (lc_level - 1)
+        # The response carries the light cone's levelled base stats too, which
+        # also covers light cones newer than the store data.
+        lc_flat = {p.get("type"): float(p.get("value", 0)) for p in (eq.get("_flat") or {}).get("props") or []}
+        lc_hp = lc_flat.get("BaseHP", lc_hp)
+        lc_atk = lc_flat.get("BaseAttack", lc_atk)
+        lc_def = lc_flat.get("BaseDefence", lc_def)
         base_hp += lc_hp
         base_atk += lc_atk
         base_def += lc_def
@@ -131,8 +145,12 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
     for point in info.get("skillTreeList", []):
         pid = str(point["pointId"])
         lvl = int(point.get("level", 1))
-        point_levels[pid] = lvl
-        _add(bonus, meta["tree"].get(pid, {}).get(str(lvl), {}).get("props"))
+        # Some characters' trace IDs come with an extra leading 1 (11310001 for
+        # Firefly's 1310001); the store data may only know the 7-digit form.
+        short = str(int(pid) % 10_000_000)
+        point_levels[pid] = point_levels[short] = lvl
+        tree = meta["tree"].get(pid) or meta["tree"].get(short, {})
+        _add(bonus, tree.get(str(lvl), {}).get("props"))
 
     talents = []
     anchors = assets.data["hsr_skilltree"].get(avatar_id, {}).get("0", [])[:4]
@@ -149,23 +167,34 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
         tid = str(relic["tid"])
         rmeta = assets.data["hsr_relics"].get(tid, {})
         rlevel = int(relic.get("level", 0))
-        main_def = meta["relic"]["mainAffix"].get(str(rmeta.get("MainAffixGroup")), {}).get(str(relic.get("mainAffixId")), {})
-        main_prop = main_def.get("Property", "")
-        main_val = main_def.get("BaseValue", 0) + main_def.get("LevelAdd", 0) * rlevel
+        flat = relic.get("_flat") or {}
+        # Enka sends the rolled values in _flat.props (main stat first, then
+        # substats). The meta tables are only a fallback for older responses.
+        props = [(_norm(p.get("type", "")), float(p.get("value", 0))) for p in flat.get("props") or []]
+        if props:
+            main_prop, main_val = props[0]
+            sub_props = props[1:]
+        else:
+            main_def = meta["relic"]["mainAffix"].get(str(rmeta.get("MainAffixGroup")), {}).get(str(relic.get("mainAffixId")), {})
+            main_prop = main_def.get("Property", "")
+            main_val = main_def.get("BaseValue", 0) + main_def.get("LevelAdd", 0) * rlevel
+            sub_props = []
+            for sub in relic.get("subAffixList", []):
+                sdef = meta["relic"]["subAffix"].get(str(rmeta.get("SubAffixGroup")), {}).get(str(sub.get("affixId")), {})
+                val = sdef.get("BaseValue", 0) * sub.get("cnt", 1) + sdef.get("StepValue", 0) * (sub.get("step") or 0)
+                sub_props.append((sdef.get("Property", ""), val))
         bonus[main_prop] += main_val
         subs = []
-        for sub in relic.get("subAffixList", []):
-            sdef = meta["relic"]["subAffix"].get(str(rmeta.get("SubAffixGroup")), {}).get(str(sub.get("affixId")), {})
-            val = sdef.get("BaseValue", 0) * sub.get("cnt", 1) + sdef.get("StepValue", 0) * sub.get("step", 0)
-            bonus[sdef.get("Property", "")] += val
-            subs.append(_fmt_prop(sdef.get("Property", ""), val))
-        set_id = int(rmeta.get("SetID", 0))
+        for prop, val in sub_props:
+            bonus[prop] += val
+            subs.append(_fmt_prop(prop, val))
+        set_id = int(flat.get("setID") or rmeta.get("SetID", 0))
         set_counts[set_id] += 1
-        flat = relic.get("_flat") or {}
         set_names.setdefault(set_id, assets.hsr_text(flat.get("setName")) or f"Set {set_id}")
+        slot = SLOTS.get(rmeta.get("Type")) or TYPE_SLOTS.get(relic.get("type"), "?")
         gear.append(
             Gear(
-                slot=SLOTS.get(rmeta.get("Type"), "?"),
+                slot=slot,
                 set_name=set_names[set_id],
                 level=rlevel,
                 rarity=int(rmeta.get("Rarity", 0)),
@@ -210,6 +239,9 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
         stats.append(Stat(f"{ELEMENTS.get(element, element)} DMG Boost", fmt_pct(elem_dmg)))
 
     icon_path = char.get("AvatarSideIconPath")
+    notes = ["Stats exclude conditional buffs, like the in-game character screen."]
+    if not char or not base:
+        notes.insert(0, "This character is newer than Enka's game data, so base stats are missing and totals are too low.")
     return CharacterBuild(
         game="hsr",
         character_id=avatar_id,
@@ -224,13 +256,21 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
         weapon=weapon,
         gear=gear,
         set_bonuses=set_bonuses,
-        notes=["Stats exclude conditional buffs, like the in-game character screen."],
+        notes=notes,
     )
 
 
 def parse_profile(assets: Assets, uid: str, data: dict) -> PlayerProfile:
     detail = data.get("detailInfo", {})
-    characters = [parse_character(assets, c) for c in detail.get("avatarDetailList", [])]
+    # Support characters are listed too (flagged _assist) and can repeat a
+    # showcased one, so keep the first entry per character.
+    seen = set()
+    characters = []
+    for info in detail.get("avatarDetailList", []):
+        if info.get("avatarId") in seen:
+            continue
+        seen.add(info.get("avatarId"))
+        characters.append(parse_character(assets, info))
     return PlayerProfile(
         game="hsr",
         uid=uid,
