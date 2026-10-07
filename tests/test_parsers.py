@@ -250,6 +250,37 @@ class ZenlessTest(unittest.TestCase):
         self.assertEqual(anby.gear[0].subs[0].value, "7.2%")
         self.assertEqual(anby.talents[-1].value, "F")
 
+    def test_yixuan(self):
+        # SkillLevelList as a dict (the docs call it a dict), Rupture agent, new element.
+        yixuan = self.profile.characters[1]
+        self.assertEqual(yixuan.name, "Yixuan")
+        self.assertEqual(yixuan.element, "Auric Ink")
+        s = stats(yixuan)
+        self.assertNotIn("Energy Regen", s)  # Rupture agents have no Energy Regen
+        self.assertEqual(s["Wind DMG Bonus"], "30.0%")  # 750 * (1 + 15 * 0.2)
+        self.assertEqual(yixuan.gear[0].main.name, "Wind DMG")
+        self.assertEqual(dict((t.name, t.value) for t in yixuan.talents)["Basic"], "12 ★")
+
+    def test_live_response(self):
+        # Real Enka response (UID 1300003409, fetched 2026-10-07, nickname anonymized).
+        profile = zenless.parse_profile(self.assets, "1300003409", fixture("zzz_live.json"))
+        self.assertEqual(profile.nickname, "Proxy")
+        self.assertEqual(profile.level, 52)
+        self.assertEqual(profile.showcase_names, ["Anby", "Nicole", "Corin", "Miyabi", "Soldier 11", "Vivian"])
+        miyabi = profile.characters[3]
+        self.assertEqual(miyabi.element, "Frost")
+        # Live discs use MainPropertyList; S-rank +15 main stats are fixed in-game values.
+        self.assertEqual([g.main.value for g in miyabi.gear], ["2,200", "316", "184", "24.0%", "30.0%", "30.0%"])
+        self.assertEqual(miyabi.gear[0].subs[0].name, "CRIT DMG +3")
+        self.assertEqual(miyabi.gear[0].subs[0].value, "19.2%")
+        self.assertEqual(miyabi.set_bonuses, ["4pc Branch & Blade Song", "2pc Woodpecker Electro"])
+        self.assertEqual(miyabi.weapon.name, "Fusion Compiler")
+
+    def test_element_fallback(self):
+        self.assertEqual(zenless._element(["ZhenZhenAssault", "Physics"]), "Physical")
+        self.assertEqual(zenless._element(["Wind"]), "Wind")
+        self.assertEqual(zenless._element(["Lumen"]), "Lumen")
+
 
 class MatchingTest(unittest.TestCase):
     def test_find(self):

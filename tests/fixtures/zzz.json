@@ -2,17 +2,118 @@
   "uid": 1300003409,
   "ttl": 60,
   "PlayerInfo": {
-    "SocialDetail": {"Desc": "", "ProfileDetail": {"Uid": 1300003409, "Nickname": "Proxy", "Level": 60}},
+    "SocialDetail": {
+      "Desc": "",
+      "ProfileDetail": {
+        "Uid": 1300003409,
+        "Nickname": "Proxy",
+        "Level": 60
+      }
+    },
     "ShowcaseDetail": {
       "AvatarList": [
         {
-          "Id": 1011, "Level": 60, "PromotionLevel": 6, "TalentLevel": 0, "CoreSkillEnhancement": 6,
-          "SkillLevelList": [{"Level": 12, "Index": 0}, {"Level": 12, "Index": 1}, {"Level": 9, "Index": 2}, {"Level": 12, "Index": 3}, {"Level": 7, "Index": 5}, {"Level": 9, "Index": 6}],
-          "Weapon": {"Uid": 1, "Id": 14102, "Level": 60, "BreakLevel": 5, "UpgradeLevel": 1},
+          "Id": 1011,
+          "Level": 60,
+          "PromotionLevel": 6,
+          "TalentLevel": 0,
+          "CoreSkillEnhancement": 6,
+          "SkillLevelList": [
+            {
+              "Level": 12,
+              "Index": 0
+            },
+            {
+              "Level": 12,
+              "Index": 1
+            },
+            {
+              "Level": 9,
+              "Index": 2
+            },
+            {
+              "Level": 12,
+              "Index": 3
+            },
+            {
+              "Level": 7,
+              "Index": 5
+            },
+            {
+              "Level": 9,
+              "Index": 6
+            }
+          ],
+          "Weapon": {
+            "Uid": 1,
+            "Id": 14102,
+            "Level": 60,
+            "BreakLevel": 5,
+            "UpgradeLevel": 1
+          },
           "EquippedList": [
-            {"Slot": 1, "Equipment": {"Uid": 2, "Id": 31041, "Level": 14, "BreakLevel": 3,
-              "MainStatList": [{"PropertyId": 11103, "PropertyValue": 550, "PropertyLevel": 1}],
-              "RandomPropertyList": [{"PropertyId": 20103, "PropertyValue": 240, "PropertyLevel": 3}, {"PropertyId": 12102, "PropertyValue": 300, "PropertyLevel": 1}]}}
+            {
+              "Slot": 1,
+              "Equipment": {
+                "Uid": 2,
+                "Id": 31041,
+                "Level": 14,
+                "BreakLevel": 3,
+                "MainStatList": [
+                  {
+                    "PropertyId": 11103,
+                    "PropertyValue": 550,
+                    "PropertyLevel": 1
+                  }
+                ],
+                "RandomPropertyList": [
+                  {
+                    "PropertyId": 20103,
+                    "PropertyValue": 240,
+                    "PropertyLevel": 3
+                  },
+                  {
+                    "PropertyId": 12102,
+                    "PropertyValue": 300,
+                    "PropertyLevel": 1
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "Id": 1371,
+          "Level": 60,
+          "PromotionLevel": 6,
+          "TalentLevel": 3,
+          "CoreSkillEnhancement": 6,
+          "SkillLevelList": {
+            "0": 10,
+            "1": 10,
+            "2": 10,
+            "3": 10,
+            "5": 7,
+            "6": 10
+          },
+          "EquippedList": [
+            {
+              "Slot": 5,
+              "Equipment": {
+                "Uid": 3,
+                "Id": 31041,
+                "Level": 15,
+                "BreakLevel": 0,
+                "MainStatList": [
+                  {
+                    "PropertyId": 32303,
+                    "PropertyValue": 750,
+                    "PropertyLevel": 1
+                  }
+                ],
+                "RandomPropertyList": []
+              }
+            }
           ]
         }
       ]

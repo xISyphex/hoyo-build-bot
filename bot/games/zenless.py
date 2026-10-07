@@ -27,6 +27,7 @@ ELEMENTS = {
     "Ether": "Ether",
     "FireFrost": "Frost",
     "AuricEther": "Auric Ink",
+    "Wind": "Wind",
 }
 
 # stat group (property id // 100) -> (display name, kind)
@@ -47,8 +48,10 @@ GROUPS = {
     317: ("Ice DMG Bonus", "pct"),
     318: ("Electric DMG Bonus", "pct"),
     319: ("Ether DMG Bonus", "pct"),
+    323: ("Wind DMG Bonus", "pct"),
 }
-ALWAYS_SHOWN = [111, 121, 131, 122, 201, 211, 312, 314, 231, 232, 305]
+# Energy Regen is left out: Rupture agents have none, so it only shows when non-zero.
+ALWAYS_SHOWN = [111, 121, 131, 122, 201, 211, 312, 314, 231, 232]
 SHORT = {
     "HP": "HP", "ATK": "ATK", "DEF": "DEF", "Impact": "Impact", "CRIT Rate": "CRIT Rate",
     "CRIT DMG": "CRIT DMG", "Anomaly Proficiency": "AP", "Anomaly Mastery": "AM",
@@ -74,6 +77,14 @@ def _skill_levels(raw) -> dict[int, int]:
     if isinstance(raw, dict):
         return {int(k): int(v) for k, v in raw.items()}
     return {int(s.get("Index", 0)): int(s.get("Level", 1)) for s in raw or []}
+
+
+def _element(types: list[str]) -> str:
+    """First element we have a name for; e.g. Ye Shunguang is ["ZhenZhenAssault", "Physics"]."""
+    for t in types:
+        if t in ELEMENTS:
+            return ELEMENTS[t]
+    return types[0] if types else ""
 
 
 def parse_character(assets: Assets, info: dict) -> CharacterBuild:
@@ -142,7 +153,8 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
         suit = equipments.get("Suits", {}).get(suit_id, {})
         suit_counts[suit_id] += 1
         dlevel = int(disc.get("Level", 0))
-        mains = disc.get("MainStatList") or []
+        # Live responses use MainPropertyList; the docs call it MainStatList.
+        mains = disc.get("MainPropertyList") or disc.get("MainStatList") or []
         main_stat = Stat("?", "?")
         if mains:
             m = mains[0]
@@ -211,7 +223,7 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
         name=name,
         level=level,
         rarity=int(meta.get("Rarity", 0)),
-        element=ELEMENTS.get(elements[0], elements[0]) if elements else "",
+        element=_element(elements),
         constellation=mindscape,
         icon_url=f"https://enka.network{icon}" if icon else None,
         stats=stats,
