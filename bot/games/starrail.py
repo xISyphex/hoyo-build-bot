@@ -34,6 +34,8 @@ SLOTS = {
     "OBJECT": "Link Rope",
 }
 SLOT_ORDER = list(SLOTS.values())
+# The response's own relic "type" field, used when a relic is newer than the store data.
+TYPE_SLOTS = dict(enumerate(SLOT_ORDER, start=1))
 
 FLAT = {"HPDelta", "AttackDelta", "DefenceDelta", "SpeedDelta", "BaseSpeed"}
 PROP_SHORT = {
@@ -149,23 +151,34 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
         tid = str(relic["tid"])
         rmeta = assets.data["hsr_relics"].get(tid, {})
         rlevel = int(relic.get("level", 0))
-        main_def = meta["relic"]["mainAffix"].get(str(rmeta.get("MainAffixGroup")), {}).get(str(relic.get("mainAffixId")), {})
-        main_prop = main_def.get("Property", "")
-        main_val = main_def.get("BaseValue", 0) + main_def.get("LevelAdd", 0) * rlevel
+        flat = relic.get("_flat") or {}
+        # Enka sends the rolled values in _flat.props (main stat first, then
+        # substats). The meta tables are only a fallback for older responses.
+        props = [(p.get("type", ""), float(p.get("value", 0))) for p in flat.get("props") or []]
+        if props:
+            main_prop, main_val = props[0]
+            sub_props = props[1:]
+        else:
+            main_def = meta["relic"]["mainAffix"].get(str(rmeta.get("MainAffixGroup")), {}).get(str(relic.get("mainAffixId")), {})
+            main_prop = main_def.get("Property", "")
+            main_val = main_def.get("BaseValue", 0) + main_def.get("LevelAdd", 0) * rlevel
+            sub_props = []
+            for sub in relic.get("subAffixList", []):
+                sdef = meta["relic"]["subAffix"].get(str(rmeta.get("SubAffixGroup")), {}).get(str(sub.get("affixId")), {})
+                val = sdef.get("BaseValue", 0) * sub.get("cnt", 1) + sdef.get("StepValue", 0) * (sub.get("step") or 0)
+                sub_props.append((sdef.get("Property", ""), val))
         bonus[main_prop] += main_val
         subs = []
-        for sub in relic.get("subAffixList", []):
-            sdef = meta["relic"]["subAffix"].get(str(rmeta.get("SubAffixGroup")), {}).get(str(sub.get("affixId")), {})
-            val = sdef.get("BaseValue", 0) * sub.get("cnt", 1) + sdef.get("StepValue", 0) * sub.get("step", 0)
-            bonus[sdef.get("Property", "")] += val
-            subs.append(_fmt_prop(sdef.get("Property", ""), val))
-        set_id = int(rmeta.get("SetID", 0))
+        for prop, val in sub_props:
+            bonus[prop] += val
+            subs.append(_fmt_prop(prop, val))
+        set_id = int(flat.get("setID") or rmeta.get("SetID", 0))
         set_counts[set_id] += 1
-        flat = relic.get("_flat") or {}
         set_names.setdefault(set_id, assets.hsr_text(flat.get("setName")) or f"Set {set_id}")
+        slot = SLOTS.get(rmeta.get("Type")) or TYPE_SLOTS.get(relic.get("type"), "?")
         gear.append(
             Gear(
-                slot=SLOTS.get(rmeta.get("Type"), "?"),
+                slot=slot,
                 set_name=set_names[set_id],
                 level=rlevel,
                 rarity=int(rmeta.get("Rarity", 0)),
@@ -230,7 +243,15 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
 
 def parse_profile(assets: Assets, uid: str, data: dict) -> PlayerProfile:
     detail = data.get("detailInfo", {})
-    characters = [parse_character(assets, c) for c in detail.get("avatarDetailList", [])]
+    # Support characters are listed too (flagged _assist) and can repeat a
+    # showcased one, so keep the first entry per character.
+    seen = set()
+    characters = []
+    for info in detail.get("avatarDetailList", []):
+        if info.get("avatarId") in seen:
+            continue
+        seen.add(info.get("avatarId"))
+        characters.append(parse_character(assets, info))
     return PlayerProfile(
         game="hsr",
         uid=uid,

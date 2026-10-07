@@ -1,0 +1,32 @@
+{
+  "detailInfo": {
+    "uid": 800069903,
+    "nickname": "Player",
+    "level": 70,
+    "worldLevel": 6,
+    "headIcon": 201102,
+    "recordInfo": {"achievementCount": 300, "avatarCount": 40, "equipmentCount": 80},
+    "avatarDetailList": [
+      {
+        "avatarId": 1102, "level": 80, "promotion": 6, "rank": 1, "_assist": true,
+        "skillTreeList": [{"pointId": 1102001, "level": 6}, {"pointId": 1102002, "level": 10}],
+        "equipment": {"tid": 23001, "level": 80, "promotion": 6, "rank": 1,
+                      "_flat": {"name": 1823127663, "props": [{"type": "BaseHP", "value": 1058.4}, {"type": "BaseAttack", "value": 582.12}, {"type": "BaseDefence", "value": 463.05}]}},
+        "relicList": [
+          {"tid": 61041, "type": 1, "level": 15, "mainAffixId": 1,
+           "subAffixList": [{"affixId": 8, "cnt": 1}, {"affixId": 7, "cnt": 3, "step": 2}],
+           "_flat": {"setName": 12928675565868716780, "setID": 104,
+                     "props": [{"type": "HPDelta", "value": 705.6}, {"type": "CriticalChanceBase", "value": 0.0324}, {"type": "SpeedDelta", "value": 6.6}]}},
+          {"tid": 69994, "type": 4, "level": 15, "mainAffixId": 4,
+           "subAffixList": [],
+           "_flat": {"setName": 12928675565868716780, "setID": 104,
+                     "props": [{"type": "SpeedDelta", "value": 25.032}]}}
+        ]
+      },
+      {"avatarId": 1001, "level": 80, "promotion": 6, "skillTreeList": [{"pointId": 1001001, "level": 6}], "relicList": []},
+      {"avatarId": 1102, "level": 80, "promotion": 6, "rank": 1, "skillTreeList": [], "relicList": []}
+    ]
+  },
+  "ttl": 60,
+  "uid": "800069903"
+}

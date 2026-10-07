@@ -118,6 +118,30 @@ class StarRailTest(unittest.TestCase):
         self.assertEqual(seele.set_bonuses, [])
 
 
+class StarRailFlatPropsTest(unittest.TestCase):
+    """Enka's documented response shape: rolled relic values in _flat.props, support characters flagged _assist."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.assets = load_assets()
+        cls.profile = starrail.parse_profile(cls.assets, "800069903", fixture("hsr_flat.json"))
+
+    def test_support_duplicate_is_dropped(self):
+        self.assertEqual([c.name for c in self.profile.characters], ["Seele", "March 7th"])
+
+    def test_relic_values_come_from_flat_props(self):
+        seele = self.profile.characters[0]
+        head, feet = seele.gear
+        self.assertEqual((head.slot, head.main.value), ("Head", "705"))
+        self.assertEqual([(s.name, s.value) for s in head.subs], [("CRIT Rate", "3.2%"), ("SPD", "6.6")])
+        # Relic id unknown to the store data: slot and set still come from the response.
+        self.assertEqual((feet.slot, feet.set_name, feet.main.value), ("Feet", "Hunter of Glacial Forest", "25.0"))
+        self.assertEqual(seele.set_bonuses, ["2pc Hunter of Glacial Forest"])
+        s = stats(seele)
+        self.assertEqual(s["SPD"], "146.6")  # 115 base + 6.6 + 25.032
+        self.assertEqual(s["CRIT Rate"], "26.2%")  # 5% base + 18% In the Night + 3.24%
+
+
 class ZenlessTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
