@@ -279,8 +279,8 @@ class ZenlessTest(unittest.TestCase):
     def test_wengine_effect_for_phase(self):
         # Shape of Hakushin's per-phase W-Engine talents, as cached by Assets.
         effects = {"14118": {
-            "1": {"Name": "Frostbite", "Desc": "Increases ATK by <color=#2BAD00>12%</color>.\\nStacks up to 3 times."},
-            "5": {"Name": "Frostbite", "Desc": "Increases ATK by <color=#2BAD00>24%</color>.\\nStacks up to 3 times."},
+            "1": {"name": "Frostbite", "desc": "Increases ATK by <color=#2BAD00>12%</color>.\\nStacks up to 3 times."},
+            "5": {"name": "Frostbite", "desc": "Increases ATK by <color=#2BAD00>24%</color>.\\nStacks up to 3 times."},
         }}
         self.assets.data["zzz_weapon_effects"] = effects
         try:
@@ -301,6 +301,63 @@ class ZenlessTest(unittest.TestCase):
         self.assertEqual(zenless._element(["ZhenZhenAssault", "Physics"]), "Physical")
         self.assertEqual(zenless._element(["Wind"]), "Wind")
         self.assertEqual(zenless._element(["Lumen"]), "Lumen")
+
+
+class _FakeResponse:
+    def __init__(self, body):
+        self.body = body
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    def raise_for_status(self):
+        if self.body is None:
+            raise RuntimeError("HTTP 404")
+
+    async def json(self, content_type=None):
+        return self.body
+
+
+class _FakeSession:
+    def __init__(self, routes):
+        self.routes, self.requested = routes, []
+
+    def get(self, url):
+        self.requested.append(url)
+        return _FakeResponse(self.routes.get(url))
+
+
+class ZenlessEffectsRefreshTest(unittest.TestCase):
+    def test_caches_new_wengines_only(self):
+        import asyncio
+        import tempfile
+
+        from bot.assets import HAKUSHIN
+
+        with tempfile.TemporaryDirectory() as tmp:
+            assets = Assets(tmp)
+            (Path(tmp) / "zzz").mkdir()
+            (Path(tmp) / "zzz" / "weapon_effects.json").write_text('{"14102": {"1": {"name": "Old", "desc": "x"}}}')
+            session = _FakeSession({
+                HAKUSHIN + "manifest.json": {"zzz": {"live": "2.3", "latest": "2.4"}},
+                HAKUSHIN + "zzz/2.3/weapon.json": {"14102": {}, "14118": {}, "13101": {}},
+                HAKUSHIN + "zzz/2.3/en/weapon/14118.json": {"talents": {"1": {"name": "Frostbite", "desc": "ATK +12%"}}},
+            })
+            asyncio.run(assets._refresh_zzz_effects(session))
+            assets.load()
+            effects = assets.data["zzz_weapon_effects"]
+            self.assertEqual(effects["14102"]["1"]["name"], "Old")  # cached, not refetched
+            self.assertEqual(effects["14118"]["1"]["desc"], "ATK +12%")
+            self.assertNotIn("13101", effects)  # failed download is skipped, retried next refresh
+            self.assertNotIn(HAKUSHIN + "zzz/2.3/en/weapon/14102.json", session.requested)
+
+            # Hakushin unreachable: keep the cache, no exception.
+            asyncio.run(assets._refresh_zzz_effects(_FakeSession({})))
+            assets.load()
+            self.assertIn("14118", assets.data["zzz_weapon_effects"])
 
 
 class MatchingTest(unittest.TestCase):

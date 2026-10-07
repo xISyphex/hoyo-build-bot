@@ -81,13 +81,14 @@ def _skill_levels(raw) -> dict[int, int]:
 
 
 def _effect(assets: Assets, weapon_id, phase: int) -> tuple[str | None, str | None]:
-    """W-Engine passive (name, plain text) for its phase, from Hakushin's per-phase text."""
+    """W-Engine passive (name, plain text) for its phase, from Hakushin's per-phase talents."""
     talents = assets.data.get("zzz_weapon_effects", {}).get(str(weapon_id)) or {}
     talent = talents.get(str(phase)) or talents.get(str(max(1, min(phase, 5))))
-    if not talent or not talent.get("Desc"):
+    if not talent or not talent.get("desc"):
         return None, None
-    text = re.sub(r"</?[a-zA-Z][^>]*>", "", talent["Desc"]).replace("\\n", "\n").strip()
-    return talent.get("Name") or None, text
+    text = re.sub(r"<.*?>|\{SPRITE_PRESET#[^}]+\}", "", talent["desc"])
+    text = text.replace("\\n", "\n").replace("\r\n", "\n").strip()
+    return talent.get("name") or None, text
 
 
 def _element(types: list[str]) -> str:

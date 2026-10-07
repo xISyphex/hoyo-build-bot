@@ -37,9 +37,10 @@ FILES = {
 
 MAX_AGE = 12 * 3600
 
-# W-Engine passives are not in Enka's store; Hakushin publishes them per W-Engine,
-# already filled in for each phase. Only W-Engines not yet cached are downloaded.
-HAKUSHIN_ZZZ = "https://api.hakush.in/zzz/data/"
+# W-Engine passives are not in Enka's store; Hakushin (now served from
+# static.nanoka.cc) publishes them per W-Engine, already filled in for each phase.
+# Only W-Engines not yet cached are downloaded.
+HAKUSHIN = "https://static.nanoka.cc/"
 ZZZ_EFFECTS = "zzz/weapon_effects.json"
 
 
@@ -80,7 +81,10 @@ class Assets:
         path = self.cache_dir / ZZZ_EFFECTS
         effects = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
         try:
-            async with session.get(HAKUSHIN_ZZZ + "weapon.json") as resp:
+            async with session.get(HAKUSHIN + "manifest.json") as resp:
+                resp.raise_for_status()
+                version = (await resp.json(content_type=None))["zzz"]["live"]
+            async with session.get(f"{HAKUSHIN}zzz/{version}/weapon.json") as resp:
                 resp.raise_for_status()
                 index = await resp.json(content_type=None)
         except Exception:
@@ -90,16 +94,16 @@ class Assets:
             if weapon_id in effects:
                 continue
             try:
-                async with session.get(f"{HAKUSHIN_ZZZ}{self.lang}/weapon/{weapon_id}.json") as resp:
+                url = f"{HAKUSHIN}zzz/{version}/{self.lang}/weapon/{weapon_id}.json"
+                async with session.get(url) as resp:
                     resp.raise_for_status()
                     data = await resp.json(content_type=None)
             except Exception:
-                log.warning("Could not fetch W-Engine %s effect from Hakushin", weapon_id)
+                log.warning("Could not fetch the effect of W-Engine %s from Hakushin", weapon_id)
                 continue
-            talents = data.get("Talents") or {}
             effects[weapon_id] = {
-                str(phase): {"Name": t.get("Name", ""), "Desc": t.get("Desc", "")}
-                for phase, t in talents.items()
+                str(phase): {"name": t.get("name", ""), "desc": t.get("desc", "")}
+                for phase, t in (data.get("talents") or {}).items()
             }
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(effects, ensure_ascii=False), encoding="utf-8")
