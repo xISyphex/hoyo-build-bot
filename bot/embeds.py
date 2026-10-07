@@ -112,10 +112,15 @@ def _sub(stat: Stat) -> str:
     return f"{rolls}{stat.name} **{stat.value}**"
 
 
-def _gear_field(piece: Gear, max_level: int) -> tuple[str, str]:
+def _gear_field(piece: Gear, max_level: int, emoji: str | None = None, keep_slot: bool = False) -> tuple[str, str]:
+    """The piece's picture stands in for its slot name; keep_slot keeps both (drive discs all look alike)."""
     level = "" if piece.level >= max_level else f" +{piece.level}"
+    if emoji:
+        title = f"{emoji} {piece.slot}" if keep_slot else emoji
+    else:
+        title = piece.slot
     lines = [f"**{piece.main.name} {piece.main.value}**"] + [_sub(s) for s in piece.subs]
-    return f"{piece.slot}{level}", "\n".join(lines)[:FIELD_LIMIT]
+    return f"{title}{level}", "\n".join(lines)[:FIELD_LIMIT]
 
 
 def build_embed(
@@ -123,10 +128,12 @@ def build_embed(
     build: CharacterBuild,
     show_effect: bool = False,
     set_emojis: dict[str, str] | None = None,
+    piece_emojis: dict[str, str] | None = None,
 ) -> discord.Embed:
     """The build card. The weapon effect only shows when show_effect is set (the "Show ... effect" button).
 
     set_emojis maps a set name to a Discord emoji of its image, shown in front of the set bonus.
+    piece_emojis maps a piece's image URL to its emoji, shown next to the piece's slot name.
     """
     labels = GAME_LABELS[build.game]
     embed = discord.Embed(
@@ -157,7 +164,9 @@ def build_embed(
 
     # One column per piece; Discord puts three side by side (stacked on phones).
     for piece in build.gear:
-        name, value = _gear_field(piece, labels["max_level"])
+        name, value = _gear_field(
+            piece, labels["max_level"], (piece_emojis or {}).get(piece.piece_icon or ""), keep_slot=build.game == "zzz"
+        )
         embed.add_field(name=name, value=value, inline=True)
 
     emojis = set_emojis or {}

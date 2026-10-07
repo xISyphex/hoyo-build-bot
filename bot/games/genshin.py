@@ -202,6 +202,7 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
                     main=_prop(main.get("mainPropId", ""), main.get("statValue", 0)),
                     subs=subs,
                     icon=_set_icon(assets, flat),
+                    piece_icon=f"https://enka.network/ui/{flat['icon']}.png" if flat.get("icon") else None,
                 )
             )
     gear.sort(key=lambda g: SLOT_ORDER.index(g.slot) if g.slot in SLOT_ORDER else 99)

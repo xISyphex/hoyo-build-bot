@@ -90,6 +90,22 @@ class SetEmojiTest(unittest.TestCase):
         self.assertEqual(lines[0], "• 4pc Shockstar Disco")
         self.assertTrue(lines[1].startswith("<:zzz_") and lines[1].endswith(" 2pc Woodpecker Electro"))
 
+    def test_piece_pictures_replace_slot_names(self):
+        from bot.games import starrail
+
+        hsr = starrail.parse_profile(self.assets, "800069903", fixture("hsr_live.json"))
+        castorice = hsr.characters[0]
+        pieces = asyncio.run(SetEmojis(_Client(), _Session()).for_pieces(castorice))
+        self.assertEqual(len(pieces), 6)  # one picture per relic
+        names = [f.name for f in build_embed(hsr, castorice, piece_emojis=pieces).fields if f.inline][2:]
+        self.assertTrue(all(n.startswith("<:hsr_") and n.endswith(">") for n in names), names)
+        # Drive discs all show their set's picture, so the disc number stays.
+        discs = asyncio.run(SetEmojis(_Client(), _Session()).for_pieces(self.anby))
+        names = [f.name for f in build_embed(self.profile, self.anby, piece_emojis=discs).fields if f.inline][2:]
+        self.assertTrue(names[0].startswith("<:zzz_") and " Disc 1" in names[0], names)
+        # Without pictures the slot names stay.
+        self.assertEqual([f.name for f in build_embed(hsr, castorice).fields if f.inline][2], "Head")
+
 
 if __name__ == "__main__":
     unittest.main()

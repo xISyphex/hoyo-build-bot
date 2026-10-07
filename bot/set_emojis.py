@@ -57,6 +57,16 @@ class SetEmojis:
                 result[set_name] = emoji
         return result
 
+    async def for_pieces(self, build: CharacterBuild) -> dict[str, str]:
+        """Image URL -> emoji for each equipped piece's own picture."""
+        result = {}
+        for piece in build.gear:
+            if piece.piece_icon and piece.piece_icon not in result:
+                emoji = await self._get(build.game, piece.piece_icon)
+                if emoji:
+                    result[piece.piece_icon] = emoji
+        return result
+
     async def _get(self, game: str, url: str) -> str | None:
         name = emoji_name(game, url)
         if name in self.emojis or name in self.failed:

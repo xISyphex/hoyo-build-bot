@@ -83,8 +83,9 @@ async def render(
 ) -> dict:
     """Embed and buttons for one character, ready to send or edit in."""
     emojis = await bot.set_emojis.for_build(build)
+    pieces = await bot.set_emojis.for_pieces(build)
     return {
-        "embed": build_embed(profile, build, show_effect=show_effect, set_emojis=emojis),
+        "embed": build_embed(profile, build, show_effect=show_effect, set_emojis=emojis, piece_emojis=pieces),
         "view": CharacterView(profile, build, show_effect),
     }
 
