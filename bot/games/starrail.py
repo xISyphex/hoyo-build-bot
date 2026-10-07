@@ -61,6 +61,7 @@ PROP_SHORT = {
     "WindAddedRatio": "Wind DMG",
     "QuantumAddedRatio": "Quantum DMG",
     "ImaginaryAddedRatio": "Imaginary DMG",
+    "ElationDamageAddedRatioBase": "Elation DMG",
 }
 TALENT_LABELS = ["Basic ATK", "Skill", "Ultimate", "Talent"]
 
@@ -122,7 +123,7 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
     level = int(info.get("level", 1))
     promotion = str(info.get("promotion", 0))
     rank = int(info.get("rank", 0))
-    name = assets.hsr_text(char.get("AvatarName", {}).get("Hash")) or f"Character {avatar_id}"
+    name = char.get("Name") or assets.hsr_text(char.get("AvatarName", {}).get("Hash")) or f"Character {avatar_id}"
     if "{" in name:  # main character name is a {NICKNAME} placeholder
         name = "Trailblazer"
     element = char.get("Element", "")
@@ -161,7 +162,8 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
         if path_match:
             _add(bonus, meta["equipmentSkill"].get(tid, {}).get(str(lc_rank), {}).get("props"))
         weapon = Weapon(
-            name=assets.hsr_text(wep.get("EquipmentName", {}).get("Hash"))
+            name=wep.get("Name")
+            or assets.hsr_text(wep.get("EquipmentName", {}).get("Hash"))
             or assets.hsr_text((eq.get("_flat") or {}).get("name"))
             or f"Light Cone {tid}",
             level=lc_level,
@@ -228,7 +230,9 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
                 subs[-1].rolls = counts[i]
         set_id = int(flat.get("setID") or rmeta.get("SetID", 0))
         set_counts[set_id] += 1
-        set_names.setdefault(set_id, assets.hsr_text(flat.get("setName")) or f"Set {set_id}")
+        set_names.setdefault(
+            set_id, assets.hsr_text(flat.get("setName")) or assets.hsr_set_name(set_id) or f"Set {set_id}"
+        )
         slot = SLOTS.get(rmeta.get("Type")) or TYPE_SLOTS.get(relic.get("type"), "?")
         gear.append(
             Gear(
@@ -277,11 +281,13 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
         stats.append(Stat("Outgoing Healing", fmt_pct(bonus["HealRatioBase"])))
     if elem_dmg:
         stats.append(Stat(f"{ELEMENTS.get(element, element)} DMG Boost", fmt_pct(elem_dmg)))
+    if bonus["ElationDamageAddedRatioBase"]:  # Elation path (3.x) traces
+        stats.append(Stat("Elation DMG Boost", fmt_pct(bonus["ElationDamageAddedRatioBase"])))
 
     icon_path = char.get("AvatarSideIconPath")
     notes = ["Stats exclude conditional buffs, like the in-game character screen."]
     if not char or not base:
-        notes.insert(0, "This character is newer than Enka's game data, so base stats are missing and totals are too low.")
+        notes.insert(0, "This character is newer than the game data, so base stats are missing and totals are too low.")
     return CharacterBuild(
         game="hsr",
         character_id=avatar_id,
