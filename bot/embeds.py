@@ -31,7 +31,13 @@ ELEMENT_COLORS = {
     "Physical": 0xB8B8B8, "Quantum": 0x6F6BD8, "Imaginary": 0xF3D84C,
     "Ether": 0xE84B9C, "Auric Ink": 0xD4AF37,
 }
-DISPLAY_NAMES = {"Energy Regen Rate": "Energy Regen"}
+# Long stat names wrap in the narrow columns, so they get their common short forms.
+SHORT_NAMES = {
+    "Energy Regen Rate": "ER", "Energy Regen": "ER", "Energy Recharge": "ER",
+    "Break Effect": "BE", "Effect Hit Rate": "EHR", "Elemental Mastery": "EM",
+    "Anomaly Proficiency": "AP", "Anomaly Mastery": "AM",
+    "Outgoing Healing": "Healing", "Healing Bonus": "Healing",
+}
 ZZZ_RARITY = {4: "S", 3: "A", 2: "B"}
 EFFECT_LIMIT = 900  # characters of weapon effect text per embed
 FIELD_LIMIT = 1024
@@ -60,8 +66,14 @@ def _is_zero(value: str) -> bool:
     return bool(number) and float(number) == 0
 
 
+def _name(stat: Stat) -> str:
+    """Short stat name: "Quantum DMG Boost" -> "Quantum DMG", "Energy Regen Rate" -> "ER"."""
+    name = SHORT_NAMES.get(stat.name, stat.name)
+    return re.sub(r" DMG (Boost|Bonus)$", " DMG", name)
+
+
 def _stat_line(stat: Stat) -> str:
-    return f"{DOT} {DISPLAY_NAMES.get(stat.name, stat.name)} **{stat.value}**"
+    return f"{DOT} {_name(stat)} **{stat.value}**"
 
 
 def _stat_fields(build: CharacterBuild) -> list[tuple[str, str]]:
@@ -101,7 +113,7 @@ def _weapon_value(lines: list[str], weapon: Weapon, effect_limit: int) -> str:
 def _sub(stat: Stat) -> str:
     """A substat, led by how many times it rolled (counting its first roll)."""
     rolls = f"`{stat.rolls}×` " if stat.rolls else ""
-    return f"{rolls}{stat.name} **{stat.value}**"
+    return f"{rolls}{_name(stat)} **{stat.value}**"
 
 
 def _gear_field(piece: Gear, max_level: int, emoji: str | None = None, keep_slot: bool = False) -> tuple[str, str]:
@@ -111,7 +123,7 @@ def _gear_field(piece: Gear, max_level: int, emoji: str | None = None, keep_slot
         title = f"{emoji} {piece.slot}" if keep_slot else emoji
     else:
         title = piece.slot
-    lines = [f"**{piece.main.name} {piece.main.value}**"] + [_sub(s) for s in piece.subs]
+    lines = [f"**{_name(piece.main)} {piece.main.value}**"] + [_sub(s) for s in piece.subs]
     return f"{title}{level}", "\n".join(lines)[:FIELD_LIMIT]
 
 
@@ -182,7 +194,7 @@ def build_embed(
         w = build.weapon
         lines = [f"**{w.name}** · {labels['refine']}{w.refinement} · Lv. {w.level}"]
         if w.stats:
-            lines.append(" · ".join(f"{s.name} **{s.value}**" for s in w.stats))
+            lines.append(" · ".join(f"{_name(s)} **{s.value}**" for s in w.stats))
         weapon_field = len(embed.fields)
         limit = EFFECT_LIMIT if show_effect else 0
         embed.add_field(name=labels["weapon"], value=_weapon_value(lines, w, limit), inline=False)
