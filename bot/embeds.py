@@ -110,27 +110,15 @@ def _weapon_value(lines: list[str], weapon: Weapon, effect_limit: int) -> str:
 
 
 def _sub(stat: Stat) -> str:
-    """A substat, with how often it was upgraded after its first roll."""
-    upgrades = f" `+{stat.rolls - 1}`" if stat.rolls > 1 else ""
-    return f"__{stat.name} {stat.value}__{upgrades}"
+    """A substat, led by how many times it rolled (counting its first roll)."""
+    rolls = f"`{stat.rolls}×` " if stat.rolls else ""
+    return f"{rolls}{stat.name} **{stat.value}**"
 
 
-def _gear_line(piece: Gear, max_level: int) -> str:
+def _gear_field(piece: Gear, max_level: int) -> tuple[str, str]:
     level = "" if piece.level >= max_level else f" +{piece.level}"
-    subs = " · ".join(_sub(s) for s in piece.subs)
-    head = f"**{piece.slot}**{level} · **{piece.main.name} {piece.main.value}**"
-    return f"{head}\n{subs}" if subs else head
-
-
-def _chunk(blocks: list[str], limit: int = FIELD_LIMIT) -> list[str]:
-    """Join blocks with blank lines, starting a new field when one would overflow."""
-    chunks: list[str] = []
-    for block in blocks:
-        if chunks and len(chunks[-1]) + 2 + len(block) <= limit:
-            chunks[-1] += "\n\n" + block
-        else:
-            chunks.append(block[:limit])
-    return chunks
+    lines = [f"**{piece.main.name} {piece.main.value}**"] + [_sub(s) for s in piece.subs]
+    return f"{piece.slot}{level}", "\n".join(lines)[:FIELD_LIMIT]
 
 
 def build_embed(profile: PlayerProfile, build: CharacterBuild) -> discord.Embed:
@@ -168,14 +156,12 @@ def build_embed(profile: PlayerProfile, build: CharacterBuild) -> discord.Embed:
             inline=False,
         )
 
-    blocks = []
-    if build.set_bonuses:
-        blocks.append("\n".join(f"🔸 {s}" for s in build.set_bonuses))
-    blocks += [_gear_line(piece, labels["max_level"]) for piece in build.gear]
-    if not build.gear:
-        blocks.append("Nothing equipped.")
-    for i, value in enumerate(_chunk(blocks)):
-        embed.add_field(name=labels["gear"] if i == 0 else BLANK, value=value, inline=False)
+    sets = "\n".join(f"🔸 {s}" for s in build.set_bonuses) or "No set bonus."
+    embed.add_field(name=labels["gear"], value=sets if build.gear else "Nothing equipped.", inline=False)
+    # One column per piece; Discord puts three side by side (stacked on phones).
+    for piece in build.gear:
+        name, value = _gear_field(piece, labels["max_level"])
+        embed.add_field(name=name, value=value, inline=True)
 
     footer = "Data from Enka.Network"
     if build.notes:
