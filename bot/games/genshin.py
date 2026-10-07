@@ -96,6 +96,22 @@ def _avatar_key(assets: Assets, info: dict) -> str:
     return avatar_id
 
 
+def _weapon_name(assets: Assets, item: dict) -> str:
+    # The hashes inside the API response are sometimes missing from the store's
+    # text map, so prefer the store's own entry for the item.
+    store = assets.data.get("gi_weapons", {}).get(str(item.get("itemId")), {})
+    return (
+        assets.gi_text(store.get("NameTextMapHash"))
+        or assets.gi_text(item.get("flat", {}).get("nameTextMapHash"))
+        or "Unknown weapon"
+    )
+
+
+def _set_name(assets: Assets, flat: dict) -> str | None:
+    store = assets.data.get("gi_relics", {}).get("Sets", {}).get(str(flat.get("setId")), {})
+    return assets.gi_text(store.get("Name")) or assets.gi_text(flat.get("setNameTextMapHash"))
+
+
 def parse_character(assets: Assets, info: dict) -> CharacterBuild:
     key = _avatar_key(assets, info)
     meta = assets.data["gi_avatars"].get(key, {})
@@ -141,20 +157,21 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
             w = item.get("weapon", {})
             refinement = next(iter(w.get("affixMap", {}).values()), 0) + 1
             weapon = Weapon(
-                name=assets.gi_text(flat.get("nameTextMapHash")) or "Unknown weapon",
+                name=_weapon_name(assets, item),
                 level=int(w.get("level", 1)),
                 refinement=refinement,
                 rarity=int(flat.get("rankLevel", 0)),
                 stats=[_prop(s["appendPropId"], s["statValue"]) for s in flat.get("weaponStats", [])],
             )
         elif flat.get("itemType") == "ITEM_RELIQUARY":
-            set_name = assets.gi_text(flat.get("setNameTextMapHash")) or "Unknown set"
-            set_counts[set_name] = set_counts.get(set_name, 0) + 1
+            set_name = _set_name(assets, flat)
+            if set_name:
+                set_counts[set_name] = set_counts.get(set_name, 0) + 1
             main = flat.get("reliquaryMainstat", {})
             gear.append(
                 Gear(
                     slot=SLOTS.get(flat.get("equipType"), "?"),
-                    set_name=set_name,
+                    set_name=set_name or "Unknown set",
                     level=max(int(item.get("reliquary", {}).get("level", 1)) - 1, 0),
                     rarity=int(flat.get("rankLevel", 0)),
                     main=_prop(main.get("mainPropId", ""), main.get("statValue", 0)),

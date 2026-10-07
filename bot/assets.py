@@ -19,6 +19,8 @@ STORE_URL = "https://raw.githubusercontent.com/EnkaNetwork/API-docs/master/store
 FILES = {
     "gi_avatars": "gi/avatars.json",
     "gi_locs": "gi/locs.json",
+    "gi_weapons": "gi/weapons.json",
+    "gi_relics": "gi/relics.json",
     "gi_loc_legacy": "loc.json",
     "hsr_characters": "hsr/honker_characters.json",
     "hsr_weapons": "hsr/honker_weps.json",
