@@ -44,6 +44,12 @@ URLS = {
 
 MAX_AGE = 12 * 3600
 
+# W-Engine passives are not in Enka's store; Hakushin (now served from
+# static.nanoka.cc) publishes them per W-Engine, already filled in for each phase.
+# Only W-Engines not yet cached are downloaded.
+HAKUSHIN = "https://static.nanoka.cc/"
+ZZZ_EFFECTS = "zzz/weapon_effects.json"
+
 
 class Assets:
     def __init__(self, cache_dir: str | Path, lang: str = "en"):
@@ -75,7 +81,39 @@ class Assets:
                 path.write_bytes(body)
             except Exception:
                 log.exception("Could not refresh %s, keeping cached copy", rel)
+        await self._refresh_zzz_effects(session)
         self.load()
+
+    async def _refresh_zzz_effects(self, session) -> None:
+        path = self.cache_dir / ZZZ_EFFECTS
+        effects = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        try:
+            async with session.get(HAKUSHIN + "manifest.json") as resp:
+                resp.raise_for_status()
+                version = (await resp.json(content_type=None))["zzz"]["live"]
+            async with session.get(f"{HAKUSHIN}zzz/{version}/weapon.json") as resp:
+                resp.raise_for_status()
+                index = await resp.json(content_type=None)
+        except Exception:
+            log.exception("Could not list W-Engines on Hakushin, keeping cached effects")
+            return
+        for weapon_id in index:
+            if weapon_id in effects:
+                continue
+            try:
+                url = f"{HAKUSHIN}zzz/{version}/{self.lang}/weapon/{weapon_id}.json"
+                async with session.get(url) as resp:
+                    resp.raise_for_status()
+                    data = await resp.json(content_type=None)
+            except Exception:
+                log.warning("Could not fetch the effect of W-Engine %s from Hakushin", weapon_id)
+                continue
+            effects[weapon_id] = {
+                str(phase): {"name": t.get("name", ""), "desc": t.get("desc", "")}
+                for phase, t in (data.get("talents") or {}).items()
+            }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(effects, ensure_ascii=False), encoding="utf-8")
 
     def load(self) -> None:
         for key in FILES:
@@ -84,6 +122,10 @@ class Assets:
                 self.data[key] = json.loads(path.read_text(encoding="utf-8"))
             else:
                 self.data[key] = {}
+        effects = self.cache_dir / ZZZ_EFFECTS
+        self.data["zzz_weapon_effects"] = (
+            json.loads(effects.read_text(encoding="utf-8")) if effects.exists() else {}
+        )
         self._build_indexes()
 
     def _build_indexes(self) -> None:
