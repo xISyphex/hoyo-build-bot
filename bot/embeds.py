@@ -64,9 +64,18 @@ def _stat_line(stat: Stat) -> str:
     return f"{DOT} {DISPLAY_NAMES.get(stat.name, stat.name)} **{stat.value}**"
 
 
-def _stats_value(build: CharacterBuild) -> str:
-    """One column, so phones (which stack side-by-side fields) show no gaps. Stats at 0 are left out."""
-    return "\n".join(_stat_line(s) for s in build.stats if not _is_zero(s.value))[:FIELD_LIMIT] or "No stats."
+# The core stats; everything else goes in the second column. Both columns get a real
+# heading because phones stack side-by-side fields, and an empty heading shows as a blank row.
+BASE_STATS = ("HP", "ATK", "DEF", "SPD", "Elemental Mastery", "Impact")
+
+
+def _stat_fields(build: CharacterBuild) -> list[tuple[str, str]]:
+    """Base and advanced stats side by side (stacked on phones). Stats at 0 are left out."""
+    shown = [s for s in build.stats if not _is_zero(s.value)]
+    base = [_stat_line(s) for s in shown if s.name in BASE_STATS]
+    advanced = [_stat_line(s) for s in shown if s.name not in BASE_STATS]
+    columns = [("Base Stats", base), ("Advanced Stats", advanced)]
+    return [(name, "\n".join(lines)[:FIELD_LIMIT]) for name, lines in columns if lines] or [("Stats", "No stats.")]
 
 
 def set_icons(build: CharacterBuild) -> dict[str, str]:
@@ -135,7 +144,8 @@ def build_embed(
     if build.icon_url:
         embed.set_thumbnail(url=build.icon_url)
 
-    embed.add_field(name="Stats", value=_stats_value(build), inline=False)
+    for name, value in _stat_fields(build):
+        embed.add_field(name=name, value=value, inline=True)
 
     weapon_field = None
     if build.weapon:
