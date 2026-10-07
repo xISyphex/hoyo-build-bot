@@ -453,13 +453,14 @@ class EmbedTest(unittest.TestCase):
         self.assertEqual(ayaka["title"], "Kamisato Ayaka")
         self.assertEqual(ayaka["description"], "★★★★★ · Cryo · Lv. 90 · C2")
         names = [f["name"] for f in ayaka["fields"]]
-        # Two stat columns, both with a real heading (an empty one shows as a blank row on phones),
+        # Two equal stat columns, both titled (an empty title shows as a blank row on phones),
         # no talents, and the set bonuses come last, under the artifact pieces.
-        self.assertEqual(names[:3], ["Base Stats", "Advanced Stats", "Weapon"])
+        self.assertEqual(names[:3], ["Stats", "Stats", "Weapon"])
+        left, right = (ayaka["fields"][i]["value"].count("\n") + 1 for i in (0, 1))
+        self.assertIn(left - right, (0, 1))
         self.assertNotIn("Talents", names)
         self.assertEqual(names[-1], "Artifacts")
         self.assertIn("• HP **", ayaka["fields"][0]["value"])
-        self.assertIn("• CRIT Rate **", ayaka["fields"][1]["value"])
         self.assertNotIn("```", ayaka["fields"][1]["value"])
 
     def test_slash_command_payload(self):

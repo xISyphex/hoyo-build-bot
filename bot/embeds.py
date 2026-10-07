@@ -64,18 +64,16 @@ def _stat_line(stat: Stat) -> str:
     return f"{DOT} {DISPLAY_NAMES.get(stat.name, stat.name)} **{stat.value}**"
 
 
-# The core stats; everything else goes in the second column. Both columns get a real
-# heading because phones stack side-by-side fields, and an empty heading shows as a blank row.
-BASE_STATS = ("HP", "ATK", "DEF", "SPD", "Elemental Mastery", "Impact")
-
-
 def _stat_fields(build: CharacterBuild) -> list[tuple[str, str]]:
-    """Base and advanced stats side by side (stacked on phones). Stats at 0 are left out."""
-    shown = [s for s in build.stats if not _is_zero(s.value)]
-    base = [_stat_line(s) for s in shown if s.name in BASE_STATS]
-    advanced = [_stat_line(s) for s in shown if s.name not in BASE_STATS]
-    columns = [("Base Stats", base), ("Advanced Stats", advanced)]
-    return [(name, "\n".join(lines)[:FIELD_LIMIT]) for name, lines in columns if lines] or [("Stats", "No stats.")]
+    """Two side-by-side columns of equal length (the left one gets the extra line).
+
+    Both are titled "Stats": phones stack the columns, and an empty title shows as a blank row.
+    Stats at 0 (like 0% Effect RES) are left out.
+    """
+    lines = [_stat_line(s) for s in build.stats if not _is_zero(s.value)]
+    half = (len(lines) + 1) // 2
+    columns = [lines[:half], lines[half:]]
+    return [("Stats", "\n".join(col)[:FIELD_LIMIT]) for col in columns if col] or [("Stats", "No stats.")]
 
 
 def set_icons(build: CharacterBuild) -> dict[str, str]:
