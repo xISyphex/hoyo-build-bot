@@ -30,6 +30,13 @@ FILES = {
     "hsr_ranks": "hsr/honker_ranks.json",
     "hsr_locs": "hsr/hsr.json",
     "hsr_lc_ranks": "hsr/light_cone_ranks.json",
+    "srr_characters": "hsr/srr/characters.json",
+    "srr_character_promotions": "hsr/srr/character_promotions.json",
+    "srr_skill_trees": "hsr/srr/character_skill_trees.json",
+    "srr_light_cones": "hsr/srr/light_cones.json",
+    "srr_light_cone_promotions": "hsr/srr/light_cone_promotions.json",
+    "srr_relic_sets": "hsr/srr/relic_sets.json",
+    "srr_relics": "hsr/srr/relics.json",
     "zzz_avatars": "zzz/avatars.json",
     "zzz_weapons": "zzz/weapons.json",
     "zzz_equipments": "zzz/equipments.json",
@@ -37,9 +44,13 @@ FILES = {
 }
 
 # Files that don't come from Enka's store. Light cone passives (text plus the
-# numbers per superimposition) are only published by StarRailRes.
+# numbers per superimposition) are only published by StarRailRes. Enka's store
+# also lags behind new Star Rail releases (no characters past 1415 as of 3.x), so
+# StarRailRes fills in characters, light cones and relic sets the store lacks.
+SRR_URL = "https://raw.githubusercontent.com/Mar-7th/StarRailRes/master/index_min/en/"
 URLS = {
-    "hsr_lc_ranks": "https://raw.githubusercontent.com/Mar-7th/StarRailRes/master/index_min/en/light_cone_ranks.json",
+    "hsr_lc_ranks": SRR_URL + "light_cone_ranks.json",
+    **{key: SRR_URL + rel.rsplit("/", 1)[1] for key, rel in FILES.items() if key.startswith("srr_")},
 }
 
 MAX_AGE = 12 * 3600
@@ -126,7 +137,87 @@ class Assets:
         self.data["zzz_weapon_effects"] = (
             json.loads(effects.read_text(encoding="utf-8")) if effects.exists() else {}
         )
+        self._fill_hsr_gaps()
         self._build_indexes()
+
+    def _fill_hsr_gaps(self) -> None:
+        """Add what StarRailRes knows and Enka's store doesn't, in the store's own shapes.
+
+        Entries the store already has are left alone. Names go in a plain "Name"
+        field, since StarRailRes has the text rather than a text-map hash.
+        """
+        d = self.data
+        meta = d["hsr_meta"]
+        if not meta:
+            return
+        for cid, c in d["srr_characters"].items():
+            if cid in d["hsr_characters"]:
+                continue
+            d["hsr_characters"][cid] = {
+                "Name": c.get("name"),
+                "Rarity": c.get("rarity", 0),
+                "Element": c.get("element", ""),
+                "AvatarBaseType": c.get("path", ""),
+                "AvatarSideIconPath": f"SpriteOutput/AvatarRoundIcon/{cid}.png",
+                "RankIDList": [int(r) for r in c.get("ranks", [])],
+            }
+        for cid, promo in d["srr_character_promotions"].items():
+            if cid in meta["avatar"]:
+                continue
+            meta["avatar"][cid] = {
+                str(i): {
+                    "HPBase": v["hp"]["base"], "HPAdd": v["hp"]["step"],
+                    "AttackBase": v["atk"]["base"], "AttackAdd": v["atk"]["step"],
+                    "DefenceBase": v["def"]["base"], "DefenceAdd": v["def"]["step"],
+                    "SpeedBase": v["spd"]["base"],
+                    "CriticalChance": v["crit_rate"]["base"], "CriticalDamage": v["crit_dmg"]["base"],
+                }
+                for i, v in enumerate(promo.get("values", []))
+            }
+        for pid, point in d["srr_skill_trees"].items():
+            if pid in meta["tree"]:
+                continue
+            levels = {
+                str(i): {"props": {p["type"]: p["value"] for p in lv.get("properties", [])}}
+                for i, lv in enumerate(point.get("levels", []), start=1)
+            }
+            if any(lv["props"] for lv in levels.values()):
+                meta["tree"][pid] = levels
+        for lid, lc in d["srr_light_cones"].items():
+            d["hsr_weapons"].setdefault(lid, {
+                "Name": lc.get("name"), "Rarity": lc.get("rarity", 0), "AvatarBaseType": lc.get("path", ""),
+            })
+        for lid, promo in d["srr_light_cone_promotions"].items():
+            meta["equipment"].setdefault(lid, {
+                str(i): {
+                    "BaseHP": v["hp"]["base"], "HPAdd": v["hp"]["step"],
+                    "BaseAttack": v["atk"]["base"], "AttackAdd": v["atk"]["step"],
+                    "BaseDefence": v["def"]["base"], "DefenceAdd": v["def"]["step"],
+                }
+                for i, v in enumerate(promo.get("values", []))
+            })
+        for lid, ranks in d["hsr_lc_ranks"].items():
+            if lid in meta["equipmentSkill"]:
+                continue
+            props = [{p["type"]: p["value"] for p in rank} for rank in ranks.get("properties", [])]
+            if any(props):
+                meta["equipmentSkill"][lid] = {str(i): {"props": p} for i, p in enumerate(props, start=1)}
+        for sid, rset in d["srr_relic_sets"].items():
+            if sid in meta["relic"]["setSkill"]:
+                continue
+            pieces = (2, 4) if int(sid) < 300 else (2,)  # planar sets only have a 2pc bonus
+            meta["relic"]["setSkill"][sid] = {
+                str(n): {"props": {p["type"]: p["value"] for p in props}}
+                for n, props in zip(pieces, rset.get("properties", []))
+            }
+        for rid, relic in d["srr_relics"].items():
+            d["hsr_relics"].setdefault(rid, {
+                "Type": relic.get("type"), "SetID": int(relic.get("set_id", 0)), "Rarity": relic.get("rarity", 0),
+            })
+
+    def hsr_set_name(self, set_id) -> str | None:
+        """Relic set name from StarRailRes, for sets newer than the text map."""
+        return self.data.get("srr_relic_sets", {}).get(str(set_id), {}).get("name")
 
     def _build_indexes(self) -> None:
         legacy = self.data["gi_loc_legacy"].get(self.lang, {})
@@ -167,7 +258,7 @@ class Assets:
                     names.add(name)
         elif game == "hsr":
             for info in self.data["hsr_characters"].values():
-                name = self.hsr_text(info.get("AvatarName", {}).get("Hash"))
+                name = info.get("Name") or self.hsr_text(info.get("AvatarName", {}).get("Hash"))
                 if name:
                     names.add(name)
         elif game == "zzz":

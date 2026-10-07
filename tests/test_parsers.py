@@ -236,7 +236,7 @@ class StarRailLiveTest(unittest.TestCase):
         data["detailInfo"]["avatarDetailList"][0]["avatarId"] = 9999
         unknown = starrail.parse_profile(self.assets, "800069903", data).characters[0]
         self.assertEqual(unknown.name, "Character 9999")
-        self.assertIn("newer than Enka's game data", unknown.notes[0])
+        self.assertIn("newer than the game data", unknown.notes[0])
 
     def test_light_cone_effect(self):
         lc = self.by_name["Castorice"].weapon
@@ -553,3 +553,38 @@ class WeaponEffectTest(unittest.TestCase):
         embed = build_embed(self.profile, build, show_effect=True)
         self.assertLessEqual(len(embed), EMBED_LIMIT)
         self.assertIn("> **Long**\n> yyy", weapon_field(embed))
+
+
+class StarRailResFallbackTest(unittest.TestCase):
+    """Characters newer than Enka's store get their data from StarRailRes instead."""
+
+    def test_starrailres_data_gives_the_same_stats_as_the_store(self):
+        assets = load_assets()
+        data = fixture("hsr_live.json")
+        before = {b.name: b.stats for b in starrail.parse_profile(assets, "800069903", data).characters}
+        # Forget everything the store knows about these characters, light cones and sets.
+        meta = assets.data["hsr_meta"]
+        for info in data["detailInfo"]["avatarDetailList"]:
+            cid = str(info["avatarId"])
+            assets.data["hsr_characters"].pop(cid)
+            meta["avatar"].pop(cid)
+            for pid in [p for p in meta["tree"] if p.startswith((cid, "1" + cid))]:
+                meta["tree"].pop(pid)
+            if info.get("equipment"):
+                tid = str(info["equipment"]["tid"])
+                assets.data["hsr_weapons"].pop(tid, None)
+                meta["equipment"].pop(tid, None)
+                meta["equipmentSkill"].pop(tid, None)
+        meta["relic"]["setSkill"].clear()
+        assets._fill_hsr_gaps()
+        after = starrail.parse_profile(assets, "800069903", data).characters
+        self.assertEqual({b.name: b.stats for b in after}, before)
+
+    def test_new_character_gets_a_name(self):
+        assets = load_assets()
+        data = fixture("hsr_live.json")
+        data["detailInfo"]["avatarDetailList"][0]["avatarId"] = 1504  # Ashveil, not in Enka's store
+        ashveil = starrail.parse_profile(assets, "800069903", data).characters[0]
+        self.assertEqual((ashveil.name, ashveil.element), ("Ashveil", "Lightning"))
+        self.assertNotEqual(stats(ashveil)["HP"], "0")
+        self.assertIn("Ashveil", assets.character_names("hsr"))
