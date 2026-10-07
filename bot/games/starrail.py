@@ -71,6 +71,12 @@ def _fmt_prop(prop: str, value: float) -> Stat:
     return Stat(name, fmt_pct(value))
 
 
+def _norm(prop: str) -> str:
+    # Relic substats in the API response drop the "Base" suffix the meta tables
+    # use (CriticalChance vs CriticalChanceBase); fold them into one key.
+    return prop + "Base" if prop + "Base" in PROP_SHORT else prop
+
+
 def _add(bonus: dict, props: dict | None) -> None:
     for key, value in (props or {}).items():
         bonus[key] += value
@@ -108,6 +114,12 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
         lc_hp = lc.get("BaseHP", 0) + lc.get("HPAdd", 0) * (lc_level - 1)
         lc_atk = lc.get("BaseAttack", 0) + lc.get("AttackAdd", 0) * (lc_level - 1)
         lc_def = lc.get("BaseDefence", 0) + lc.get("DefenceAdd", 0) * (lc_level - 1)
+        # The response carries the light cone's levelled base stats too, which
+        # also covers light cones newer than the store data.
+        lc_flat = {p.get("type"): float(p.get("value", 0)) for p in (eq.get("_flat") or {}).get("props") or []}
+        lc_hp = lc_flat.get("BaseHP", lc_hp)
+        lc_atk = lc_flat.get("BaseAttack", lc_atk)
+        lc_def = lc_flat.get("BaseDefence", lc_def)
         base_hp += lc_hp
         base_atk += lc_atk
         base_def += lc_def
@@ -133,8 +145,12 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
     for point in info.get("skillTreeList", []):
         pid = str(point["pointId"])
         lvl = int(point.get("level", 1))
-        point_levels[pid] = lvl
-        _add(bonus, meta["tree"].get(pid, {}).get(str(lvl), {}).get("props"))
+        # Some characters' trace IDs come with an extra leading 1 (11310001 for
+        # Firefly's 1310001); the store data may only know the 7-digit form.
+        short = str(int(pid) % 10_000_000)
+        point_levels[pid] = point_levels[short] = lvl
+        tree = meta["tree"].get(pid) or meta["tree"].get(short, {})
+        _add(bonus, tree.get(str(lvl), {}).get("props"))
 
     talents = []
     anchors = assets.data["hsr_skilltree"].get(avatar_id, {}).get("0", [])[:4]
@@ -154,7 +170,7 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
         flat = relic.get("_flat") or {}
         # Enka sends the rolled values in _flat.props (main stat first, then
         # substats). The meta tables are only a fallback for older responses.
-        props = [(p.get("type", ""), float(p.get("value", 0))) for p in flat.get("props") or []]
+        props = [(_norm(p.get("type", "")), float(p.get("value", 0))) for p in flat.get("props") or []]
         if props:
             main_prop, main_val = props[0]
             sub_props = props[1:]
@@ -223,6 +239,9 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
         stats.append(Stat(f"{ELEMENTS.get(element, element)} DMG Boost", fmt_pct(elem_dmg)))
 
     icon_path = char.get("AvatarSideIconPath")
+    notes = ["Stats exclude conditional buffs, like the in-game character screen."]
+    if not char or not base:
+        notes.insert(0, "This character is newer than Enka's game data, so base stats are missing and totals are too low.")
     return CharacterBuild(
         game="hsr",
         character_id=avatar_id,
@@ -237,7 +256,7 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
         weapon=weapon,
         gear=gear,
         set_bonuses=set_bonuses,
-        notes=["Stats exclude conditional buffs, like the in-game character screen."],
+        notes=notes,
     )
 
 

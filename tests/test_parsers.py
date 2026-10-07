@@ -142,6 +142,45 @@ class StarRailFlatPropsTest(unittest.TestCase):
         self.assertEqual(s["CRIT Rate"], "26.2%")  # 5% base + 18% In the Night + 3.24%
 
 
+class StarRailLiveTest(unittest.TestCase):
+    """A real Enka response (UID 800069903, fetched 2026-10-07, nickname anonymized)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.assets = load_assets()
+        cls.data = fixture("hsr_live.json")
+        cls.profile = starrail.parse_profile(cls.assets, "800069903", cls.data)
+        cls.by_name = {c.name: c for c in cls.profile.characters}
+
+    def test_profile(self):
+        self.assertEqual((self.profile.nickname, self.profile.level), ("Player", 70))
+        self.assertEqual(len(self.profile.characters), 8)
+
+    def test_castorice_matches_enka_library(self):
+        # Totals cross-checked with the `enka` PyPI package on the same response.
+        c = self.by_name["Castorice"]
+        s = stats(c)
+        self.assertEqual((s["HP"], s["ATK"], s["DEF"], s["SPD"]), ("9,259", "1,595", "1,215", "89.7"))
+        self.assertEqual((s["CRIT Rate"], s["Quantum DMG Boost"]), ("66.1%", "24.4%"))
+        self.assertEqual(c.weapon.name, "Make Farewells More Beautiful")
+        # Substats arrive as CriticalChance/CriticalDamage, without the "Base" suffix.
+        self.assertEqual([x.name for x in c.gear[0].subs], ["HP%", "DEF%", "CRIT Rate", "CRIT DMG"])
+        self.assertEqual(c.set_bonuses, ["4pc Poet of Mourning Collapse", "2pc Bone Collection's Serene Demesne"])
+
+    def test_long_trace_ids(self):
+        # Firefly's traces come as 11310xxx; her minor traces add 37.3% Break Effect.
+        firefly = self.by_name["Firefly"]
+        self.assertEqual(stats(firefly)["Break Effect"], "216.3%")
+        self.assertEqual([t.value for t in firefly.talents], ["6", "10", "10", "10"])
+
+    def test_character_missing_from_store_data(self):
+        data = json.loads(json.dumps(self.data))
+        data["detailInfo"]["avatarDetailList"][0]["avatarId"] = 9999
+        unknown = starrail.parse_profile(self.assets, "800069903", data).characters[0]
+        self.assertEqual(unknown.name, "Character 9999")
+        self.assertIn("newer than Enka's game data", unknown.notes[0])
+
+
 class ZenlessTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
