@@ -21,7 +21,7 @@ ELEMENT_COLORS = {
     "Ether": 0xE84B9C, "Auric Ink": 0xD4AF37,
 }
 ZZZ_RARITY = {4: "S", 3: "A", 2: "B"}
-EFFECT_LIMIT = 700  # characters of weapon effect text per embed
+EFFECT_LIMIT = 900  # characters of weapon effect text per embed
 EMBED_LIMIT = 6000
 
 

@@ -330,3 +330,69 @@ class EmbedTest(unittest.TestCase):
         payload = tree.get_commands()[0].to_dict(tree)
         self.assertEqual([o["name"] for o in payload["options"]], ["uid", "character"])
         self.assertTrue(payload["options"][1]["autocomplete"])
+
+
+class WeaponEffectTest(unittest.TestCase):
+    """Genshin weapon passives from genshin-db, rendered in the embed (no network)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.assets = load_assets()
+
+    def setUp(self):
+        self.profile = genshin.parse_profile(self.assets, "618285856", fixture("genshin_live.json"))
+
+    def fill_from_cache(self, files: dict[str, dict]) -> None:
+        import asyncio
+        import tempfile
+
+        from bot.gi_weapon_effects import GenshinWeaponEffects
+
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "gi" / "weapon_effects"
+            folder.mkdir(parents=True)
+            (folder / "_index.json").write_text(json.dumps({"Skyward Harp": "skywardharp"}))
+            for name, data in files.items():
+                (folder / f"{name}.json").write_text(json.dumps(data))
+            asyncio.run(GenshinWeaponEffects(None, tmp).fill(self.profile))
+
+    def test_passive_uses_the_weapons_refinement(self):
+        self.fill_from_cache({
+            "skywardharp": {
+                "effectName": "Echoing Ballad",
+                **{f"r{r}": {"description": f"Increases CRIT DMG by {15 + 5 * r}%."} for r in range(1, 6)},
+            },
+            "freedomsworn": {"effectName": "Revolutionary Chorale", "r1": {"description": "x" * 2000}},
+        })
+        harp = self.profile.characters[0].weapon  # Amber's Skyward Harp is R2
+        self.assertEqual((harp.effect_name, harp.effect), ("Echoing Ballad", "Increases CRIT DMG by 25%."))
+        # Weapons the cache doesn't have stay without an effect instead of failing the lookup.
+        # (No session, so nothing is downloaded.)
+        self.assertIsNone(self.profile.characters[2].weapon.effect)
+
+        from bot.embeds import build_embed
+
+        amber = build_embed(self.profile, self.profile.characters[0]).fields[1].value
+        self.assertTrue(amber.endswith("*Echoing Ballad*: Increases CRIT DMG by 25%."))
+        bennett = build_embed(self.profile, self.profile.characters[1])
+        self.assertLessEqual(len(bennett.fields[1].value), 1024)
+        self.assertTrue(bennett.fields[1].value.endswith("…"))
+
+    def test_long_effect_never_pushes_embed_over_the_limit(self):
+        from bot.embeds import EMBED_LIMIT, build_embed
+        from bot.models import Stat
+
+        build = self.profile.characters[0]
+        build.weapon.effect_name, build.weapon.effect = "Long", "y" * 900
+        # Fill the embed to just under the limit without the effect.
+        build.notes = ["n" * 2000]
+        for piece in build.gear:
+            piece.subs = [Stat("s" * 100, "v" * 100) for _ in range(3)]
+        build.weapon.effect = None
+        without = len(build_embed(self.profile, build))
+        build.weapon.effect = "y" * 900
+        self.assertLess(without, EMBED_LIMIT - 100)
+        self.assertGreater(without + 900, EMBED_LIMIT)
+        embed = build_embed(self.profile, build)
+        self.assertLessEqual(len(embed), EMBED_LIMIT)
+        self.assertIn("*Long*: yyy", embed.fields[1].value)
