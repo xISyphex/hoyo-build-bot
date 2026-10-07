@@ -153,7 +153,8 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
         suit = equipments.get("Suits", {}).get(suit_id, {})
         suit_counts[suit_id] += 1
         dlevel = int(disc.get("Level", 0))
-        mains = disc.get("MainStatList") or []
+        # Live responses use MainPropertyList; the docs call it MainStatList.
+        mains = disc.get("MainPropertyList") or disc.get("MainStatList") or []
         main_stat = Stat("?", "?")
         if mains:
             m = mains[0]
