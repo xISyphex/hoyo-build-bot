@@ -4,10 +4,16 @@ A Discord bot that shows a character's stats and build from a player's UID, for
 **Genshin Impact**, **Honkai: Star Rail** and **Zenless Zone Zero**.
 
 ```
-/genshin uid:618285856 character:Ayaka
-/hsr     uid:800069903 character:Seele
-/zzz     uid:1300003409 character:Anby
+/genshin character:Ayaka uid:618285856
+/hsr     character:Seele uid:800069903
+/zzz     character:Anby uid:1300003409
 ```
+
+Claim your own UID once per game with `/genshin-claim`, `/hsr-claim` or
+`/zzz-claim`, and then `/hsr character:Seele` shows your own Seele without a UID.
+Each person has one claimed UID per game; claiming again replaces it. A UID typed
+into the lookup still wins over the claimed one. Claims are saved to
+`claims.json` in the cache folder, so they survive restarts and updates.
 
 The reply shows final stats, weapon / light cone / W-Engine, talent levels,
 set bonuses and every artifact / relic / drive disc with its substats. A dropdown
@@ -52,6 +58,7 @@ hour to appear the first time.
 | `DEV_GUILD_ID` | no | Server ID for instant command registration while testing. |
 | `CACHE_DIR` | no | Where game data is cached (default `data`). |
 | `ENKA_USER_AGENT` | no | User-Agent sent to Enka.Network. |
+| `CLAIMS_FILE` | no | Where claimed UIDs are saved (default `claims.json` in `CACHE_DIR`). |
 
 ## How stats are computed
 
@@ -91,5 +98,6 @@ bot/
   games/         One parser per game -> models.CharacterBuild
   embeds.py      Turns a CharacterBuild into a Discord embed
   matching.py    Forgiving name matching ("raiden", "hutao", typos)
+  claims.py      Claimed UIDs per Discord user and game, saved as JSON
 tests/           Parser tests with sample responses
 ```
