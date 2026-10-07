@@ -13,7 +13,7 @@ import urllib.request
 from pathlib import Path
 
 from bot import matching
-from bot.assets import FILES, STORE_URL, Assets
+from bot.assets import FILES, STORE_URL, URLS, Assets
 from bot.games import genshin, starrail, zenless
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -22,11 +22,11 @@ CACHE = Path(os.environ.get("CACHE_DIR", ROOT / "data"))
 
 
 def load_assets() -> Assets:
-    for rel in FILES.values():
+    for key, rel in FILES.items():
         path = CACHE / rel
         if not path.exists():
             path.parent.mkdir(parents=True, exist_ok=True)
-            with urllib.request.urlopen(STORE_URL + rel, timeout=30) as resp:
+            with urllib.request.urlopen(URLS.get(key, STORE_URL + rel), timeout=30) as resp:
                 path.write_bytes(resp.read())
     assets = Assets(CACHE)
     assets.load()
@@ -227,6 +227,30 @@ class StarRailLiveTest(unittest.TestCase):
         unknown = starrail.parse_profile(self.assets, "800069903", data).characters[0]
         self.assertEqual(unknown.name, "Character 9999")
         self.assertIn("newer than Enka's game data", unknown.notes[0])
+
+    def test_light_cone_effect(self):
+        lc = self.by_name["Castorice"].weapon
+        self.assertEqual(lc.effect_name, "Engrave")
+        self.assertTrue(lc.effect.startswith("Increases the wearer's Max HP by 30%."))
+        self.assertNotIn("#", lc.effect)
+        # Superimposition 2 uses the second column of numbers (37.5% HP, 35% DEF ignore).
+        data = json.loads(json.dumps(self.data))
+        data["detailInfo"]["avatarDetailList"][0]["equipment"]["rank"] = 2
+        s2 = starrail.parse_profile(self.assets, "800069903", data).characters[0].weapon
+        self.assertIn("Max HP by 37.5%", s2.effect)
+        self.assertIn("ignore 35% of the target's DEF", s2.effect)
+        # A light cone on a character of another path gives no bonus, and says so.
+        data["detailInfo"]["avatarDetailList"][0]["avatarId"] = 1001  # March 7th, Preservation
+        off_path = starrail.parse_profile(self.assets, "800069903", data).characters[0].weapon
+        self.assertEqual(off_path.effect_name, "Engrave (inactive: path doesn't match)")
+
+    def test_every_light_cone_effect_fills_in(self):
+        for tid in self.assets.data["hsr_lc_ranks"]:
+            for rank in range(1, 6):
+                with self.subTest(light_cone=tid, rank=rank):
+                    effect = starrail.light_cone_effect(self.assets, tid, rank)
+                    self.assertNotRegex(effect["effect"], r"#\d")
+                    self.assertLessEqual(len(effect["effect"]), 1000)
 
 
 class ZenlessTest(unittest.TestCase):
