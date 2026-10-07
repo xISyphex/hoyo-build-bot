@@ -526,7 +526,7 @@ class WeaponEffectTest(unittest.TestCase):
 
         from bot.embeds import build_embed
 
-        # Hidden until the weapon button is pressed.
+        # Hidden until "Show Weapon effect" is pressed.
         self.assertNotIn("Echoing Ballad", weapon_field(build_embed(self.profile, self.profile.characters[0])))
         amber = weapon_field(build_embed(self.profile, self.profile.characters[0], show_effect=True))
         self.assertTrue(amber.endswith("> **Echoing Ballad**\n> Increases CRIT DMG by 25%."))

@@ -126,7 +126,7 @@ def build_embed(
     show_effect: bool = False,
     set_emojis: dict[str, str] | None = None,
 ) -> discord.Embed:
-    """The build card. The weapon effect only shows when show_effect is set (the button named after the weapon).
+    """The build card. The weapon effect only shows when show_effect is set (the "Show ... effect" button).
 
     set_emojis maps a set name to a Discord emoji of its image, shown in front of the set bonus.
     """

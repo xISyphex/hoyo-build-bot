@@ -17,7 +17,7 @@ into the lookup still wins over the claimed one. Claims are saved to
 
 The reply shows final stats, weapon / light cone / W-Engine, every artifact /
 relic / drive disc with its substats, and the set bonuses with each set's picture.
-A button named after the weapon opens and closes its effect text, and a
+A **Show LC / Weapon / Wengine effect** button reveals the effect text, and a
 dropdown switches to the player's other showcased characters.
 
 Set pictures are uploaded once as the bot's own application emojis (Discord

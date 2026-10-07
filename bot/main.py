@@ -24,6 +24,7 @@ log = logging.getLogger("hoyo-bot")
 
 USER_AGENT = os.environ.get("ENKA_USER_AGENT", "HoyoBuildBot/1.0 (Discord bot)")
 UID_RE = re.compile(r"^\d{8,10}$")
+EFFECT_BUTTON_NAMES = {"genshin": "Weapon", "hsr": "LC", "zzz": "Wengine"}
 GAME_NAMES = {"genshin": "Genshin Impact", "hsr": "Honkai: Star Rail", "zzz": "Zenless Zone Zero"}
 
 
@@ -110,9 +111,8 @@ class EffectButton(discord.ui.Button):
     """Shows or hides the weapon / light cone / W-Engine effect text."""
 
     def __init__(self, profile: PlayerProfile, build: CharacterBuild, shown: bool):
-        # Named after the weapon; the arrow says whether its effect is open (button labels max out at 80).
-        arrow = "▴" if shown else "▾"
-        super().__init__(label=f"{build.weapon.name[:76]} {arrow}", style=discord.ButtonStyle.secondary)
+        label = f"{'Hide' if shown else 'Show'} {EFFECT_BUTTON_NAMES[build.game]} effect"
+        super().__init__(label=label, style=discord.ButtonStyle.secondary)
         self.profile, self.build, self.shown = profile, build, shown
 
     async def callback(self, interaction: discord.Interaction) -> None:
