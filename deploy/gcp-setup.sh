@@ -30,11 +30,17 @@ python3 -m venv "$APP/.venv"
 mkdir -p "$APP/data"
 chown -R hoyobot:hoyobot "$APP"
 
-if [ ! -s "$ENV_FILE" ]; then
-  # Read from the terminal so the token never lands in shell history or a file in the repo.
-  read -rsp "Paste your Discord bot token and press Enter: " token </dev/tty; echo
+# Ask for the token when there is none yet (or an earlier run saved it empty).
+# Read from the terminal so it never lands in shell history or a file in the repo.
+if ! grep -qE '^DISCORD_TOKEN=.+' "$ENV_FILE" 2>/dev/null; then
+  token=""
+  while [ -z "$token" ]; do
+    read -rsp "Paste your Discord bot token and press Enter (nothing shows while pasting): " token </dev/tty; echo
+    token="$(printf '%s' "$token" | tr -d '[:space:]')"
+  done
   install -m 600 /dev/null "$ENV_FILE"
   printf 'DISCORD_TOKEN=%s\nCACHE_DIR=%s/data\n' "$token" "$APP" > "$ENV_FILE"
+  echo "Token saved."
 fi
 
 cat > /etc/systemd/system/hoyo-build-bot.service <<UNIT
@@ -58,7 +64,12 @@ UNIT
 systemctl daemon-reload
 systemctl enable hoyo-build-bot >/dev/null
 systemctl restart hoyo-build-bot
-sleep 15
-systemctl --no-pager --lines=15 status hoyo-build-bot || true
+echo "Starting the bot..."
+sleep 20
+journalctl -u hoyo-build-bot -n 15 --no-pager -o cat || true
 echo
-echo "Done. Live logs: sudo journalctl -u hoyo-build-bot -f"
+if systemctl is-active --quiet hoyo-build-bot; then
+  echo "Done. The bot is running. Live logs: sudo journalctl -u hoyo-build-bot -f"
+else
+  echo "The bot is not running. Send the lines above to whoever is helping you."
+fi
