@@ -65,14 +65,20 @@ def _stat_line(stat: Stat) -> str:
 
 
 def _stat_fields(build: CharacterBuild) -> list[tuple[str, str]]:
-    """Two side-by-side columns of equal length (the left one gets the extra line).
+    """Three side-by-side columns of near-equal length (the left ones get the extra lines).
 
-    Both are titled "Stats": phones stack the columns, and an empty title shows as a blank row.
+    Three, because Discord puts three inline fields per row: with fewer, the first gear
+    piece would slide up next to the stats and every gear row after it would be off.
+    All are titled "Stats": phones stack the columns, and an empty title shows as a blank row.
     Stats at 0 (like 0% Effect RES) are left out.
     """
     lines = [_stat_line(s) for s in build.stats if not _is_zero(s.value)]
-    half = (len(lines) + 1) // 2
-    columns = [lines[:half], lines[half:]]
+    size, extra = divmod(len(lines), 3)
+    columns, start = [], 0
+    for i in range(3):
+        end = start + size + (i < extra)
+        columns.append(lines[start:end])
+        start = end
     return [("Stats", "\n".join(col)[:FIELD_LIMIT]) for col in columns if col] or [("Stats", "No stats.")]
 
 

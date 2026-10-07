@@ -453,9 +453,9 @@ class EmbedTest(unittest.TestCase):
         self.assertEqual(ayaka["title"], "Kamisato Ayaka")
         self.assertEqual(ayaka["description"], "★★★★★ · Cryo · Lv. 90 · C2")
         names = [f["name"] for f in ayaka["fields"]]
-        # Two equal stat columns, both titled (an empty title shows as a blank row on phones),
+        # Three even stat columns (one full row), all titled (an empty title shows as a blank row on phones),
         # no talents and no set bonus list, then the artifact pieces, and the weapon last.
-        self.assertEqual(names[:3], ["Stats", "Stats", "Flower"])
+        self.assertEqual(names[:4], ["Stats", "Stats", "Stats", "Flower"])
         left, right = (ayaka["fields"][i]["value"].count("\n") + 1 for i in (0, 1))
         self.assertIn(left - right, (0, 1))
         self.assertNotIn("Talents", names)
