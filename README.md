@@ -15,12 +15,12 @@ Each person has one claimed UID per game; claiming again replaces it. A UID type
 into the lookup still wins over the claimed one. Claims are saved to
 `claims.json` in the cache folder, so they survive restarts and updates.
 
-The reply shows final stats, weapon / light cone / W-Engine, every artifact /
-relic / drive disc with its substats, and the set bonuses with each set's picture.
+The reply shows final stats, every artifact / relic / drive disc with its
+picture and substats, and the weapon / light cone / W-Engine at the bottom.
 A **Show LC / Weapon / Wengine effect** button reveals the effect text, and a
 dropdown switches to the player's other showcased characters.
 
-Set pictures are uploaded once as the bot's own application emojis (Discord
+Gear pictures are uploaded once as the bot's own application emojis (Discord
 allows 2,000 per bot), because embed text can't hold images. They show up under
 **Emojis** on the bot's page in the Discord Developer Portal.
 
@@ -104,6 +104,6 @@ bot/
   embeds.py      Turns a CharacterBuild into a Discord embed
   matching.py    Forgiving name matching ("raiden", "hutao", typos)
   claims.py      Claimed UIDs per Discord user and game, saved as JSON
-  set_emojis.py  Uploads gear set pictures as the bot's emojis
+  set_emojis.py  Uploads gear piece pictures as the bot's emojis
 tests/           Parser tests with sample responses
 ```

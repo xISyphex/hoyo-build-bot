@@ -22,7 +22,6 @@ class Gear:
     rarity: int
     main: Stat
     subs: list[Stat] = field(default_factory=list)
-    icon: str | None = None  # image URL of the piece's set
     piece_icon: str | None = None  # image URL of this piece itself
 
 

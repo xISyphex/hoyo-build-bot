@@ -192,7 +192,6 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
                 rarity=rarity,
                 main=main_stat,
                 subs=subs,
-                icon=f"https://enka.network{suit['Icon']}" if suit.get("Icon") else None,
                 # A disc's picture is its set's picture.
                 piece_icon=f"https://enka.network{suit['Icon']}" if suit.get("Icon") else None,
             )

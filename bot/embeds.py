@@ -76,20 +76,6 @@ def _stat_fields(build: CharacterBuild) -> list[tuple[str, str]]:
     return [("Stats", "\n".join(col)[:FIELD_LIMIT]) for col in columns if col] or [("Stats", "No stats.")]
 
 
-def set_icons(build: CharacterBuild) -> dict[str, str]:
-    """Image URL for each equipped set: the first piece of it, in slot order."""
-    icons: dict[str, str] = {}
-    for piece in build.gear:
-        if piece.icon:
-            icons.setdefault(piece.set_name, piece.icon)
-    return icons
-
-
-def _set_line(bonus: str, emojis: dict[str, str]) -> str:
-    # Bonuses read "4pc <set name>".
-    return f"{emojis.get(bonus.split(' ', 1)[-1], DOT)} {bonus}"
-
-
 def _weapon_value(lines: list[str], weapon: Weapon, effect_limit: int) -> str:
     value = "\n".join(lines)
     if weapon.effect and effect_limit > 20:
@@ -127,12 +113,10 @@ def build_embed(
     profile: PlayerProfile,
     build: CharacterBuild,
     show_effect: bool = False,
-    set_emojis: dict[str, str] | None = None,
     piece_emojis: dict[str, str] | None = None,
 ) -> discord.Embed:
     """The build card. The weapon effect only shows when show_effect is set (the "Show ... effect" button).
 
-    set_emojis maps a set name to a Discord emoji of its image, shown in front of the set bonus.
     piece_emojis maps a piece's image URL to its emoji, shown next to the piece's slot name.
     """
     labels = GAME_LABELS[build.game]
@@ -152,6 +136,17 @@ def build_embed(
     for name, value in _stat_fields(build):
         embed.add_field(name=name, value=value, inline=True)
 
+    # One column per piece; Discord puts three side by side (stacked on phones).
+    for piece in build.gear:
+        name, value = _gear_field(
+            piece, labels["max_level"], (piece_emojis or {}).get(piece.piece_icon or ""), keep_slot=build.game == "zzz"
+        )
+        embed.add_field(name=name, value=value, inline=True)
+
+    if not build.gear:
+        embed.add_field(name=labels["gear"], value="Nothing equipped.", inline=False)
+
+    # The weapon comes last, so its effect (when shown) doesn't push the gear down.
     weapon_field = None
     if build.weapon:
         w = build.weapon
@@ -161,17 +156,6 @@ def build_embed(
         weapon_field = len(embed.fields)
         limit = EFFECT_LIMIT if show_effect else 0
         embed.add_field(name=labels["weapon"], value=_weapon_value(lines, w, limit), inline=False)
-
-    # One column per piece; Discord puts three side by side (stacked on phones).
-    for piece in build.gear:
-        name, value = _gear_field(
-            piece, labels["max_level"], (piece_emojis or {}).get(piece.piece_icon or ""), keep_slot=build.game == "zzz"
-        )
-        embed.add_field(name=name, value=value, inline=True)
-
-    emojis = set_emojis or {}
-    sets = "\n".join(_set_line(b, emojis) for b in build.set_bonuses) or "No set bonus."
-    embed.add_field(name=labels["gear"], value=sets if build.gear else "Nothing equipped.", inline=False)
 
     footer = "Data from Enka.Network"
     if build.notes:

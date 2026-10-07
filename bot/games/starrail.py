@@ -244,7 +244,6 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
                 main=_fmt_prop(main_prop, main_val),
                 subs=subs,
                 # The set's picture: its head piece, or its sphere for planar sets (ids 300 and up).
-                icon=f"{RELIC_ICONS}IconRelic_{set_id}_{5 if set_id >= 300 else 1}.png",
                 # Pieces are numbered in slot order: head 1 ... link rope 6.
                 piece_icon=f"{RELIC_ICONS}IconRelic_{set_id}_{SLOT_ORDER.index(slot) + 1}.png" if slot in SLOT_ORDER else None,
             )
