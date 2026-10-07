@@ -323,10 +323,17 @@ class EmbedTest(unittest.TestCase):
         import discord
         from discord import app_commands
 
-        from bot.main import make_command
+        from bot.main import make_claim_command, make_command
 
         tree = app_commands.CommandTree(discord.Client(intents=discord.Intents.none()))
         tree.add_command(make_command("genshin"))
-        payload = tree.get_commands()[0].to_dict(tree)
-        self.assertEqual([o["name"] for o in payload["options"]], ["uid", "character"])
-        self.assertTrue(payload["options"][1]["autocomplete"])
+        tree.add_command(make_claim_command("genshin"))
+        payload = tree.get_command("genshin").to_dict(tree)
+        # Character first so the UID can be left out when the caller has claimed one.
+        self.assertEqual([o["name"] for o in payload["options"]], ["character", "uid"])
+        self.assertTrue(payload["options"][0]["autocomplete"])
+        self.assertTrue(payload["options"][0]["required"])
+        self.assertFalse(payload["options"][1].get("required", False))
+        self.assertLessEqual(len(payload["options"][1]["description"]), 100)
+        claim = tree.get_command("genshin-claim").to_dict(tree)
+        self.assertEqual([o["name"] for o in claim["options"]], ["uid"])
