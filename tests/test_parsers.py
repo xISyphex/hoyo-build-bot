@@ -316,8 +316,12 @@ class EmbedTest(unittest.TestCase):
                 self.assertLessEqual(len(embed.fields), 25)
                 self.assertTrue(all(len(f.value) <= 1024 for f in embed.fields))
         ayaka = build_embed(self.profile, self.profile.characters[0]).to_dict()
-        self.assertEqual(ayaka["title"], "Kamisato Ayaka · Lv. 90")
-        self.assertEqual(ayaka["description"], "★★★★★ · Cryo · C2")
+        self.assertEqual(ayaka["title"], "Kamisato Ayaka")
+        self.assertEqual(ayaka["description"], "★★★★★ · ❄️ Cryo · Lv. 90 · C2")
+        stats = "\n".join(f["value"] for f in ayaka["fields"] if f["inline"])
+        self.assertIn("🎯 CRIT Rate **", stats)
+        self.assertNotIn("```", stats)
+        self.assertEqual([f["name"] for f in ayaka["fields"] if not f["inline"]][-1], "Artifacts")
 
     def test_slash_command_payload(self):
         import discord
@@ -330,6 +334,10 @@ class EmbedTest(unittest.TestCase):
         payload = tree.get_commands()[0].to_dict(tree)
         self.assertEqual([o["name"] for o in payload["options"]], ["uid", "character"])
         self.assertTrue(payload["options"][1]["autocomplete"])
+
+
+def weapon_field(embed) -> str:
+    return next(f.value for f in embed.fields if f.name in ("Weapon", "Light Cone", "W-Engine"))
 
 
 class WeaponEffectTest(unittest.TestCase):
@@ -372,11 +380,11 @@ class WeaponEffectTest(unittest.TestCase):
 
         from bot.embeds import build_embed
 
-        amber = build_embed(self.profile, self.profile.characters[0]).fields[1].value
-        self.assertTrue(amber.endswith("*Echoing Ballad*: Increases CRIT DMG by 25%."))
-        bennett = build_embed(self.profile, self.profile.characters[1])
-        self.assertLessEqual(len(bennett.fields[1].value), 1024)
-        self.assertTrue(bennett.fields[1].value.endswith("…"))
+        amber = weapon_field(build_embed(self.profile, self.profile.characters[0]))
+        self.assertTrue(amber.endswith("> **Echoing Ballad**\n> Increases CRIT DMG by 25%."))
+        bennett = weapon_field(build_embed(self.profile, self.profile.characters[1]))
+        self.assertLessEqual(len(bennett), 1024)
+        self.assertTrue(bennett.endswith("…"))
 
     def test_long_effect_never_pushes_embed_over_the_limit(self):
         from bot.embeds import EMBED_LIMIT, build_embed
@@ -395,4 +403,4 @@ class WeaponEffectTest(unittest.TestCase):
         self.assertGreater(without + 900, EMBED_LIMIT)
         embed = build_embed(self.profile, build)
         self.assertLessEqual(len(embed), EMBED_LIMIT)
-        self.assertIn("*Long*: yyy", embed.fields[1].value)
+        self.assertIn("> **Long**\n> yyy", weapon_field(embed))

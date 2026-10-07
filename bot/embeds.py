@@ -2,14 +2,25 @@
 
 from __future__ import annotations
 
+import re
+
 import discord
 
-from .models import CharacterBuild, PlayerProfile, Stat, Weapon
+from .models import CharacterBuild, Gear, PlayerProfile, Stat, Weapon
 
 GAME_LABELS = {
-    "genshin": {"title": "Genshin Impact", "cons": "C", "refine": "R", "weapon": "Weapon", "talents": "Talents", "color": 0x4E7CFF},
-    "hsr": {"title": "Honkai: Star Rail", "cons": "E", "refine": "S", "weapon": "Light Cone", "talents": "Traces", "color": 0xB6A0FF},
-    "zzz": {"title": "Zenless Zone Zero", "cons": "M", "refine": "P", "weapon": "W-Engine", "talents": "Skills", "color": 0xF2C94C},
+    "genshin": {
+        "title": "Genshin Impact", "cons": "C", "refine": "R", "weapon": "Weapon",
+        "talents": "Talents", "gear": "Artifacts", "max_level": 20, "color": 0x4E7CFF,
+    },
+    "hsr": {
+        "title": "Honkai: Star Rail", "cons": "E", "refine": "S", "weapon": "Light Cone",
+        "talents": "Traces", "gear": "Relics", "max_level": 15, "color": 0xB6A0FF,
+    },
+    "zzz": {
+        "title": "Zenless Zone Zero", "cons": "M", "refine": "P", "weapon": "W-Engine",
+        "talents": "Skills", "gear": "Drive Discs", "max_level": 15, "color": 0xF2C94C,
+    },
 }
 ELEMENT_COLORS = {
     "Pyro": 0xEF7938, "Fire": 0xEF7938,
@@ -20,9 +31,29 @@ ELEMENT_COLORS = {
     "Physical": 0xB8B8B8, "Quantum": 0x6F6BD8, "Imaginary": 0xF3D84C,
     "Ether": 0xE84B9C, "Auric Ink": 0xD4AF37,
 }
+ELEMENT_EMOJI = {
+    "Pyro": "🔥", "Fire": "🔥",
+    "Hydro": "💧", "Cryo": "❄️", "Ice": "❄️", "Frost": "❄️",
+    "Electro": "⚡", "Electric": "⚡", "Lightning": "⚡",
+    "Anemo": "🌪️", "Wind": "🌪️",
+    "Geo": "🪨", "Dendro": "🌿",
+    "Physical": "👊", "Quantum": "🌌", "Imaginary": "🌟",
+    "Ether": "🌸", "Auric Ink": "🖋️",
+}
+# Checked in order, first match wins, so the more specific names come first.
+STAT_EMOJI = [
+    ("CRIT Rate", "🎯"), ("CRIT DMG", "💥"),
+    ("Elemental Mastery", "🔮"), ("Anomaly Proficiency", "🔮"), ("Anomaly Mastery", "🌀"),
+    ("Energy", "🔋"), ("Break Effect", "💢"), ("Effect Hit Rate", "🎲"), ("Effect RES", "🧿"),
+    ("Healing", "💚"), ("PEN", "🗡️"), ("Impact", "🔨"),
+    ("HP", "❤️"), ("ATK", "⚔️"), ("DEF", "🛡️"), ("SPD", "💨"),
+]
+DISPLAY_NAMES = {"Energy Regen Rate": "Energy Regen"}
 ZZZ_RARITY = {4: "S", 3: "A", 2: "B"}
 EFFECT_LIMIT = 900  # characters of weapon effect text per embed
+FIELD_LIMIT = 1024
 EMBED_LIMIT = 6000
+BLANK = "​"
 
 
 def _rarity(game: str, rarity: int) -> str:
@@ -37,28 +68,73 @@ def _shorten(text: str, limit: int) -> str:
     return text[: max(limit - 1, 0)].rstrip() + "…"
 
 
+def _quote(text: str) -> str:
+    return "\n".join(f"> {line}" if line.strip() else ">" for line in text.splitlines())
+
+
+def _is_zero(value: str) -> bool:
+    number = re.sub(r"[^0-9.]", "", value)
+    return bool(number) and float(number) == 0
+
+
+def _stat_line(stat: Stat) -> str:
+    if "DMG Bonus" in stat.name or "DMG Boost" in stat.name:
+        emoji = ELEMENT_EMOJI.get(stat.name.split(" DMG")[0], "✨")
+    else:
+        emoji = next((e for key, e in STAT_EMOJI if key in stat.name), "▫️")
+    return f"{emoji} {DISPLAY_NAMES.get(stat.name, stat.name)} **{stat.value}**"
+
+
+def _stat_fields(build: CharacterBuild) -> list[tuple[str, str]]:
+    """Two side-by-side columns; stats at 0 (like 0% Effect RES) are left out."""
+    lines = [_stat_line(s) for s in build.stats if not _is_zero(s.value)]
+    half = (len(lines) + 1) // 2
+    columns = [lines[:half], lines[half:]]
+    return [("Stats" if i == 0 else BLANK, "\n".join(col) or BLANK) for i, col in enumerate(columns) if col or i == 0]
+
+
 def _weapon_value(lines: list[str], weapon: Weapon, effect_limit: int) -> str:
     value = "\n".join(lines)
     if weapon.effect and effect_limit > 20:
-        effect = _shorten(weapon.effect, min(effect_limit, 1000 - len(value)))
-        label = f"*{weapon.effect_name}*: " if weapon.effect_name else ""
-        value += f"\n{label}{effect}"
-    return value[:1024]
+        title = f"> **{weapon.effect_name}**\n" if weapon.effect_name else ""
+        budget = effect_limit
+        while True:
+            # The "> " quote prefixes count too, so trim until the field fits.
+            effect = _quote(_shorten(weapon.effect, budget))
+            extra = len(value) + 1 + len(title) + len(effect) - FIELD_LIMIT
+            if extra <= 0 or budget <= 20:
+                break
+            budget -= extra
+        value += f"\n{title}{effect}"
+    return value[:FIELD_LIMIT]
 
 
-def _stat_block(stats: list[Stat]) -> str:
-    width = max((len(s.name) for s in stats), default=0)
-    lines = [f"{s.name:<{width}}  {s.value:>8}" for s in stats]
-    return "```\n" + "\n".join(lines) + "\n```"
+def _gear_line(piece: Gear, max_level: int) -> str:
+    level = "" if piece.level >= max_level else f" +{piece.level}"
+    subs = " · ".join(f"{s.name} {s.value}" for s in piece.subs)
+    head = f"**{piece.slot}**{level} · **{piece.main.name} {piece.main.value}**"
+    return f"{head}\n{subs}" if subs else head
+
+
+def _chunk(blocks: list[str], limit: int = FIELD_LIMIT) -> list[str]:
+    """Join blocks with blank lines, starting a new field when one would overflow."""
+    chunks: list[str] = []
+    for block in blocks:
+        if chunks and len(chunks[-1]) + 2 + len(block) <= limit:
+            chunks[-1] += "\n\n" + block
+        else:
+            chunks.append(block[:limit])
+    return chunks
 
 
 def build_embed(profile: PlayerProfile, build: CharacterBuild) -> discord.Embed:
     labels = GAME_LABELS[build.game]
+    element = f"{ELEMENT_EMOJI.get(build.element, '')} {build.element}".strip()
     embed = discord.Embed(
-        title=f"{build.name} · Lv. {build.level}",
+        title=build.name,
         description=(
-            f"{_rarity(build.game, build.rarity)} · {build.element} · "
-            f"{labels['cons']}{build.constellation}"
+            f"{_rarity(build.game, build.rarity)} · {element} · "
+            f"Lv. {build.level} · {labels['cons']}{build.constellation}"
         ),
         color=ELEMENT_COLORS.get(build.element, labels["color"]),
         url=profile.profile_url,
@@ -67,32 +143,33 @@ def build_embed(profile: PlayerProfile, build: CharacterBuild) -> discord.Embed:
     if build.icon_url:
         embed.set_thumbnail(url=build.icon_url)
 
-    embed.add_field(name="Stats", value=_stat_block(build.stats), inline=False)
+    for name, value in _stat_fields(build):
+        embed.add_field(name=name, value=value, inline=True)
 
+    weapon_field = None
     if build.weapon:
         w = build.weapon
         lines = [f"**{w.name}** · {labels['refine']}{w.refinement} · Lv. {w.level}"]
         if w.stats:
-            lines.append(" · ".join(f"{s.name} {s.value}" for s in w.stats))
+            lines.append(" · ".join(f"{s.name} **{s.value}**" for s in w.stats))
         weapon_field = len(embed.fields)
         embed.add_field(name=labels["weapon"], value=_weapon_value(lines, w, EFFECT_LIMIT), inline=False)
 
     if build.talents:
         embed.add_field(
             name=labels["talents"],
-            value=" · ".join(f"{t.name} **{t.value}**" for t in build.talents),
+            value=" · ".join(f"{t.name} `{t.value}`" for t in build.talents),
             inline=False,
         )
 
+    blocks = []
     if build.set_bonuses:
-        embed.add_field(name="Sets", value="\n".join(build.set_bonuses), inline=False)
-
-    for piece in build.gear:
-        value = f"**{piece.main.name} {piece.main.value}**\n" + "\n".join(f"{s.name} {s.value}" for s in piece.subs)
-        embed.add_field(name=f"{piece.slot} +{piece.level}", value=value[:1024], inline=True)
-
+        blocks.append("\n".join(f"🔸 {s}" for s in build.set_bonuses))
+    blocks += [_gear_line(piece, labels["max_level"]) for piece in build.gear]
     if not build.gear:
-        embed.add_field(name="Gear", value="Nothing equipped.", inline=False)
+        blocks.append("Nothing equipped.")
+    for i, value in enumerate(_chunk(blocks)):
+        embed.add_field(name=labels["gear"] if i == 0 else BLANK, value=value, inline=False)
 
     footer = "Data from Enka.Network"
     if build.notes:
@@ -101,10 +178,10 @@ def build_embed(profile: PlayerProfile, build: CharacterBuild) -> discord.Embed:
 
     # Discord rejects embeds over 6,000 characters; the effect text is the
     # only part long enough to matter, so it gives way first.
-    overflow = len(embed) - EMBED_LIMIT
-    if overflow > 0 and build.weapon and build.weapon.effect:
-        field = embed.fields[weapon_field]
-        budget = min(EFFECT_LIMIT, len(build.weapon.effect)) - overflow
-        value = _weapon_value(lines, build.weapon, budget)
-        embed.set_field_at(weapon_field, name=field.name, value=value, inline=False)
+    if weapon_field is not None and build.weapon.effect:
+        budget = min(EFFECT_LIMIT, len(build.weapon.effect))
+        while len(embed) > EMBED_LIMIT and budget > 20:
+            budget -= len(embed) - EMBED_LIMIT
+            value = _weapon_value(lines, build.weapon, budget)
+            embed.set_field_at(weapon_field, name=labels["weapon"], value=value, inline=False)
     return embed
