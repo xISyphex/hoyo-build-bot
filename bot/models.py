@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 class Stat:
     name: str
     value: str  # already formatted for display, e.g. "2,345" or "62.4%"
+    rolls: int = 0  # gear substats only: times rolled, counting the first (0 = unknown)
 
 
 @dataclass

@@ -109,9 +109,15 @@ def _weapon_value(lines: list[str], weapon: Weapon, effect_limit: int) -> str:
     return value[:FIELD_LIMIT]
 
 
+def _sub(stat: Stat) -> str:
+    """A substat, with how often it was upgraded after its first roll."""
+    upgrades = f" `+{stat.rolls - 1}`" if stat.rolls > 1 else ""
+    return f"{stat.name} {stat.value}{upgrades}"
+
+
 def _gear_line(piece: Gear, max_level: int) -> str:
     level = "" if piece.level >= max_level else f" +{piece.level}"
-    subs = " · ".join(f"{s.name} {s.value}" for s in piece.subs)
+    subs = " · ".join(_sub(s) for s in piece.subs)
     head = f"**{piece.slot}**{level} · **{piece.main.name} {piece.main.value}**"
     return f"{head}\n{subs}" if subs else head
 

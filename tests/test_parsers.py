@@ -96,6 +96,11 @@ class GenshinLiveTest(unittest.TestCase):
         cls.profile = genshin.parse_profile(cls.assets, "618285856", fixture("genshin_live.json"))
         cls.by_name = {c.name: c for c in cls.profile.characters}
 
+    def test_substat_rolls(self):
+        # appendPropIdList holds one affix id per roll; the flower's has 8 for 4 substats.
+        flower = self.by_name["Amber"].gear[0]
+        self.assertEqual([(s.name, s.rolls) for s in flower.subs], [("DEF", 2), ("ATK%", 2), ("CRIT DMG", 3), ("EM", 1)])
+
     def test_profile(self):
         self.assertEqual(self.profile.nickname, "TestPlayer")
         self.assertEqual(self.profile.level, 57)
@@ -200,6 +205,10 @@ class StarRailLiveTest(unittest.TestCase):
         cls.profile = starrail.parse_profile(cls.assets, "800069903", cls.data)
         cls.by_name = {c.name: c for c in cls.profile.characters}
 
+    def test_substat_rolls(self):
+        head = self.by_name["Castorice"].gear[0]
+        self.assertEqual([s.rolls for s in head.subs], [1, 2, 3, 3])
+
     def test_profile(self):
         self.assertEqual((self.profile.nickname, self.profile.level), ("Player", 70))
         self.assertEqual(len(self.profile.characters), 8)
@@ -246,7 +255,7 @@ class ZenlessTest(unittest.TestCase):
         self.assertEqual(s["HP"], "9,590")  # 7,500 Lv. 60 base (matches in-game) + 2,090 disc
         self.assertEqual(s["Energy Regen"], "1.20")
         self.assertEqual(anby.gear[0].main.value, "2,090")  # docs example: 550 base HP disc at +14
-        self.assertEqual(anby.gear[0].subs[0].name, "CRIT Rate +2")
+        self.assertEqual((anby.gear[0].subs[0].name, anby.gear[0].subs[0].rolls), ("CRIT Rate", 3))
         self.assertEqual(anby.gear[0].subs[0].value, "7.2%")
         self.assertEqual(anby.talents[-1].value, "F")
 
@@ -271,7 +280,7 @@ class ZenlessTest(unittest.TestCase):
         self.assertEqual(miyabi.element, "Frost")
         # Live discs use MainPropertyList; S-rank +15 main stats are fixed in-game values.
         self.assertEqual([g.main.value for g in miyabi.gear], ["2,200", "316", "184", "24.0%", "30.0%", "30.0%"])
-        self.assertEqual(miyabi.gear[0].subs[0].name, "CRIT DMG +3")
+        self.assertEqual((miyabi.gear[0].subs[0].name, miyabi.gear[0].subs[0].rolls), ("CRIT DMG", 4))
         self.assertEqual(miyabi.gear[0].subs[0].value, "19.2%")
         self.assertEqual(miyabi.set_bonuses, ["4pc Branch & Blade Song", "2pc Woodpecker Electro"])
         self.assertEqual(miyabi.weapon.name, "Fusion Compiler")

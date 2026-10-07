@@ -167,8 +167,7 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
             val = sub["PropertyValue"] * rolls
             add(sub["PropertyId"], val)
             stat = _prop_stat(sub["PropertyId"], val)
-            if rolls > 1:
-                stat.name += f" +{rolls - 1}"
+            stat.rolls = rolls
             subs.append(stat)
         gear.append(
             Gear(

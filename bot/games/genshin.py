@@ -79,6 +79,19 @@ PROP_SHORT = {
 TALENT_LABELS = ["Normal", "Skill", "Burst"]
 
 
+
+def _roll_counts(append_ids: list[int]) -> list[int]:
+    """Rolls per substat, in the order the substats are listed.
+
+    appendPropIdList has one affix id per roll (initial ones included). The id
+    without its last digit (the roll's tier) names the stat, and stats appear
+    in the same order as reliquarySubstats.
+    """
+    counts: dict[int, int] = {}
+    for affix in append_ids:
+        counts[affix // 10] = counts.get(affix // 10, 0) + 1
+    return list(counts.values())
+
 def _prop(prop_id: str, value: float) -> Stat:
     name = PROP_SHORT.get(prop_id, prop_id.replace("FIGHT_PROP_", "").title())
     if prop_id in FLAT_PROPS:
@@ -168,6 +181,9 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
             if set_name:
                 set_counts[set_name] = set_counts.get(set_name, 0) + 1
             main = flat.get("reliquaryMainstat", {})
+            subs = [_prop(s["appendPropId"], s["statValue"]) for s in flat.get("reliquarySubstats", [])]
+            for stat, rolls in zip(subs, _roll_counts(item.get("reliquary", {}).get("appendPropIdList", []))):
+                stat.rolls = rolls
             gear.append(
                 Gear(
                     slot=SLOTS.get(flat.get("equipType"), "?"),
@@ -175,7 +191,7 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
                     level=max(int(item.get("reliquary", {}).get("level", 1)) - 1, 0),
                     rarity=int(flat.get("rankLevel", 0)),
                     main=_prop(main.get("mainPropId", ""), main.get("statValue", 0)),
-                    subs=[_prop(s["appendPropId"], s["statValue"]) for s in flat.get("reliquarySubstats", [])],
+                    subs=subs,
                 )
             )
     gear.sort(key=lambda g: SLOT_ORDER.index(g.slot) if g.slot in SLOT_ORDER else 99)

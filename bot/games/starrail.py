@@ -185,9 +185,12 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
                 sub_props.append((sdef.get("Property", ""), val))
         bonus[main_prop] += main_val
         subs = []
-        for prop, val in sub_props:
+        counts = [int(sub.get("cnt", 0)) for sub in relic.get("subAffixList", [])]
+        for i, (prop, val) in enumerate(sub_props):
             bonus[prop] += val
             subs.append(_fmt_prop(prop, val))
+            if i < len(counts):
+                subs[-1].rolls = counts[i]
         set_id = int(flat.get("setID") or rmeta.get("SetID", 0))
         set_counts[set_id] += 1
         set_names.setdefault(set_id, assets.hsr_text(flat.get("setName")) or f"Set {set_id}")
