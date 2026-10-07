@@ -262,7 +262,7 @@ class StarRailLiveTest(unittest.TestCase):
                 self.assertLessEqual(len(embed), 6000)
                 self.assertTrue(all(len(f.value) <= 1024 for f in embed.fields))
         castorice = build_embed(self.profile, self.by_name["Castorice"])
-        self.assertIn("*Engrave*: Increases the wearer's Max HP by 30%.", castorice.fields[1].value)
+        self.assertIn("> **Engrave**\n> Increases the wearer's Max HP by 30%.", weapon_field(castorice))
 
     def test_every_light_cone_effect_fills_in(self):
         for tid in self.assets.data["hsr_lc_ranks"]:
