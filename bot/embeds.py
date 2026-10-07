@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import discord
 
-from .models import CharacterBuild, PlayerProfile, Stat
+from .models import CharacterBuild, PlayerProfile, Stat, Weapon
 
 GAME_LABELS = {
     "genshin": {"title": "Genshin Impact", "cons": "C", "refine": "R", "weapon": "Weapon", "talents": "Talents", "color": 0x4E7CFF},
@@ -21,12 +21,29 @@ ELEMENT_COLORS = {
     "Ether": 0xE84B9C, "Auric Ink": 0xD4AF37,
 }
 ZZZ_RARITY = {4: "S", 3: "A", 2: "B"}
+EFFECT_LIMIT = 900  # characters of weapon effect text per embed
+EMBED_LIMIT = 6000
 
 
 def _rarity(game: str, rarity: int) -> str:
     if game == "zzz":
         return f"{ZZZ_RARITY.get(rarity, '?')}-Rank"
     return "★" * rarity
+
+
+def _shorten(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return text[: max(limit - 1, 0)].rstrip() + "…"
+
+
+def _weapon_value(lines: list[str], weapon: Weapon, effect_limit: int) -> str:
+    value = "\n".join(lines)
+    if weapon.effect and effect_limit > 20:
+        effect = _shorten(weapon.effect, min(effect_limit, 1000 - len(value)))
+        label = f"*{weapon.effect_name}*: " if weapon.effect_name else ""
+        value += f"\n{label}{effect}"
+    return value[:1024]
 
 
 def _stat_block(stats: list[Stat]) -> str:
@@ -57,7 +74,8 @@ def build_embed(profile: PlayerProfile, build: CharacterBuild) -> discord.Embed:
         lines = [f"**{w.name}** · {labels['refine']}{w.refinement} · Lv. {w.level}"]
         if w.stats:
             lines.append(" · ".join(f"{s.name} {s.value}" for s in w.stats))
-        embed.add_field(name=labels["weapon"], value="\n".join(lines), inline=False)
+        weapon_field = len(embed.fields)
+        embed.add_field(name=labels["weapon"], value=_weapon_value(lines, w, EFFECT_LIMIT), inline=False)
 
     if build.talents:
         embed.add_field(
@@ -80,4 +98,13 @@ def build_embed(profile: PlayerProfile, build: CharacterBuild) -> discord.Embed:
     if build.notes:
         footer = " ".join(build.notes) + " · " + footer
     embed.set_footer(text=footer)
+
+    # Discord rejects embeds over 6,000 characters; the effect text is the
+    # only part long enough to matter, so it gives way first.
+    overflow = len(embed) - EMBED_LIMIT
+    if overflow > 0 and build.weapon and build.weapon.effect:
+        field = embed.fields[weapon_field]
+        budget = min(EFFECT_LIMIT, len(build.weapon.effect)) - overflow
+        value = _weapon_value(lines, build.weapon, budget)
+        embed.set_field_at(weapon_field, name=field.name, value=value, inline=False)
     return embed

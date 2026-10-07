@@ -74,6 +74,10 @@ Game data (names, base stats) is downloaded from Enka's
 start and refreshed every 12 hours, so new characters work without a redeploy.
 Profiles are cached for the `ttl` Enka returns, as Enka asks.
 
+Genshin weapon passives come from
+[genshin-db](https://github.com/theBowja/genshin-db) (MIT). Each weapon's file is
+downloaded the first time that weapon is shown and cached in `CACHE_DIR`.
+
 ## Tests
 
 ```bash
@@ -90,6 +94,7 @@ bot/
   main.py        Discord client, slash commands, autocomplete, dropdown
   enka.py        Enka.Network HTTP client with ttl cache and error messages
   assets.py      Downloads and indexes Enka's game data files
+  gi_weapon_effects.py  Genshin weapon passives from genshin-db
   games/         One parser per game -> models.CharacterBuild
   embeds.py      Turns a CharacterBuild into a Discord embed
   matching.py    Forgiving name matching ("raiden", "hutao", typos)
