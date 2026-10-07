@@ -276,6 +276,16 @@ class ZenlessTest(unittest.TestCase):
         self.assertEqual(miyabi.set_bonuses, ["4pc Branch & Blade Song", "2pc Woodpecker Electro"])
         self.assertEqual(miyabi.weapon.name, "Fusion Compiler")
 
+    def test_live_embeds_fit_discord_limits(self):
+        from bot.embeds import build_embed
+
+        profile = zenless.parse_profile(self.assets, "1300003409", fixture("zzz_live.json"))
+        for build in profile.characters:
+            with self.subTest(character=build.name):
+                embed = build_embed(profile, build)
+                self.assertLessEqual(len(embed), 6000)
+                self.assertTrue(all(len(f.value) <= 1024 for f in embed.fields))
+
     def test_element_fallback(self):
         self.assertEqual(zenless._element(["ZhenZhenAssault", "Physics"]), "Physical")
         self.assertEqual(zenless._element(["Wind"]), "Wind")
