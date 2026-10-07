@@ -488,6 +488,36 @@ def weapon_field(embed) -> str:
     return next(f.value for f in embed.fields if f.name in ("Weapon", "Light Cone", "W-Engine"))
 
 
+class GearOrderTest(unittest.TestCase):
+    """Star Rail and ZZZ: 4-piece set in the left two columns, 2-piece set in the right one."""
+
+    def setUp(self):
+        self.assets = load_assets()
+
+    def _names(self, profile, name):
+        from bot.embeds import build_embed
+
+        build = next(c for c in profile.characters if c.name == name)
+        return [f.name for f in build_embed(profile, build).fields if f.inline][3:]
+
+    def test_star_rail_planar_ornaments_go_right(self):
+        hsr = starrail.parse_profile(self.assets, "800069903", fixture("hsr_live.json"))
+        self.assertEqual(
+            self._names(hsr, "Castorice"), ["Head", "Hands", "Planar Sphere", "Body", "Feet", "Link Rope"]
+        )
+
+    def test_zzz_two_piece_discs_go_right(self):
+        zzz = zenless.parse_profile(self.assets, "1300003409", fixture("zzz_live.json"))
+        self.assertEqual(
+            [n.split(" +")[0] for n in self._names(zzz, "Miyabi")],
+            ["Disc 1", "Disc 2", "Disc 5", "Disc 3", "Disc 4", "Disc 6"],
+        )
+        # Without a clean 4 + 2 split (here 5 + 1), discs keep their order.
+        self.assertEqual(
+            [n.split(" +")[0] for n in self._names(zzz, "Soldier 11")], [f"Disc {i}" for i in range(1, 7)]
+        )
+
+
 class WeaponEffectTest(unittest.TestCase):
     """Genshin weapon passives from genshin-db, rendered in the embed (no network)."""
 
