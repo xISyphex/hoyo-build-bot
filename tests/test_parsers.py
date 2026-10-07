@@ -87,6 +87,54 @@ class GenshinTest(unittest.TestCase):
         self.assertEqual(self.profile.characters[1].element, "Anemo")
 
 
+class GenshinLiveTest(unittest.TestCase):
+    """A real Enka response for UID 618285856 (fetched 2026-10-07, nickname anonymized)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.assets = load_assets()
+        cls.profile = genshin.parse_profile(cls.assets, "618285856", fixture("genshin_live.json"))
+        cls.by_name = {c.name: c for c in cls.profile.characters}
+
+    def test_profile(self):
+        self.assertEqual(self.profile.nickname, "TestPlayer")
+        self.assertEqual(self.profile.level, 57)
+        self.assertEqual(list(self.by_name), ["Amber", "Bennett", "Ganyu", "Xingqiu"])
+        self.assertEqual(self.profile.showcase_names, ["Amber", "Bennett", "Ganyu", "Xingqiu"])
+
+    def test_amber(self):
+        amber = self.by_name["Amber"]
+        self.assertEqual((amber.level, amber.rarity, amber.element, amber.constellation), (90, 4, "Pyro", 6))
+        s = stats(amber)
+        self.assertEqual((s["HP"], s["ATK"], s["CRIT Rate"]), ("14,241", "2,367", "51.9%"))
+        self.assertEqual(s["Physical DMG Bonus"], "108.3%")
+        self.assertEqual([t.value for t in amber.talents], ["10", "13 ★", "13 ★"])
+        self.assertEqual((amber.weapon.name, amber.weapon.refinement), ("Skyward Harp", 2))
+        self.assertEqual([g.slot for g in amber.gear], ["Flower", "Plume", "Sands", "Goblet", "Circlet"])
+        self.assertEqual(amber.set_bonuses, ["2pc Bloodstained Chivalry", "2pc Pale Flame"])
+
+    def test_set_names_resolve_by_set_id(self):
+        # The setNameTextMapHash in the response is missing from the store's
+        # text map for these sets; the name has to come from relics.json.
+        xingqiu = self.by_name["Xingqiu"]
+        self.assertEqual(
+            [g.set_name for g in xingqiu.gear],
+            ["Emblem of Severed Fate", "Emblem of Severed Fate", "Wanderer's Troupe",
+             "Tenacity of the Millelith", "Wanderer's Troupe"],
+        )
+        self.assertEqual(xingqiu.set_bonuses, ["2pc Emblem of Severed Fate", "2pc Wanderer's Troupe"])
+        self.assertEqual(self.by_name["Ganyu"].gear[3].set_name, "Shimenawa's Reminiscence")
+
+    def test_every_embed_fits_discord_limits(self):
+        from bot.embeds import build_embed
+
+        for build in self.profile.characters:
+            with self.subTest(character=build.name):
+                embed = build_embed(self.profile, build)
+                self.assertLessEqual(len(embed), 6000)
+                self.assertTrue(all(len(f.value) <= 1024 for f in embed.fields))
+
+
 class StarRailTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -154,3 +202,37 @@ class MatchingTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EmbedTest(unittest.TestCase):
+    """Builds the Discord embed and command payloads (needs discord.py installed)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.assets = load_assets()
+        cls.profile = genshin.parse_profile(cls.assets, "618285856", fixture("genshin.json"))
+
+    def test_genshin_embed_fits_discord_limits(self):
+        from bot.embeds import build_embed
+
+        for build in self.profile.characters:
+            with self.subTest(character=build.name):
+                embed = build_embed(self.profile, build)
+                self.assertLessEqual(len(embed), 6000)
+                self.assertLessEqual(len(embed.fields), 25)
+                self.assertTrue(all(len(f.value) <= 1024 for f in embed.fields))
+        ayaka = build_embed(self.profile, self.profile.characters[0]).to_dict()
+        self.assertEqual(ayaka["title"], "Kamisato Ayaka · Lv. 90")
+        self.assertEqual(ayaka["description"], "★★★★★ · Cryo · C2")
+
+    def test_slash_command_payload(self):
+        import discord
+        from discord import app_commands
+
+        from bot.main import make_command
+
+        tree = app_commands.CommandTree(discord.Client(intents=discord.Intents.none()))
+        tree.add_command(make_command("genshin"))
+        payload = tree.get_commands()[0].to_dict(tree)
+        self.assertEqual([o["name"] for o in payload["options"]], ["uid", "character"])
+        self.assertTrue(payload["options"][1]["autocomplete"])

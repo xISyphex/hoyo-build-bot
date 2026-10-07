@@ -13,7 +13,7 @@ from .models import PlayerProfile
 
 API = "https://enka.network/api/"
 ENDPOINTS = {
-    "genshin": "uid/{uid}/",
+    "genshin": "uid/{uid}",
     "hsr": "hsr/uid/{uid}",
     "zzz": "zzz/uid/{uid}",
 }

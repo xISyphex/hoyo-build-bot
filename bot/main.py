@@ -34,7 +34,7 @@ class HoyoBot(discord.Client):
         self.enka: EnkaClient | None = None
 
     async def setup_hook(self) -> None:
-        self.session = aiohttp.ClientSession(headers={"User-Agent": USER_AGENT})
+        self.session = aiohttp.ClientSession(headers={"User-Agent": USER_AGENT}, trust_env=True)
         self.enka = EnkaClient(self.session, self.assets)
         if self.assets.is_stale():
             log.info("Downloading game data from Enka.Network")
