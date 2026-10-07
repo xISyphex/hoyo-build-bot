@@ -154,3 +154,37 @@ class MatchingTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EmbedTest(unittest.TestCase):
+    """Builds the Discord embed and command payloads (needs discord.py installed)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.assets = load_assets()
+        cls.profile = genshin.parse_profile(cls.assets, "618285856", fixture("genshin.json"))
+
+    def test_genshin_embed_fits_discord_limits(self):
+        from bot.embeds import build_embed
+
+        for build in self.profile.characters:
+            with self.subTest(character=build.name):
+                embed = build_embed(self.profile, build)
+                self.assertLessEqual(len(embed), 6000)
+                self.assertLessEqual(len(embed.fields), 25)
+                self.assertTrue(all(len(f.value) <= 1024 for f in embed.fields))
+        ayaka = build_embed(self.profile, self.profile.characters[0]).to_dict()
+        self.assertEqual(ayaka["title"], "Kamisato Ayaka · Lv. 90")
+        self.assertEqual(ayaka["description"], "★★★★★ · Cryo · C2")
+
+    def test_slash_command_payload(self):
+        import discord
+        from discord import app_commands
+
+        from bot.main import make_command
+
+        tree = app_commands.CommandTree(discord.Client(intents=discord.Intents.none()))
+        tree.add_command(make_command("genshin"))
+        payload = tree.get_commands()[0].to_dict(tree)
+        self.assertEqual([o["name"] for o in payload["options"]], ["uid", "character"])
+        self.assertTrue(payload["options"][1]["autocomplete"])
