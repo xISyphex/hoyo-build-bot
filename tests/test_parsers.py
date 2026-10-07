@@ -454,12 +454,13 @@ class EmbedTest(unittest.TestCase):
         self.assertEqual(ayaka["description"], "★★★★★ · Cryo · Lv. 90 · C2")
         names = [f["name"] for f in ayaka["fields"]]
         # Two equal stat columns, both titled (an empty title shows as a blank row on phones),
-        # no talents, and the set bonuses come last, under the artifact pieces.
-        self.assertEqual(names[:3], ["Stats", "Stats", "Weapon"])
+        # no talents and no set bonus list, then the artifact pieces, and the weapon last.
+        self.assertEqual(names[:3], ["Stats", "Stats", "Flower"])
         left, right = (ayaka["fields"][i]["value"].count("\n") + 1 for i in (0, 1))
         self.assertIn(left - right, (0, 1))
         self.assertNotIn("Talents", names)
-        self.assertEqual(names[-1], "Artifacts")
+        self.assertEqual(names[-1], "Weapon")
+        self.assertNotIn("Artifacts", names)
         self.assertIn("• HP **", ayaka["fields"][0]["value"])
         self.assertNotIn("```", ayaka["fields"][1]["value"])
 

@@ -1,4 +1,4 @@
-"""Set images shown as emojis in front of the set bonuses (no network, no Discord)."""
+"""Gear piece pictures shown as emojis (no network, no Discord)."""
 
 from __future__ import annotations
 
@@ -67,28 +67,40 @@ class SetEmojiTest(unittest.TestCase):
         self.profile = zenless.parse_profile(self.assets, "1300003409", fixture("zzz_live.json"))
         self.anby = self.profile.characters[0]  # 4pc Shockstar Disco, 2pc Woodpecker Electro
 
-    def test_uploads_each_set_once_and_reuses_old_uploads(self):
+    def test_uploads_each_picture_once_and_reuses_old_uploads(self):
         woodpecker = "https://enka.network/ui/zzz/SuitWoodpeckerElectro.png"
         old = _Emoji(emoji_name("zzz", woodpecker), 7)
         client, session = _Client([old]), _Session()
         emojis = SetEmojis(client, session)
-        first = asyncio.run(emojis.for_build(self.anby))
-        again = asyncio.run(emojis.for_build(self.anby))
+        first = asyncio.run(emojis.for_pieces(self.anby))
+        again = asyncio.run(emojis.for_pieces(self.anby))
         self.assertEqual(first, again)
-        self.assertEqual(first["Woodpecker Electro"], "<:%s:7>" % old.name)
-        self.assertTrue(first["Shockstar Disco"].startswith("<:zzz_"))
-        self.assertEqual(len(client.created), 1)  # only the new set, and only once
+        self.assertEqual(first[woodpecker], "<:%s:7>" % old.name)
+        self.assertEqual(len(client.created), 1)  # only the new picture, and only once
         self.assertEqual(session.requested, ["https://enka.network/ui/zzz/SuitShockstarDisco.png"])
 
-    def test_missing_image_falls_back_to_a_dot(self):
+    def test_missing_picture_keeps_the_slot_name(self):
         session = _Session(missing="https://enka.network/ui/zzz/SuitShockstarDisco.png")
-        emojis = asyncio.run(SetEmojis(_Client(), session).for_build(self.anby))
-        self.assertNotIn("Shockstar Disco", emojis)
-        sets = build_embed(self.profile, self.anby, set_emojis=emojis).fields[-1]
-        self.assertEqual(sets.name, "Drive Discs")
-        lines = sets.value.splitlines()
-        self.assertEqual(lines[0], "• 4pc Shockstar Disco")
-        self.assertTrue(lines[1].startswith("<:zzz_") and lines[1].endswith(" 2pc Woodpecker Electro"))
+        emojis = asyncio.run(SetEmojis(_Client(), session).for_pieces(self.anby))
+        names = [f.name for f in build_embed(self.profile, self.anby, piece_emojis=emojis).fields if f.inline][2:]
+        self.assertTrue(names[0].startswith("Disc 1"), names)
+        self.assertTrue(names[-1].startswith("<:zzz_"), names)
+
+    def test_piece_pictures_replace_slot_names(self):
+        from bot.games import starrail
+
+        hsr = starrail.parse_profile(self.assets, "800069903", fixture("hsr_live.json"))
+        castorice = hsr.characters[0]
+        pieces = asyncio.run(SetEmojis(_Client(), _Session()).for_pieces(castorice))
+        self.assertEqual(len(pieces), 6)  # one picture per relic
+        names = [f.name for f in build_embed(hsr, castorice, piece_emojis=pieces).fields if f.inline][2:]
+        self.assertTrue(all(n.startswith("<:hsr_") and n.endswith(">") for n in names), names)
+        # Drive discs all show their set's picture, so the disc number stays.
+        discs = asyncio.run(SetEmojis(_Client(), _Session()).for_pieces(self.anby))
+        names = [f.name for f in build_embed(self.profile, self.anby, piece_emojis=discs).fields if f.inline][2:]
+        self.assertTrue(names[0].startswith("<:zzz_") and " Disc 1" in names[0], names)
+        # Without pictures the slot names stay.
+        self.assertEqual([f.name for f in build_embed(hsr, castorice).fields if f.inline][2], "Head")
 
 
 if __name__ == "__main__":

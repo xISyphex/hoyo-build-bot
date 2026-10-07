@@ -120,15 +120,6 @@ def _weapon_name(assets: Assets, item: dict) -> str:
     )
 
 
-def _set_icon(assets: Assets, flat: dict) -> str | None:
-    """The set's flower, which the game uses as the set's picture; else this piece's own icon."""
-    items = assets.data.get("gi_relics", {}).get("Items", {})
-    flower = f"/ui/UI_RelicIcon_{flat.get('setId')}_4.png"
-    if any(item.get("Icon") == flower for item in items.values()):
-        return "https://enka.network" + flower
-    return f"https://enka.network/ui/{flat['icon']}.png" if flat.get("icon") else None
-
-
 def _set_name(assets: Assets, flat: dict) -> str | None:
     store = assets.data.get("gi_relics", {}).get("Sets", {}).get(str(flat.get("setId")), {})
     return assets.gi_text(store.get("Name")) or assets.gi_text(flat.get("setNameTextMapHash"))
@@ -201,7 +192,7 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
                     rarity=int(flat.get("rankLevel", 0)),
                     main=_prop(main.get("mainPropId", ""), main.get("statValue", 0)),
                     subs=subs,
-                    icon=_set_icon(assets, flat),
+                    piece_icon=f"https://enka.network/ui/{flat['icon']}.png" if flat.get("icon") else None,
                 )
             )
     gear.sort(key=lambda g: SLOT_ORDER.index(g.slot) if g.slot in SLOT_ORDER else 99)
