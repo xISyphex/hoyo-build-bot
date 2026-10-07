@@ -11,15 +11,15 @@ from .models import CharacterBuild, Gear, PlayerProfile, Stat, Weapon
 GAME_LABELS = {
     "genshin": {
         "title": "Genshin Impact", "cons": "C", "refine": "R", "weapon": "Weapon",
-        "talents": "Talents", "gear": "Artifacts", "max_level": 20, "color": 0x4E7CFF,
+        "gear": "Artifacts", "max_level": 20, "color": 0x4E7CFF,
     },
     "hsr": {
         "title": "Honkai: Star Rail", "cons": "E", "refine": "S", "weapon": "Light Cone",
-        "talents": "Traces", "gear": "Relics", "max_level": 15, "color": 0xB6A0FF,
+        "gear": "Relics", "max_level": 15, "color": 0xB6A0FF,
     },
     "zzz": {
         "title": "Zenless Zone Zero", "cons": "M", "refine": "P", "weapon": "W-Engine",
-        "talents": "Skills", "gear": "Drive Discs", "max_level": 15, "color": 0xF2C94C,
+        "gear": "Drive Discs", "max_level": 15, "color": 0xF2C94C,
     },
 }
 ELEMENT_COLORS = {
@@ -31,29 +31,12 @@ ELEMENT_COLORS = {
     "Physical": 0xB8B8B8, "Quantum": 0x6F6BD8, "Imaginary": 0xF3D84C,
     "Ether": 0xE84B9C, "Auric Ink": 0xD4AF37,
 }
-ELEMENT_EMOJI = {
-    "Pyro": "🔥", "Fire": "🔥",
-    "Hydro": "💧", "Cryo": "❄️", "Ice": "❄️", "Frost": "❄️",
-    "Electro": "⚡", "Electric": "⚡", "Lightning": "⚡",
-    "Anemo": "🌪️", "Wind": "🌪️",
-    "Geo": "🪨", "Dendro": "🌿",
-    "Physical": "👊", "Quantum": "🌌", "Imaginary": "🌟",
-    "Ether": "🌸", "Auric Ink": "🖋️",
-}
-# Checked in order, first match wins, so the more specific names come first.
-STAT_EMOJI = [
-    ("CRIT Rate", "🎯"), ("CRIT DMG", "💥"),
-    ("Elemental Mastery", "🔮"), ("Anomaly Proficiency", "🔮"), ("Anomaly Mastery", "🌀"),
-    ("Energy", "🔋"), ("Break Effect", "💢"), ("Effect Hit Rate", "🎲"), ("Effect RES", "🧿"),
-    ("Healing", "💚"), ("PEN", "🗡️"), ("Impact", "🔨"),
-    ("HP", "❤️"), ("ATK", "⚔️"), ("DEF", "🛡️"), ("SPD", "💨"),
-]
 DISPLAY_NAMES = {"Energy Regen Rate": "Energy Regen"}
 ZZZ_RARITY = {4: "S", 3: "A", 2: "B"}
 EFFECT_LIMIT = 900  # characters of weapon effect text per embed
 FIELD_LIMIT = 1024
 EMBED_LIMIT = 6000
-BLANK = "​"
+DOT = "•"
 
 
 def _rarity(game: str, rarity: int) -> str:
@@ -78,19 +61,33 @@ def _is_zero(value: str) -> bool:
 
 
 def _stat_line(stat: Stat) -> str:
-    if "DMG Bonus" in stat.name or "DMG Boost" in stat.name:
-        emoji = ELEMENT_EMOJI.get(stat.name.split(" DMG")[0], "✨")
-    else:
-        emoji = next((e for key, e in STAT_EMOJI if key in stat.name), "▫️")
-    return f"{emoji} {DISPLAY_NAMES.get(stat.name, stat.name)} **{stat.value}**"
+    return f"{DOT} {DISPLAY_NAMES.get(stat.name, stat.name)} **{stat.value}**"
 
 
 def _stat_fields(build: CharacterBuild) -> list[tuple[str, str]]:
-    """Two side-by-side columns; stats at 0 (like 0% Effect RES) are left out."""
+    """Two side-by-side columns of equal length (the left one gets the extra line).
+
+    Both are titled "Stats": phones stack the columns, and an empty title shows as a blank row.
+    Stats at 0 (like 0% Effect RES) are left out.
+    """
     lines = [_stat_line(s) for s in build.stats if not _is_zero(s.value)]
     half = (len(lines) + 1) // 2
     columns = [lines[:half], lines[half:]]
-    return [("Stats" if i == 0 else BLANK, "\n".join(col) or BLANK) for i, col in enumerate(columns) if col or i == 0]
+    return [("Stats", "\n".join(col)[:FIELD_LIMIT]) for col in columns if col] or [("Stats", "No stats.")]
+
+
+def set_icons(build: CharacterBuild) -> dict[str, str]:
+    """Image URL for each equipped set: the first piece of it, in slot order."""
+    icons: dict[str, str] = {}
+    for piece in build.gear:
+        if piece.icon:
+            icons.setdefault(piece.set_name, piece.icon)
+    return icons
+
+
+def _set_line(bonus: str, emojis: dict[str, str]) -> str:
+    # Bonuses read "4pc <set name>".
+    return f"{emojis.get(bonus.split(' ', 1)[-1], DOT)} {bonus}"
 
 
 def _weapon_value(lines: list[str], weapon: Weapon, effect_limit: int) -> str:
@@ -121,13 +118,21 @@ def _gear_field(piece: Gear, max_level: int) -> tuple[str, str]:
     return f"{piece.slot}{level}", "\n".join(lines)[:FIELD_LIMIT]
 
 
-def build_embed(profile: PlayerProfile, build: CharacterBuild) -> discord.Embed:
+def build_embed(
+    profile: PlayerProfile,
+    build: CharacterBuild,
+    show_effect: bool = False,
+    set_emojis: dict[str, str] | None = None,
+) -> discord.Embed:
+    """The build card. The weapon effect only shows when show_effect is set (the "Show ... effect" button).
+
+    set_emojis maps a set name to a Discord emoji of its image, shown in front of the set bonus.
+    """
     labels = GAME_LABELS[build.game]
-    element = f"{ELEMENT_EMOJI.get(build.element, '')} {build.element}".strip()
     embed = discord.Embed(
         title=build.name,
         description=(
-            f"{_rarity(build.game, build.rarity)} · {element} · "
+            f"{_rarity(build.game, build.rarity)} · {build.element} · "
             f"Lv. {build.level} · {labels['cons']}{build.constellation}"
         ),
         color=ELEMENT_COLORS.get(build.element, labels["color"]),
@@ -147,21 +152,17 @@ def build_embed(profile: PlayerProfile, build: CharacterBuild) -> discord.Embed:
         if w.stats:
             lines.append(" · ".join(f"{s.name} **{s.value}**" for s in w.stats))
         weapon_field = len(embed.fields)
-        embed.add_field(name=labels["weapon"], value=_weapon_value(lines, w, EFFECT_LIMIT), inline=False)
+        limit = EFFECT_LIMIT if show_effect else 0
+        embed.add_field(name=labels["weapon"], value=_weapon_value(lines, w, limit), inline=False)
 
-    if build.talents:
-        embed.add_field(
-            name=labels["talents"],
-            value=" · ".join(f"{t.name} `{t.value}`" for t in build.talents),
-            inline=False,
-        )
-
-    sets = "\n".join(f"🔸 {s}" for s in build.set_bonuses) or "No set bonus."
-    embed.add_field(name=labels["gear"], value=sets if build.gear else "Nothing equipped.", inline=False)
     # One column per piece; Discord puts three side by side (stacked on phones).
     for piece in build.gear:
         name, value = _gear_field(piece, labels["max_level"])
         embed.add_field(name=name, value=value, inline=True)
+
+    emojis = set_emojis or {}
+    sets = "\n".join(_set_line(b, emojis) for b in build.set_bonuses) or "No set bonus."
+    embed.add_field(name=labels["gear"], value=sets if build.gear else "Nothing equipped.", inline=False)
 
     footer = "Data from Enka.Network"
     if build.notes:
@@ -170,7 +171,7 @@ def build_embed(profile: PlayerProfile, build: CharacterBuild) -> discord.Embed:
 
     # Discord rejects embeds over 6,000 characters; the effect text is the
     # only part long enough to matter, so it gives way first.
-    if weapon_field is not None and build.weapon.effect:
+    if show_effect and weapon_field is not None and build.weapon.effect:
         budget = min(EFFECT_LIMIT, len(build.weapon.effect))
         while len(embed) > EMBED_LIMIT and budget > 20:
             budget -= len(embed) - EMBED_LIMIT

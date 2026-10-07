@@ -17,12 +17,14 @@ from .assets import Assets
 from .claims import ClaimStore
 from .embeds import build_embed
 from .enka import ERRORS, EnkaClient, EnkaError
-from .models import PlayerProfile
+from .models import CharacterBuild, PlayerProfile
+from .set_emojis import SetEmojis
 
 log = logging.getLogger("hoyo-bot")
 
 USER_AGENT = os.environ.get("ENKA_USER_AGENT", "HoyoBuildBot/1.0 (Discord bot)")
 UID_RE = re.compile(r"^\d{8,10}$")
+EFFECT_BUTTON_NAMES = {"genshin": "Weapon", "hsr": "LC", "zzz": "Wengine"}
 GAME_NAMES = {"genshin": "Genshin Impact", "hsr": "Honkai: Star Rail", "zzz": "Zenless Zone Zero"}
 
 
@@ -36,10 +38,12 @@ class HoyoBot(discord.Client):
         self.claims = ClaimStore(os.environ.get("CLAIMS_FILE", os.path.join(cache_dir, "claims.json")))
         self.session: aiohttp.ClientSession | None = None
         self.enka: EnkaClient | None = None
+        self.set_emojis: SetEmojis | None = None
 
     async def setup_hook(self) -> None:
         self.session = aiohttp.ClientSession(headers={"User-Agent": USER_AGENT}, trust_env=True)
         self.enka = EnkaClient(self.session, self.assets)
+        self.set_emojis = SetEmojis(self, self.session)
         if self.assets.is_stale():
             log.info("Downloading game data from Enka.Network")
             await self.assets.refresh(self.session)
@@ -74,6 +78,17 @@ class HoyoBot(discord.Client):
         await super().close()
 
 
+async def render(
+    bot: HoyoBot, profile: PlayerProfile, build: CharacterBuild, show_effect: bool = False
+) -> dict:
+    """Embed and buttons for one character, ready to send or edit in."""
+    emojis = await bot.set_emojis.for_build(build)
+    return {
+        "embed": build_embed(profile, build, show_effect=show_effect, set_emojis=emojis),
+        "view": CharacterView(profile, build, show_effect),
+    }
+
+
 class CharacterSelect(discord.ui.Select):
     """Dropdown to flip between the other characters in the same showcase."""
 
@@ -87,16 +102,33 @@ class CharacterSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction) -> None:
         build = next(c for c in self.profile.characters if c.name == self.values[0])
-        await interaction.response.edit_message(
-            embed=build_embed(self.profile, build), view=CharacterView(self.profile, build.name)
+        # Uploading a new set image can take longer than Discord's 3-second reply window.
+        await interaction.response.defer()
+        await interaction.edit_original_response(**await render(interaction.client, self.profile, build))
+
+
+class EffectButton(discord.ui.Button):
+    """Shows or hides the weapon / light cone / W-Engine effect text."""
+
+    def __init__(self, profile: PlayerProfile, build: CharacterBuild, shown: bool):
+        label = f"{'Hide' if shown else 'Show'} {EFFECT_BUTTON_NAMES[build.game]} effect"
+        super().__init__(label=label, style=discord.ButtonStyle.secondary)
+        self.profile, self.build, self.shown = profile, build, shown
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer()
+        await interaction.edit_original_response(
+            **await render(interaction.client, self.profile, self.build, show_effect=not self.shown)
         )
 
 
 class CharacterView(discord.ui.View):
-    def __init__(self, profile: PlayerProfile, current: str):
+    def __init__(self, profile: PlayerProfile, build: CharacterBuild, show_effect: bool = False):
         super().__init__(timeout=600)
         if len(profile.characters) > 1:
-            self.add_item(CharacterSelect(profile, current))
+            self.add_item(CharacterSelect(profile, build.name))
+        if build.weapon and build.weapon.effect:
+            self.add_item(EffectButton(profile, build, show_effect))
         self.add_item(discord.ui.Button(label="Open on Enka.Network", url=profile.profile_url))
 
 
@@ -147,7 +179,7 @@ def make_command(game: str) -> app_commands.Command:
             )
             return
         build = next(c for c in profile.characters if c.name == match)
-        await interaction.followup.send(embed=build_embed(profile, build), view=CharacterView(profile, build.name))
+        await interaction.followup.send(**await render(bot, profile, build))
 
     @command.autocomplete("character")
     async def character_autocomplete(interaction: discord.Interaction, current: str):
