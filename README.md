@@ -41,7 +41,7 @@ player must have *Show Character Details* turned on in their profile.
      -v hoyo-bot-data:/app/data hoyo-build-bot
    ```
 
-To keep it online around the clock, host it on Railway: see [DEPLOY.md](DEPLOY.md).
+To keep it online around the clock (free on Google Cloud, or $5/month on Railway), see [DEPLOY.md](DEPLOY.md).
 
 Without `DEV_GUILD_ID`, commands are registered globally and can take up to an
 hour to appear the first time.
