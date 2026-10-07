@@ -518,6 +518,20 @@ class GearOrderTest(unittest.TestCase):
         )
 
 
+class ShortStatNameTest(unittest.TestCase):
+    def test_long_names_are_shortened(self):
+        from bot.embeds import _name
+        from bot.models import Stat
+
+        for long, short in [
+            ("Energy Regen Rate", "ER"), ("Energy Recharge", "ER"), ("Break Effect", "BE"),
+            ("Effect Hit Rate", "EHR"), ("Anomaly Proficiency", "AP"), ("Elemental Mastery", "EM"),
+            ("Quantum DMG Boost", "Quantum DMG"), ("Physical DMG Bonus", "Physical DMG"),
+            ("Outgoing Healing", "Healing"), ("CRIT Rate", "CRIT Rate"),
+        ]:
+            self.assertEqual(_name(Stat(long, "1")), short)
+
+
 class WeaponEffectTest(unittest.TestCase):
     """Genshin weapon passives from genshin-db, rendered in the embed (no network)."""
 
