@@ -1,0 +1,50 @@
+{
+  "playerInfo": {
+    "nickname": "Algoinde",
+    "level": 60,
+    "showAvatarInfoList": [{"avatarId": 10000002, "level": 90}, {"avatarId": 10000005, "level": 70}]
+  },
+  "avatarInfoList": [
+    {
+      "avatarId": 10000002,
+      "propMap": {"4001": {"type": 4001, "ival": "0", "val": "90"}},
+      "talentIdList": [201, 202],
+      "fightPropMap": {"2000": 18524.3, "2001": 2134.7, "2002": 902.1, "28": 40.0, "20": 0.453, "22": 1.987, "23": 1.214, "26": 0.0, "30": 0.0, "46": 0.616},
+      "skillDepotId": 201,
+      "skillLevelMap": {"10024": 9, "10018": 9, "10019": 10},
+      "proudSkillExtraLevelMap": {"239": 3},
+      "equipList": [
+        {
+          "itemId": 11509,
+          "weapon": {"level": 90, "promoteLevel": 6, "affixMap": {"111509": 0}},
+          "flat": {"nameTextMapHash": "4124851547", "rankLevel": 5, "itemType": "ITEM_WEAPON",
+                   "weaponStats": [{"appendPropId": "FIGHT_PROP_BASE_ATTACK", "statValue": 674}, {"appendPropId": "FIGHT_PROP_CRITICAL_HURT", "statValue": 44.1}]}
+        },
+        {
+          "itemId": 82554,
+          "reliquary": {"level": 21, "mainPropId": 12001, "appendPropIdList": [501204]},
+          "flat": {"setNameTextMapHash": "1959650699", "rankLevel": 5, "itemType": "ITEM_RELIQUARY", "equipType": "EQUIP_NECKLACE",
+                   "reliquaryMainstat": {"mainPropId": "FIGHT_PROP_ATTACK", "statValue": 311},
+                   "reliquarySubstats": [{"appendPropId": "FIGHT_PROP_CRITICAL_HURT", "statValue": 21.8}]}
+        },
+        {
+          "itemId": 82554,
+          "reliquary": {"level": 21, "mainPropId": 14001, "appendPropIdList": [501204]},
+          "flat": {"setNameTextMapHash": "1959650699", "rankLevel": 5, "itemType": "ITEM_RELIQUARY", "equipType": "EQUIP_BRACER",
+                   "reliquaryMainstat": {"mainPropId": "FIGHT_PROP_HP", "statValue": 4780},
+                   "reliquarySubstats": [{"appendPropId": "FIGHT_PROP_CRITICAL", "statValue": 10.5}, {"appendPropId": "FIGHT_PROP_ELEMENT_MASTERY", "statValue": 40}]}
+        }
+      ]
+    },
+    {
+      "avatarId": 10000005,
+      "skillDepotId": 504,
+      "propMap": {"4001": {"val": "70"}},
+      "fightPropMap": {"2000": 9000, "2001": 800, "2002": 600, "20": 0.05, "22": 0.5, "23": 1.0, "44": 0.15},
+      "skillLevelMap": {},
+      "equipList": []
+    }
+  ],
+  "ttl": 60,
+  "uid": "618285856"
+}

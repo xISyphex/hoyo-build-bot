@@ -1,0 +1,22 @@
+{
+  "detailInfo": {
+    "uid": 800069903,
+    "nickname": "Trailblazer",
+    "level": 70,
+    "avatarDetailList": [
+      {"avatarId": 1001, "level": 80, "promotion": 6, "skillTreeList": [{"pointId": 1001001, "level": 6}], "relicList": []},
+      {
+        "avatarId": 1102, "level": 80, "promotion": 6, "rank": 1,
+        "skillTreeList": [{"pointId": 1102001, "level": 6}, {"pointId": 1102002, "level": 10}],
+        "equipment": {"tid": 23001, "level": 80, "promotion": 6, "rank": 1},
+        "relicList": [
+          {"tid": 61041, "type": 1, "level": 15, "mainAffixId": 1,
+           "subAffixList": [{"affixId": 8, "cnt": 1}, {"affixId": 7, "cnt": 3, "step": 2}],
+           "_flat": {"setName": 12928675565868716780, "setID": 104}}
+        ]
+      }
+    ]
+  },
+  "ttl": 60,
+  "uid": "800069903"
+}
