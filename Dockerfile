@@ -3,6 +3,6 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY bot ./bot
-ENV CACHE_DIR=/app/data
-VOLUME /app/data
+# Railway rejects the VOLUME instruction; mount a volume at /app/data on the host instead.
+ENV CACHE_DIR=/app/data PYTHONUNBUFFERED=1
 CMD ["python", "-m", "bot"]
