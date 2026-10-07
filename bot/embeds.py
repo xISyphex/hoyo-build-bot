@@ -65,14 +65,20 @@ def _stat_line(stat: Stat) -> str:
 
 
 def _stat_fields(build: CharacterBuild) -> list[tuple[str, str]]:
-    """Two side-by-side columns of equal length (the left one gets the extra line).
+    """Three side-by-side columns of near-equal length (the left ones get the extra lines).
 
-    Both are titled "Stats": phones stack the columns, and an empty title shows as a blank row.
+    Three, because Discord puts three inline fields per row: with fewer, the first gear
+    piece would slide up next to the stats and every gear row after it would be off.
+    All are titled "Stats": phones stack the columns, and an empty title shows as a blank row.
     Stats at 0 (like 0% Effect RES) are left out.
     """
     lines = [_stat_line(s) for s in build.stats if not _is_zero(s.value)]
-    half = (len(lines) + 1) // 2
-    columns = [lines[:half], lines[half:]]
+    size, extra = divmod(len(lines), 3)
+    columns, start = [], 0
+    for i in range(3):
+        end = start + size + (i < extra)
+        columns.append(lines[start:end])
+        start = end
     return [("Stats", "\n".join(col)[:FIELD_LIMIT]) for col in columns if col] or [("Stats", "No stats.")]
 
 
@@ -109,6 +115,30 @@ def _gear_field(piece: Gear, max_level: int, emoji: str | None = None, keep_slot
     return f"{title}{level}", "\n".join(lines)[:FIELD_LIMIT]
 
 
+PLANAR_SLOTS = {"Planar Sphere", "Link Rope"}
+
+
+def _gear_order(build: CharacterBuild) -> list[Gear]:
+    """Star Rail and ZZZ: the 4-piece set fills the left two columns, the 2-piece set the right one.
+
+    Discord shows three pieces per row, so the order is 4pc, 4pc, 2pc, 4pc, 4pc, 2pc.
+    Builds without a clean 4 + 2 split keep their slot order.
+    """
+    gear = build.gear
+    if build.game not in ("hsr", "zzz") or len(gear) != 6:
+        return gear
+    if build.game == "hsr":
+        four = [p for p in gear if p.slot not in PLANAR_SLOTS]
+    else:
+        names = [p.set_name for p in gear]
+        main = next((n for n in names if names.count(n) == 4), None)
+        four = [p for p in gear if p.set_name == main]
+    two = [p for p in gear if p not in four]
+    if len(four) != 4:
+        return gear
+    return [four[0], four[1], two[0], four[2], four[3], two[1]]
+
+
 def build_embed(
     profile: PlayerProfile,
     build: CharacterBuild,
@@ -137,7 +167,7 @@ def build_embed(
         embed.add_field(name=name, value=value, inline=True)
 
     # One column per piece; Discord puts three side by side (stacked on phones).
-    for piece in build.gear:
+    for piece in _gear_order(build):
         name, value = _gear_field(
             piece, labels["max_level"], (piece_emojis or {}).get(piece.piece_icon or ""), keep_slot=build.game == "zzz"
         )

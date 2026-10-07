@@ -82,7 +82,7 @@ class SetEmojiTest(unittest.TestCase):
     def test_missing_picture_keeps_the_slot_name(self):
         session = _Session(missing="https://enka.network/ui/zzz/SuitShockstarDisco.png")
         emojis = asyncio.run(SetEmojis(_Client(), session).for_pieces(self.anby))
-        names = [f.name for f in build_embed(self.profile, self.anby, piece_emojis=emojis).fields if f.inline][2:]
+        names = [f.name for f in build_embed(self.profile, self.anby, piece_emojis=emojis).fields if f.inline][3:]
         self.assertTrue(names[0].startswith("Disc 1"), names)
         self.assertTrue(names[-1].startswith("<:zzz_"), names)
 
@@ -93,14 +93,14 @@ class SetEmojiTest(unittest.TestCase):
         castorice = hsr.characters[0]
         pieces = asyncio.run(SetEmojis(_Client(), _Session()).for_pieces(castorice))
         self.assertEqual(len(pieces), 6)  # one picture per relic
-        names = [f.name for f in build_embed(hsr, castorice, piece_emojis=pieces).fields if f.inline][2:]
+        names = [f.name for f in build_embed(hsr, castorice, piece_emojis=pieces).fields if f.inline][3:]
         self.assertTrue(all(n.startswith("<:hsr_") and n.endswith(">") for n in names), names)
         # Drive discs all show their set's picture, so the disc number stays.
         discs = asyncio.run(SetEmojis(_Client(), _Session()).for_pieces(self.anby))
-        names = [f.name for f in build_embed(self.profile, self.anby, piece_emojis=discs).fields if f.inline][2:]
+        names = [f.name for f in build_embed(self.profile, self.anby, piece_emojis=discs).fields if f.inline][3:]
         self.assertTrue(names[0].startswith("<:zzz_") and " Disc 1" in names[0], names)
         # Without pictures the slot names stay.
-        self.assertEqual([f.name for f in build_embed(hsr, castorice).fields if f.inline][2], "Head")
+        self.assertEqual([f.name for f in build_embed(hsr, castorice).fields if f.inline][3], "Head")
 
 
 if __name__ == "__main__":
