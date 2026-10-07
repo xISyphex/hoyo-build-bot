@@ -96,6 +96,11 @@ class GenshinLiveTest(unittest.TestCase):
         cls.profile = genshin.parse_profile(cls.assets, "618285856", fixture("genshin_live.json"))
         cls.by_name = {c.name: c for c in cls.profile.characters}
 
+    def test_substat_rolls(self):
+        # appendPropIdList holds one affix id per roll; the flower's has 8 for 4 substats.
+        flower = self.by_name["Amber"].gear[0]
+        self.assertEqual([(s.name, s.rolls) for s in flower.subs], [("DEF", 2), ("ATK%", 2), ("CRIT DMG", 3), ("EM", 1)])
+
     def test_profile(self):
         self.assertEqual(self.profile.nickname, "TestPlayer")
         self.assertEqual(self.profile.level, 57)
@@ -200,6 +205,10 @@ class StarRailLiveTest(unittest.TestCase):
         cls.profile = starrail.parse_profile(cls.assets, "800069903", cls.data)
         cls.by_name = {c.name: c for c in cls.profile.characters}
 
+    def test_substat_rolls(self):
+        head = self.by_name["Castorice"].gear[0]
+        self.assertEqual([s.rolls for s in head.subs], [1, 2, 3, 3])
+
     def test_profile(self):
         self.assertEqual((self.profile.nickname, self.profile.level), ("Player", 70))
         self.assertEqual(len(self.profile.characters), 8)
@@ -253,7 +262,7 @@ class StarRailLiveTest(unittest.TestCase):
                 self.assertLessEqual(len(embed), 6000)
                 self.assertTrue(all(len(f.value) <= 1024 for f in embed.fields))
         castorice = build_embed(self.profile, self.by_name["Castorice"])
-        self.assertIn("*Engrave*: Increases the wearer's Max HP by 30%.", castorice.fields[1].value)
+        self.assertIn("> **Engrave**\n> Increases the wearer's Max HP by 30%.", weapon_field(castorice))
 
     def test_every_light_cone_effect_fills_in(self):
         for tid in self.assets.data["hsr_lc_ranks"]:
@@ -281,7 +290,7 @@ class ZenlessTest(unittest.TestCase):
         self.assertEqual(s["HP"], "9,590")  # 7,500 Lv. 60 base (matches in-game) + 2,090 disc
         self.assertEqual(s["Energy Regen"], "1.20")
         self.assertEqual(anby.gear[0].main.value, "2,090")  # docs example: 550 base HP disc at +14
-        self.assertEqual(anby.gear[0].subs[0].name, "CRIT Rate +2")
+        self.assertEqual((anby.gear[0].subs[0].name, anby.gear[0].subs[0].rolls), ("CRIT Rate", 3))
         self.assertEqual(anby.gear[0].subs[0].value, "7.2%")
         self.assertEqual(anby.talents[-1].value, "F")
 
@@ -306,7 +315,7 @@ class ZenlessTest(unittest.TestCase):
         self.assertEqual(miyabi.element, "Frost")
         # Live discs use MainPropertyList; S-rank +15 main stats are fixed in-game values.
         self.assertEqual([g.main.value for g in miyabi.gear], ["2,200", "316", "184", "24.0%", "30.0%", "30.0%"])
-        self.assertEqual(miyabi.gear[0].subs[0].name, "CRIT DMG +3")
+        self.assertEqual((miyabi.gear[0].subs[0].name, miyabi.gear[0].subs[0].rolls), ("CRIT DMG", 4))
         self.assertEqual(miyabi.gear[0].subs[0].value, "19.2%")
         self.assertEqual(miyabi.set_bonuses, ["4pc Branch & Blade Song", "2pc Woodpecker Electro"])
         self.assertEqual(miyabi.weapon.name, "Fusion Compiler")
@@ -351,8 +360,12 @@ class EmbedTest(unittest.TestCase):
                 self.assertLessEqual(len(embed.fields), 25)
                 self.assertTrue(all(len(f.value) <= 1024 for f in embed.fields))
         ayaka = build_embed(self.profile, self.profile.characters[0]).to_dict()
-        self.assertEqual(ayaka["title"], "Kamisato Ayaka · Lv. 90")
-        self.assertEqual(ayaka["description"], "★★★★★ · Cryo · C2")
+        self.assertEqual(ayaka["title"], "Kamisato Ayaka")
+        self.assertEqual(ayaka["description"], "★★★★★ · ❄️ Cryo · Lv. 90 · C2")
+        stats = "\n".join(f["value"] for f in ayaka["fields"] if f["inline"])
+        self.assertIn("🎯 CRIT Rate **", stats)
+        self.assertNotIn("```", stats)
+        self.assertEqual([f["name"] for f in ayaka["fields"] if not f["inline"]][-1], "Artifacts")
 
     def test_slash_command_payload(self):
         import discord
@@ -372,6 +385,10 @@ class EmbedTest(unittest.TestCase):
         self.assertLessEqual(len(payload["options"][1]["description"]), 100)
         claim = tree.get_command("genshin-claim").to_dict(tree)
         self.assertEqual([o["name"] for o in claim["options"]], ["uid"])
+
+
+def weapon_field(embed) -> str:
+    return next(f.value for f in embed.fields if f.name in ("Weapon", "Light Cone", "W-Engine"))
 
 
 class WeaponEffectTest(unittest.TestCase):
@@ -414,11 +431,11 @@ class WeaponEffectTest(unittest.TestCase):
 
         from bot.embeds import build_embed
 
-        amber = build_embed(self.profile, self.profile.characters[0]).fields[1].value
-        self.assertTrue(amber.endswith("*Echoing Ballad*: Increases CRIT DMG by 25%."))
-        bennett = build_embed(self.profile, self.profile.characters[1])
-        self.assertLessEqual(len(bennett.fields[1].value), 1024)
-        self.assertTrue(bennett.fields[1].value.endswith("…"))
+        amber = weapon_field(build_embed(self.profile, self.profile.characters[0]))
+        self.assertTrue(amber.endswith("> **Echoing Ballad**\n> Increases CRIT DMG by 25%."))
+        bennett = weapon_field(build_embed(self.profile, self.profile.characters[1]))
+        self.assertLessEqual(len(bennett), 1024)
+        self.assertTrue(bennett.endswith("…"))
 
     def test_long_effect_never_pushes_embed_over_the_limit(self):
         from bot.embeds import EMBED_LIMIT, build_embed
@@ -437,4 +454,4 @@ class WeaponEffectTest(unittest.TestCase):
         self.assertGreater(without + 900, EMBED_LIMIT)
         embed = build_embed(self.profile, build)
         self.assertLessEqual(len(embed), EMBED_LIMIT)
-        self.assertIn("*Long*: yyy", embed.fields[1].value)
+        self.assertIn("> **Long**\n> yyy", weapon_field(embed))
