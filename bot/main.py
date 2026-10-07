@@ -110,7 +110,9 @@ class EffectButton(discord.ui.Button):
     """Shows or hides the weapon / light cone / W-Engine effect text."""
 
     def __init__(self, profile: PlayerProfile, build: CharacterBuild, shown: bool):
-        super().__init__(label="Show less" if shown else "Show more", style=discord.ButtonStyle.secondary)
+        # Named after the weapon; the arrow says whether its effect is open (button labels max out at 80).
+        arrow = "▴" if shown else "▾"
+        super().__init__(label=f"{build.weapon.name[:76]} {arrow}", style=discord.ButtonStyle.secondary)
         self.profile, self.build, self.shown = profile, build, shown
 
     async def callback(self, interaction: discord.Interaction) -> None:
