@@ -244,6 +244,17 @@ class StarRailLiveTest(unittest.TestCase):
         off_path = starrail.parse_profile(self.assets, "800069903", data).characters[0].weapon
         self.assertEqual(off_path.effect_name, "Engrave (inactive: path doesn't match)")
 
+    def test_every_embed_fits_discord_limits(self):
+        from bot.embeds import build_embed
+
+        for build in self.profile.characters:
+            with self.subTest(character=build.name):
+                embed = build_embed(self.profile, build)
+                self.assertLessEqual(len(embed), 6000)
+                self.assertTrue(all(len(f.value) <= 1024 for f in embed.fields))
+        castorice = build_embed(self.profile, self.by_name["Castorice"])
+        self.assertIn("*Engrave*: Increases the wearer's Max HP by 30%.", castorice.fields[1].value)
+
     def test_every_light_cone_effect_fills_in(self):
         for tid in self.assets.data["hsr_lc_ranks"]:
             for rank in range(1, 6):
