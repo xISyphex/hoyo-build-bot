@@ -135,9 +135,10 @@ class GenshinLiveTest(unittest.TestCase):
 
         for build in self.profile.characters:
             with self.subTest(character=build.name):
-                embed = build_embed(self.profile, build)
-                self.assertLessEqual(len(embed), 6000)
-                self.assertTrue(all(len(f.value) <= 1024 for f in embed.fields))
+                for shown in (False, True):
+                    embed = build_embed(self.profile, build, show_effect=shown)
+                    self.assertLessEqual(len(embed), 6000)
+                    self.assertTrue(all(len(f.value) <= 1024 for f in embed.fields))
 
 
 class StarRailTest(unittest.TestCase):
@@ -258,10 +259,11 @@ class StarRailLiveTest(unittest.TestCase):
 
         for build in self.profile.characters:
             with self.subTest(character=build.name):
-                embed = build_embed(self.profile, build)
-                self.assertLessEqual(len(embed), 6000)
-                self.assertTrue(all(len(f.value) <= 1024 for f in embed.fields))
-        castorice = build_embed(self.profile, self.by_name["Castorice"])
+                for shown in (False, True):
+                    embed = build_embed(self.profile, build, show_effect=shown)
+                    self.assertLessEqual(len(embed), 6000)
+                    self.assertTrue(all(len(f.value) <= 1024 for f in embed.fields))
+        castorice = build_embed(self.profile, self.by_name["Castorice"], show_effect=True)
         self.assertIn("> **Engrave**\n> Increases the wearer's Max HP by 30%.", weapon_field(castorice))
 
     def test_every_light_cone_effect_fills_in(self):
@@ -347,7 +349,7 @@ class ZenlessTest(unittest.TestCase):
         profile = zenless.parse_profile(self.assets, "1300003409", fixture("zzz_live.json"))
         for build in profile.characters:
             with self.subTest(character=build.name):
-                embed = build_embed(profile, build)
+                embed = build_embed(profile, build, show_effect=True)
                 self.assertLessEqual(len(embed), 6000)
                 self.assertTrue(all(len(f.value) <= 1024 for f in embed.fields))
 
@@ -443,17 +445,21 @@ class EmbedTest(unittest.TestCase):
 
         for build in self.profile.characters:
             with self.subTest(character=build.name):
-                embed = build_embed(self.profile, build)
+                embed = build_embed(self.profile, build, show_effect=True)
                 self.assertLessEqual(len(embed), 6000)
                 self.assertLessEqual(len(embed.fields), 25)
                 self.assertTrue(all(len(f.value) <= 1024 for f in embed.fields))
         ayaka = build_embed(self.profile, self.profile.characters[0]).to_dict()
         self.assertEqual(ayaka["title"], "Kamisato Ayaka")
-        self.assertEqual(ayaka["description"], "★★★★★ · ❄️ Cryo · Lv. 90 · C2")
-        stats = "\n".join(f["value"] for f in ayaka["fields"] if f["inline"])
-        self.assertIn("🎯 CRIT Rate **", stats)
-        self.assertNotIn("```", stats)
-        self.assertEqual([f["name"] for f in ayaka["fields"] if not f["inline"]][-1], "Artifacts")
+        self.assertEqual(ayaka["description"], "★★★★★ · Cryo · Lv. 90 · C2")
+        names = [f["name"] for f in ayaka["fields"]]
+        # One stats column (no blank second column that phones show as an empty row), no talents,
+        # and the set bonuses come last, under the artifact pieces.
+        self.assertEqual(names[:2], ["Stats", "Weapon"])
+        self.assertNotIn("Talents", names)
+        self.assertEqual(names[-1], "Artifacts")
+        self.assertIn("• CRIT Rate **", ayaka["fields"][0]["value"])
+        self.assertNotIn("```", ayaka["fields"][0]["value"])
 
     def test_slash_command_payload(self):
         import discord
@@ -519,9 +525,11 @@ class WeaponEffectTest(unittest.TestCase):
 
         from bot.embeds import build_embed
 
-        amber = weapon_field(build_embed(self.profile, self.profile.characters[0]))
+        # Hidden until "Show more" is pressed.
+        self.assertNotIn("Echoing Ballad", weapon_field(build_embed(self.profile, self.profile.characters[0])))
+        amber = weapon_field(build_embed(self.profile, self.profile.characters[0], show_effect=True))
         self.assertTrue(amber.endswith("> **Echoing Ballad**\n> Increases CRIT DMG by 25%."))
-        bennett = weapon_field(build_embed(self.profile, self.profile.characters[1]))
+        bennett = weapon_field(build_embed(self.profile, self.profile.characters[1], show_effect=True))
         self.assertLessEqual(len(bennett), 1024)
         self.assertTrue(bennett.endswith("…"))
 
@@ -536,10 +544,10 @@ class WeaponEffectTest(unittest.TestCase):
         for piece in build.gear:
             piece.subs = [Stat("s" * 100, "v" * 100) for _ in range(3)]
         build.weapon.effect = None
-        without = len(build_embed(self.profile, build))
+        without = len(build_embed(self.profile, build, show_effect=True))
         build.weapon.effect = "y" * 900
         self.assertLess(without, EMBED_LIMIT - 100)
         self.assertGreater(without + 900, EMBED_LIMIT)
-        embed = build_embed(self.profile, build)
+        embed = build_embed(self.profile, build, show_effect=True)
         self.assertLessEqual(len(embed), EMBED_LIMIT)
         self.assertIn("> **Long**\n> yyy", weapon_field(embed))

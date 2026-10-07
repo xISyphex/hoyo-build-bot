@@ -238,6 +238,8 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
                 rarity=int(rmeta.get("Rarity", 0)),
                 main=_fmt_prop(main_prop, main_val),
                 subs=subs,
+                # The set's picture: its head piece, or its sphere for planar sets (ids 300 and up).
+                icon=f"https://enka.network/ui/hsr/SpriteOutput/ItemIcon/RelicIcons/IconRelic_{set_id}_{5 if set_id >= 300 else 1}.png",
             )
         )
     gear.sort(key=lambda g: SLOT_ORDER.index(g.slot) if g.slot in SLOT_ORDER else 99)

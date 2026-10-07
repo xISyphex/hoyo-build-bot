@@ -15,9 +15,14 @@ Each person has one claimed UID per game; claiming again replaces it. A UID type
 into the lookup still wins over the claimed one. Claims are saved to
 `claims.json` in the cache folder, so they survive restarts and updates.
 
-The reply shows final stats, weapon / light cone / W-Engine, talent levels,
-set bonuses and every artifact / relic / drive disc with its substats. A dropdown
-under the reply switches to the player's other showcased characters.
+The reply shows final stats, weapon / light cone / W-Engine, every artifact /
+relic / drive disc with its substats, and the set bonuses with each set's picture.
+A **Show more** button under the reply reveals the weapon's effect text, and a
+dropdown switches to the player's other showcased characters.
+
+Set pictures are uploaded once as the bot's own application emojis (Discord
+allows 2,000 per bot), because embed text can't hold images. They show up under
+**Emojis** on the bot's page in the Discord Developer Portal.
 
 Data comes from [Enka.Network](https://enka.network), which reads the player's
 **in-game showcase**. Only characters on that showcase can be looked up, and the
@@ -99,5 +104,6 @@ bot/
   embeds.py      Turns a CharacterBuild into a Discord embed
   matching.py    Forgiving name matching ("raiden", "hutao", typos)
   claims.py      Claimed UIDs per Discord user and game, saved as JSON
+  set_emojis.py  Uploads gear set pictures as the bot's emojis
 tests/           Parser tests with sample responses
 ```
