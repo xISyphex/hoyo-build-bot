@@ -4,10 +4,16 @@ A Discord bot that shows a character's stats and build from a player's UID, for
 **Genshin Impact**, **Honkai: Star Rail** and **Zenless Zone Zero**.
 
 ```
-/genshin uid:618285856 character:Ayaka
-/hsr     uid:800069903 character:Seele
-/zzz     uid:1300003409 character:Anby
+/genshin character:Ayaka uid:618285856
+/hsr     character:Seele uid:800069903
+/zzz     character:Anby uid:1300003409
 ```
+
+Claim your own UID once per game with `/genshin-claim`, `/hsr-claim` or
+`/zzz-claim`, and then `/hsr character:Seele` shows your own Seele without a UID.
+Each person has one claimed UID per game; claiming again replaces it. A UID typed
+into the lookup still wins over the claimed one. Claims are saved to
+`claims.json` in the cache folder, so they survive restarts and updates.
 
 The reply shows final stats, weapon / light cone / W-Engine, talent levels,
 set bonuses and every artifact / relic / drive disc with its substats. A dropdown
@@ -52,6 +58,7 @@ hour to appear the first time.
 | `DEV_GUILD_ID` | no | Server ID for instant command registration while testing. |
 | `CACHE_DIR` | no | Where game data is cached (default `data`). |
 | `ENKA_USER_AGENT` | no | User-Agent sent to Enka.Network. |
+| `CLAIMS_FILE` | no | Where claimed UIDs are saved (default `claims.json` in `CACHE_DIR`). |
 
 ## How stats are computed
 
@@ -66,6 +73,10 @@ Game data (names, base stats) is downloaded from Enka's
 [API-docs store](https://github.com/EnkaNetwork/API-docs/tree/master/store) on
 start and refreshed every 12 hours, so new characters work without a redeploy.
 Profiles are cached for the `ttl` Enka returns, as Enka asks.
+
+Genshin weapon passives come from
+[genshin-db](https://github.com/theBowja/genshin-db) (MIT). Each weapon's file is
+downloaded the first time that weapon is shown and cached in `CACHE_DIR`.
 
 ## Tests
 
@@ -83,8 +94,10 @@ bot/
   main.py        Discord client, slash commands, autocomplete, dropdown
   enka.py        Enka.Network HTTP client with ttl cache and error messages
   assets.py      Downloads and indexes Enka's game data files
+  gi_weapon_effects.py  Genshin weapon passives from genshin-db
   games/         One parser per game -> models.CharacterBuild
   embeds.py      Turns a CharacterBuild into a Discord embed
   matching.py    Forgiving name matching ("raiden", "hutao", typos)
+  claims.py      Claimed UIDs per Discord user and game, saved as JSON
 tests/           Parser tests with sample responses
 ```

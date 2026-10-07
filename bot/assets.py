@@ -29,10 +29,17 @@ FILES = {
     "hsr_skilltree": "hsr/honker_skilltree.json",
     "hsr_ranks": "hsr/honker_ranks.json",
     "hsr_locs": "hsr/hsr.json",
+    "hsr_lc_ranks": "hsr/light_cone_ranks.json",
     "zzz_avatars": "zzz/avatars.json",
     "zzz_weapons": "zzz/weapons.json",
     "zzz_equipments": "zzz/equipments.json",
     "zzz_locs": "zzz/locs.json",
+}
+
+# Files that don't come from Enka's store. Light cone passives (text plus the
+# numbers per superimposition) are only published by StarRailRes.
+URLS = {
+    "hsr_lc_ranks": "https://raw.githubusercontent.com/Mar-7th/StarRailRes/master/index_min/en/light_cone_ranks.json",
 }
 
 MAX_AGE = 12 * 3600
@@ -65,7 +72,7 @@ class Assets:
         """Download every store file; keep the cached copy if a download fails."""
         for key, rel in FILES.items():
             try:
-                async with session.get(STORE_URL + rel) as resp:
+                async with session.get(URLS.get(key, STORE_URL + rel)) as resp:
                     resp.raise_for_status()
                     body = await resp.read()
                 json.loads(body)  # never cache a broken file

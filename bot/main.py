@@ -1,4 +1,4 @@
-"""Discord entry point: /genshin, /hsr and /zzz slash commands."""
+"""Discord entry point: /genshin, /hsr and /zzz lookups plus the /<game>-claim commands."""
 
 from __future__ import annotations
 
@@ -14,8 +14,9 @@ from discord.ext import tasks
 
 from . import matching
 from .assets import Assets
+from .claims import ClaimStore
 from .embeds import build_embed
-from .enka import EnkaClient, EnkaError
+from .enka import ERRORS, EnkaClient, EnkaError
 from .models import PlayerProfile
 
 log = logging.getLogger("hoyo-bot")
@@ -29,7 +30,10 @@ class HoyoBot(discord.Client):
     def __init__(self) -> None:
         super().__init__(intents=discord.Intents.none())
         self.tree = app_commands.CommandTree(self)
-        self.assets = Assets(os.environ.get("CACHE_DIR", "data"))
+        cache_dir = os.environ.get("CACHE_DIR", "data")
+        self.assets = Assets(cache_dir)
+        # Lives next to the game data, which the VM setup script and the Docker volume keep across updates.
+        self.claims = ClaimStore(os.environ.get("CLAIMS_FILE", os.path.join(cache_dir, "claims.json")))
         self.session: aiohttp.ClientSession | None = None
         self.enka: EnkaClient | None = None
 
@@ -45,6 +49,7 @@ class HoyoBot(discord.Client):
 
         for game in GAME_NAMES:
             self.tree.add_command(make_command(game))
+            self.tree.add_command(make_claim_command(game))
         guild_id = os.environ.get("DEV_GUILD_ID")
         if guild_id:
             # Guild commands appear instantly; global ones can take up to an hour.
@@ -97,10 +102,19 @@ class CharacterView(discord.ui.View):
 
 def make_command(game: str) -> app_commands.Command:
     @app_commands.command(name=game, description=f"Show a {GAME_NAMES[game]} character's stats and build")
-    @app_commands.describe(uid="In-game UID", character="Character name (from the player's showcase)")
-    async def command(interaction: discord.Interaction, uid: str, character: str) -> None:
+    @app_commands.describe(
+        character="Character name (from the player's showcase)",
+        uid="In-game UID. Leave empty to use the one you claimed with /" + game + "-claim",
+    )
+    async def command(interaction: discord.Interaction, character: str, uid: str | None = None) -> None:
         bot: HoyoBot = interaction.client  # type: ignore[assignment]
-        uid = uid.strip()
+        uid = resolve_uid(bot.claims, interaction.user.id, game, uid)
+        if uid is None:
+            await interaction.response.send_message(
+                f"Add a `uid`, or claim your own once with `/{game}-claim` so you can leave it out.",
+                ephemeral=True,
+            )
+            return
         if not UID_RE.match(uid):
             await interaction.response.send_message("A UID is 8 to 10 digits, like `618285856`.", ephemeral=True)
             return
@@ -138,7 +152,7 @@ def make_command(game: str) -> app_commands.Command:
     @command.autocomplete("character")
     async def character_autocomplete(interaction: discord.Interaction, current: str):
         bot: HoyoBot = interaction.client  # type: ignore[assignment]
-        uid = str(getattr(interaction.namespace, "uid", "") or "").strip()
+        uid = resolve_uid(bot.claims, interaction.user.id, game, getattr(interaction.namespace, "uid", None)) or ""
         names: list[str] = []
         if UID_RE.match(uid):
             # Only use a profile we already have; autocomplete must answer within 3 seconds.
@@ -154,6 +168,45 @@ def make_command(game: str) -> app_commands.Command:
         return [app_commands.Choice(name=n, value=n) for n in matching.suggest(current, names)]
 
     return command
+
+
+def resolve_uid(claims: ClaimStore, user_id: int, game: str, typed: str | None) -> str | None:
+    """A typed UID wins; otherwise use the caller's claimed UID for this game."""
+    typed = str(typed or "").strip()
+    return typed or claims.get(user_id, game)
+
+
+def make_claim_command(game: str) -> app_commands.Command:
+    @app_commands.command(
+        name=f"{game}-claim",
+        description=f"Save your {GAME_NAMES[game]} UID so /{game} shows your own characters",
+    )
+    @app_commands.describe(uid="Your in-game UID")
+    async def claim(interaction: discord.Interaction, uid: str) -> None:
+        bot: HoyoBot = interaction.client  # type: ignore[assignment]
+        uid = uid.strip()
+        if not UID_RE.match(uid):
+            await interaction.response.send_message("A UID is 8 to 10 digits, like `618285856`.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        name = f"UID {uid}"
+        try:
+            profile = await bot.enka.fetch(game, uid)
+            name = f"**{profile.nickname}** (UID {uid})"
+        except EnkaError as exc:
+            if str(exc) == ERRORS[404]:
+                await interaction.followup.send(f"{exc} Nothing was claimed.")
+                return
+            # Enka being down shouldn't stop someone from saving their UID.
+        except Exception:
+            log.exception("Failed to check %s profile %s while claiming", game, uid)
+        previous = bot.claims.set(interaction.user.id, game, uid)
+        msg = f"Claimed {name} for {GAME_NAMES[game]}. Now `/{game}` with just a character shows your own build."
+        if previous and previous != uid:
+            msg += f" This replaces UID {previous}."
+        await interaction.followup.send(msg)
+
+    return claim
 
 
 def run() -> None:

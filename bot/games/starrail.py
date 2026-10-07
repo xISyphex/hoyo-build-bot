@@ -9,6 +9,7 @@ conditions) are not in the meta file and are left out, as in-game.
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 
 from ..assets import Assets
@@ -62,6 +63,38 @@ PROP_SHORT = {
     "ImaginaryAddedRatio": "Imaginary DMG",
 }
 TALENT_LABELS = ["Basic ATK", "Skill", "Ultimate", "Talent"]
+
+
+PLACEHOLDER = re.compile(r"#(\d+)\[(i|f\d)\](%?)")
+
+
+def _fill(desc: str, params: list) -> str:
+    """Replace the game's #1[i]% style placeholders with this rank's numbers."""
+
+    def sub(m: re.Match) -> str:
+        idx, kind, pct = int(m.group(1)) - 1, m.group(2), m.group(3)
+        if idx >= len(params):
+            return m.group(0)
+        value = params[idx] * (100 if pct else 1)
+        if kind == "i":
+            text = f"{value:.2f}".rstrip("0").rstrip(".")  # 37.5, 12, 0.5
+        else:
+            text = f"{value:.{int(kind[1:])}f}"
+        return f"{text}{pct}"
+
+    return PLACEHOLDER.sub(sub, desc)
+
+
+def light_cone_effect(assets: Assets, tid: str, rank: int, active: bool = True) -> dict:
+    """effect_name / effect for Weapon: the passive filled in for this superimposition."""
+    entry = assets.data.get("hsr_lc_ranks", {}).get(tid)
+    if not entry or not entry.get("params"):
+        return {}
+    params = entry["params"][min(max(rank, 1), len(entry["params"])) - 1]
+    name = entry.get("skill") or "Passive"
+    if not active:
+        name += " (inactive: path doesn't match)"
+    return {"effect_name": name, "effect": _fill(entry.get("desc", ""), params).strip()}
 
 
 def _fmt_prop(prop: str, value: float) -> Stat:
@@ -124,7 +157,8 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
         base_atk += lc_atk
         base_def += lc_def
         wep = assets.data["hsr_weapons"].get(tid, {})
-        if wep.get("AvatarBaseType") == char.get("AvatarBaseType"):
+        path_match = wep.get("AvatarBaseType") == char.get("AvatarBaseType")
+        if path_match:
             _add(bonus, meta["equipmentSkill"].get(tid, {}).get(str(lc_rank), {}).get("props"))
         weapon = Weapon(
             name=assets.hsr_text(wep.get("EquipmentName", {}).get("Hash"))
@@ -134,6 +168,7 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
             refinement=lc_rank,
             rarity=int(wep.get("Rarity", 0)),
             stats=[Stat("HP", fmt_int(lc_hp)), Stat("ATK", fmt_int(lc_atk)), Stat("DEF", fmt_int(lc_def))],
+            **light_cone_effect(assets, tid, lc_rank, path_match or not wep or not char),
         )
 
     # Traces (minor stat nodes)
@@ -185,9 +220,12 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
                 sub_props.append((sdef.get("Property", ""), val))
         bonus[main_prop] += main_val
         subs = []
-        for prop, val in sub_props:
+        counts = [int(sub.get("cnt", 0)) for sub in relic.get("subAffixList", [])]
+        for i, (prop, val) in enumerate(sub_props):
             bonus[prop] += val
             subs.append(_fmt_prop(prop, val))
+            if i < len(counts):
+                subs[-1].rolls = counts[i]
         set_id = int(flat.get("setID") or rmeta.get("SetID", 0))
         set_counts[set_id] += 1
         set_names.setdefault(set_id, assets.hsr_text(flat.get("setName")) or f"Set {set_id}")
