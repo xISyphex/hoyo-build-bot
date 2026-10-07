@@ -34,6 +34,10 @@ player must have *Show Character Details* turned on in their profile.
    **Bot**, and copy the token. No privileged intents are needed.
 2. Invite it: **OAuth2 → URL Generator**, tick `bot` and `applications.commands`,
    permission *Send Messages* and *Embed Links*, then open the URL.
+   To use the commands in servers without the bot too (and in DMs), open
+   **Installation**, tick **User Install**, and add the app to your account with
+   the install link shown there. Servers that block external apps show the
+   reply only to you.
 3. Run it (Python 3.10+):
 
    ```bash

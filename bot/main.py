@@ -31,7 +31,13 @@ GAME_NAMES = {"genshin": "Genshin Impact", "hsr": "Honkai: Star Rail", "zzz": "Z
 class HoyoBot(discord.Client):
     def __init__(self) -> None:
         super().__init__(intents=discord.Intents.none())
-        self.tree = app_commands.CommandTree(self)
+        # Commands work wherever the bot is in the server, and also for people who added it
+        # to their own account ("User Install"): in any server, DMs and group chats.
+        self.tree = app_commands.CommandTree(
+            self,
+            allowed_installs=app_commands.AppInstallationType(guild=True, user=True),
+            allowed_contexts=app_commands.AppCommandContext(guild=True, dm_channel=True, private_channel=True),
+        )
         cache_dir = os.environ.get("CACHE_DIR", "data")
         self.assets = Assets(cache_dir)
         # Lives next to the game data, which the VM setup script and the Docker volume keep across updates.
