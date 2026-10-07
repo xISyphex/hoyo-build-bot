@@ -276,6 +276,27 @@ class ZenlessTest(unittest.TestCase):
         self.assertEqual(miyabi.set_bonuses, ["4pc Branch & Blade Song", "2pc Woodpecker Electro"])
         self.assertEqual(miyabi.weapon.name, "Fusion Compiler")
 
+    def test_wengine_effect_for_phase(self):
+        # Shape of Hakushin's per-phase W-Engine talents, as cached by Assets.
+        effects = {"14118": {
+            "1": {"Name": "Frostbite", "Desc": "Increases ATK by <color=#2BAD00>12%</color>.\\nStacks up to 3 times."},
+            "5": {"Name": "Frostbite", "Desc": "Increases ATK by <color=#2BAD00>24%</color>.\\nStacks up to 3 times."},
+        }}
+        self.assets.data["zzz_weapon_effects"] = effects
+        try:
+            data = fixture("zzz_live.json")
+            miyabi = zenless.parse_profile(self.assets, "1300003409", data).characters[3]
+            self.assertEqual(miyabi.weapon.effect_name, "Frostbite")
+            self.assertEqual(miyabi.weapon.effect, "Increases ATK by 12%.\nStacks up to 3 times.")
+            data["PlayerInfo"]["ShowcaseDetail"]["AvatarList"][3]["Weapon"]["UpgradeLevel"] = 5
+            miyabi = zenless.parse_profile(self.assets, "1300003409", data).characters[3]
+            self.assertIn("24%", miyabi.weapon.effect)
+            # No cached effect for a W-Engine: nothing shown, no error.
+            anby = zenless.parse_profile(self.assets, "1300003409", data).characters[0]
+            self.assertIsNone(anby.weapon.effect)
+        finally:
+            self.assets.data["zzz_weapon_effects"] = {}
+
     def test_element_fallback(self):
         self.assertEqual(zenless._element(["ZhenZhenAssault", "Physics"]), "Physical")
         self.assertEqual(zenless._element(["Wind"]), "Wind")
