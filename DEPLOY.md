@@ -41,6 +41,9 @@ show German labels; the names below are the English ones.
    - **Boot disk:** Debian 12, **Standard persistent disk**, 30 GB or less.
      (The default "Balanced" disk is not free.)
    - Leave the firewall boxes for HTTP/HTTPS unticked.
+
+   The "Monthly estimate" panel still shows about $6 to $7. It always shows list
+   prices and never subtracts the free tier; billing applies it afterwards.
 4. Click **Create**. When the VM shows a green tick, click **SSH** in its row. A
    terminal opens in your browser.
 5. Paste this line and press Enter:
