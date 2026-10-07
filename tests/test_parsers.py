@@ -139,6 +139,22 @@ class ZenlessTest(unittest.TestCase):
         self.assertEqual(anby.gear[0].subs[0].value, "7.2%")
         self.assertEqual(anby.talents[-1].value, "F")
 
+    def test_yixuan(self):
+        # SkillLevelList as a dict (the docs call it a dict), Rupture agent, new element.
+        yixuan = self.profile.characters[1]
+        self.assertEqual(yixuan.name, "Yixuan")
+        self.assertEqual(yixuan.element, "Auric Ink")
+        s = stats(yixuan)
+        self.assertNotIn("Energy Regen", s)  # Rupture agents have no Energy Regen
+        self.assertEqual(s["Wind DMG Bonus"], "30.0%")  # 750 * (1 + 15 * 0.2)
+        self.assertEqual(yixuan.gear[0].main.name, "Wind DMG")
+        self.assertEqual(dict((t.name, t.value) for t in yixuan.talents)["Basic"], "12 ★")
+
+    def test_element_fallback(self):
+        self.assertEqual(zenless._element(["ZhenZhenAssault", "Physics"]), "Physical")
+        self.assertEqual(zenless._element(["Wind"]), "Wind")
+        self.assertEqual(zenless._element(["Lumen"]), "Lumen")
+
 
 class MatchingTest(unittest.TestCase):
     def test_find(self):
