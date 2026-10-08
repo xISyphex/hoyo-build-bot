@@ -36,6 +36,8 @@ SLOTS = {
 }
 SLOT_ORDER = list(SLOTS.values())
 RELIC_ICONS = "https://enka.network/ui/hsr/SpriteOutput/ItemIcon/RelicIcons/"
+# StarRailRes images: full character art and light cone cards.
+SRR_IMAGES = "https://raw.githubusercontent.com/Mar-7th/StarRailRes/master/image/"
 # The response's own relic "type" field, used when a relic is newer than the store data.
 TYPE_SLOTS = dict(enumerate(SLOT_ORDER, start=1))
 
@@ -172,6 +174,7 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
             rarity=int(wep.get("Rarity", 0)),
             stats=[Stat("HP", fmt_int(lc_hp)), Stat("ATK", fmt_int(lc_atk)), Stat("DEF", fmt_int(lc_def))],
             **light_cone_effect(assets, tid, lc_rank, path_match or not wep or not char),
+            icon_url=f"{SRR_IMAGES}light_cone_preview/{tid}.png",
         )
 
     # Traces (minor stat nodes)
@@ -305,6 +308,7 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
         gear=gear,
         set_bonuses=set_bonuses,
         notes=notes,
+        art_url=f"{SRR_IMAGES}character_portrait/{avatar_id}.png",
     )
 
 

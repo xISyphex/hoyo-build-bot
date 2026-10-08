@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import logging
 import os
 import re
@@ -15,7 +16,8 @@ from discord.ext import tasks
 from . import matching
 from .assets import Assets
 from .claims import ClaimStore
-from .embeds import build_embed
+from .card import CardMaker
+from .embeds import build_embed, card_embed
 from .enka import ERRORS, EnkaClient, EnkaError
 from .models import CharacterBuild, PlayerProfile
 from .set_emojis import SetEmojis
@@ -45,11 +47,13 @@ class HoyoBot(discord.Client):
         self.session: aiohttp.ClientSession | None = None
         self.enka: EnkaClient | None = None
         self.set_emojis: SetEmojis | None = None
+        self.cards: CardMaker | None = None
 
     async def setup_hook(self) -> None:
         self.session = aiohttp.ClientSession(headers={"User-Agent": USER_AGENT}, trust_env=True)
         self.enka = EnkaClient(self.session, self.assets)
         self.set_emojis = SetEmojis(self, self.session)
+        self.cards = CardMaker(self.session, self.assets.cache_dir)
         if self.assets.is_stale():
             log.info("Downloading game data from Enka.Network")
             await self.assets.refresh(self.session)
@@ -87,12 +91,32 @@ class HoyoBot(discord.Client):
 async def render(
     bot: HoyoBot, profile: PlayerProfile, build: CharacterBuild, show_effect: bool = False
 ) -> dict:
-    """Embed and buttons for one character, ready to send or edit in."""
+    """Build card, embed and buttons for one character, ready to send.
+
+    If the card can't be drawn, the reply falls back to the all-text embed.
+    """
+    view = CharacterView(profile, build, show_effect)
+    try:
+        png = await bot.cards.render(profile, build)
+    except Exception:
+        log.exception("Could not draw the build card for %s", build.name)
+    else:
+        name = "build.png"
+        return {
+            "embed": card_embed(profile, build, name, show_effect=show_effect),
+            "view": view,
+            "file": discord.File(io.BytesIO(png), filename=name),
+        }
     pieces = await bot.set_emojis.for_pieces(build)
-    return {
-        "embed": build_embed(profile, build, show_effect=show_effect, piece_emojis=pieces),
-        "view": CharacterView(profile, build, show_effect),
-    }
+    return {"embed": build_embed(profile, build, show_effect=show_effect, piece_emojis=pieces), "view": view}
+
+
+def as_edit(reply: dict) -> dict:
+    """The same reply for editing a message: the card replaces the old one (or is removed)."""
+    reply = dict(reply)
+    file = reply.pop("file", None)
+    reply["attachments"] = [file] if file else []
+    return reply
 
 
 class CharacterSelect(discord.ui.Select):
@@ -108,9 +132,9 @@ class CharacterSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction) -> None:
         build = next(c for c in self.profile.characters if c.name == self.values[0])
-        # Uploading a new set image can take longer than Discord's 3-second reply window.
+        # Drawing a new card can take longer than Discord's 3-second reply window.
         await interaction.response.defer()
-        await interaction.edit_original_response(**await render(interaction.client, self.profile, build))
+        await interaction.edit_original_response(**as_edit(await render(interaction.client, self.profile, build)))
 
 
 class EffectButton(discord.ui.Button):
@@ -124,7 +148,7 @@ class EffectButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer()
         await interaction.edit_original_response(
-            **await render(interaction.client, self.profile, self.build, show_effect=not self.shown)
+            **as_edit(await render(interaction.client, self.profile, self.build, show_effect=not self.shown))
         )
 
 

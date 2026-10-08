@@ -34,6 +34,7 @@ class Weapon:
     stats: list[Stat] = field(default_factory=list)
     effect_name: str | None = None  # passive / light cone ability / W-Engine effect
     effect: str | None = None  # plain text, already filled in for the refinement
+    icon_url: str | None = None  # picture of the weapon / light cone / W-Engine
 
 
 @dataclass
@@ -52,6 +53,7 @@ class CharacterBuild:
     gear: list[Gear]
     set_bonuses: list[str]
     notes: list[str] = field(default_factory=list)
+    art_url: str | None = None  # large character art for the build card
 
 
 @dataclass
