@@ -391,63 +391,7 @@ def _hsr_marks(img: Image.Image, n: int, accent, light) -> None:
             draw.ellipse((x - r, y - r, x + r, y + r), fill=(14, 12, 24, 170), outline=(255, 255, 255, 80), width=4 * SS)
 
 
-def _zzz_marks(img: Image.Image, n: int, accent, light) -> Image.Image:
-    """Mindscape Cinema: a strip of film, six frames, the unlocked ones lit. Tilted a little, for attitude."""
-    w, h = img.size
-    x0, x1 = w * 0.12, w * 0.80
-    draw = ImageDraw.Draw(img)
-    draw.rounded_rectangle((x0, 0, x1, h), 6 * SS, fill=(10, 10, 14, 225))
-    hole_w, hole_h = 7 * SS, 9 * SS
-    y = 6 * SS
-    while y + hole_h < h - 4 * SS:  # sprocket holes down both sides
-        for hx in (x0 + 4 * SS, x1 - 4 * SS - hole_w):
-            draw.rounded_rectangle((hx, y, hx + hole_w, y + hole_h), 2 * SS, fill=(255, 255, 255, 60))
-        y += 18 * SS
-    fx0, fx1 = x0 + 15 * SS, x1 - 15 * SS
-    fh = h / 6
-    for i in range(6):
-        fy0, fy1 = i * fh + 4 * SS, (i + 1) * fh - 4 * SS
-        if i < n:
-            frame = Image.new("RGBA", (int(fx1 - fx0), int(fy1 - fy0)))
-            fd = ImageDraw.Draw(frame)
-            for row in range(frame.height):  # element-colored gradient, brighter at the top
-                fd.line((0, row, frame.width, row), fill=_mix(light, accent, row / frame.height) + (255,))
-            img.alpha_composite(frame, (int(fx0), int(fy0)))
-            cx, cy = (fx0 + fx1) / 2, (fy0 + fy1) / 2
-            draw.polygon([(cx - 6 * SS, cy - 9 * SS), (cx + 9 * SS, cy), (cx - 6 * SS, cy + 9 * SS)], fill=(16, 14, 26, 230))
-        else:
-            draw.rectangle((fx0, fy0, fx1, fy1), fill=(40, 40, 50, 200), outline=(255, 255, 255, 40), width=SS)
-    return img.rotate(-4, resample=Image.BICUBIC, expand=True)
-
-
-def _zzz_tapes(img: Image.Image, n: int, accent, light) -> Image.Image:
-    """Random Play's shelf: six VHS tapes stacked, the unlocked ones with a bright label."""
-    w, h = img.size
-    x0, x1 = w * 0.06, w * 0.94
-    th = h / 6
-    draw = ImageDraw.Draw(img)
-    for i in range(6):
-        y0, y1 = i * th + 3 * SS, (i + 1) * th - 3 * SS
-        lit = i < n
-        draw.rounded_rectangle((x0, y0, x1, y1), 4 * SS, fill=(22, 22, 28, 240) if lit else (22, 22, 28, 150),
-                               outline=(255, 255, 255, 60 if lit else 30), width=SS)
-        lx0, lx1, ly0, ly1 = x0 + 7 * SS, x0 + (x1 - x0) * 0.6, y0 + 7 * SS, y1 - 7 * SS
-        if lit:
-            draw.rounded_rectangle((lx0, ly0, lx1, ly1), 3 * SS, fill=light + (255,))
-            draw.rectangle((lx0, ly0 + (ly1 - ly0) * 0.62, lx1, ly1 - 2 * SS), fill=accent + (255,))
-            for k in range(3):  # handwritten-ish title lines on the label
-                yy = ly0 + 6 * SS + k * 5 * SS
-                draw.line((lx0 + 6 * SS, yy, lx0 + (30 - k * 8) * SS, yy), fill=(20, 18, 30, 200), width=2 * SS)
-        else:
-            draw.rounded_rectangle((lx0, ly0, lx1, ly1), 3 * SS, outline=(255, 255, 255, 50), width=SS)
-        for hx in (x0 + (x1 - x0) * 0.72, x0 + (x1 - x0) * 0.87):  # the two reel windows
-            r = 5 * SS
-            cy = (y0 + y1) / 2
-            draw.ellipse((hx - r, cy - r, hx + r, cy + r), fill=(0, 0, 0, 220), outline=(255, 255, 255, 90 if lit else 40), width=SS)
-    return img.rotate(-3, resample=Image.BICUBIC, expand=True)
-
-
-def _zzz_tvs(img: Image.Image, n: int, accent, light) -> Image.Image:
+def _zzz_marks(img: Image.Image, n: int, accent, light) -> None:
     """A stack of six little CRT TVs, like the wall of screens in the HDD room: lit ones glow, the rest are off."""
     w, h = img.size
     th = h / 6
@@ -478,35 +422,6 @@ def _zzz_tvs(img: Image.Image, n: int, accent, light) -> Image.Image:
         kx = x1 - 9 * SS
         for ky in (y0 + 12 * SS, y0 + 22 * SS):  # knobs
             draw.ellipse((kx - 3 * SS, ky - 3 * SS, kx + 3 * SS, ky + 3 * SS), fill=light + (255,) if lit else (255, 255, 255, 50))
-    return img
-
-
-def _zzz_gauge(img: Image.Image, n: int, accent, light) -> Image.Image:
-    """A street-style power gauge: six chunky slanted cells behind hazard tape, filling up from the top."""
-    w, h = img.size
-    draw = ImageDraw.Draw(img)
-    x0, x1 = w * 0.30, w * 0.92
-    draw.rounded_rectangle((x0 - 6 * SS, 0, x1 + 6 * SS, h), 6 * SS, fill=(12, 12, 16, 220))
-    stripe = 10 * SS  # hazard tape down the left side
-    tape = Image.new("RGBA", (int(w * 0.18), h), (255, 209, 102, 230))
-    td = ImageDraw.Draw(tape)
-    for k in range(-tape.width, h, stripe * 2):
-        td.polygon([(0, k), (tape.width, k + tape.width), (tape.width, k + tape.width + stripe), (0, k + stripe)], fill=(16, 14, 26, 255))
-    img.alpha_composite(tape, (int(w * 0.04), 0))
-    ch = (h - 8 * SS) / 6
-    sk = 10 * SS
-    for i in range(6):
-        y0, y1 = 4 * SS + i * ch + 3 * SS, 4 * SS + (i + 1) * ch - 3 * SS
-        cell = [(x0 + sk, y0), (x1, y0), (x1 - sk, y1), (x0, y1)]
-        if i < n:
-            draw.polygon(cell, fill=light + (255,))
-            draw.line((x0 + sk * 0.7, y1 - 4 * SS, x1 - sk * 1.3, y1 - 4 * SS), fill=accent + (255,), width=3 * SS)
-        else:
-            draw.polygon(cell, fill=(255, 255, 255, 25), outline=(255, 255, 255, 60))
-    return img
-
-
-ZZZ_MARKS = os.environ.get("ZZZ_MARKS", "film")
 
 
 def _cons_marks(card: Image.Image, build: CharacterBuild, accent, light) -> None:
@@ -519,8 +434,7 @@ def _cons_marks(card: Image.Image, build: CharacterBuild, accent, light) -> None
     elif build.game == "hsr":
         _hsr_marks(img, n, accent, light)
     else:
-        draw_zzz = {"tapes": _zzz_tapes, "tvs": _zzz_tvs, "gauge": _zzz_gauge}.get(ZZZ_MARKS, _zzz_marks)
-        img = draw_zzz(img, n, accent, light)
+        _zzz_marks(img, n, accent, light)
     img = img.resize((img.width // SS, img.height // SS), Image.LANCZOS)
     card.alpha_composite(img, (PAD - 10 - (img.width - CONS_W) // 2, CONS_TOP - (img.height - (CONS_BOTTOM - CONS_TOP)) // 2))
 
