@@ -9,7 +9,7 @@ import unittest
 
 from PIL import Image
 
-from bot.card import H, W, CardMaker, crit_value, draw_card
+from bot.card import H, W, CardMaker, crit_value, draw_card, server_name
 from bot.embeds import card_embed
 from bot.games import genshin, starrail, zenless
 from test_parsers import fixture, load_assets
@@ -75,6 +75,13 @@ class CardTest(unittest.TestCase):
     def test_crit_value_counts_main_stats_and_substats(self):
         castorice = next(c for c in self.profiles[1].characters if c.name == "Castorice")
         self.assertAlmostEqual(crit_value(castorice), 153.7 + 64.8, places=1)  # subs + CRIT DMG body
+
+    def test_server_from_uid(self):
+        cases = [("genshin", "618285856", "America"), ("genshin", "700000001", "Europe"), ("hsr", "800069903", "Asia"),
+                 ("hsr", "100000001", "China"), ("zzz", "1300003409", "Asia"), ("zzz", "1500000001", "Europe"),
+                 ("zzz", "10000001", "China"), ("genshin", "1800000001", None)]
+        for game, uid, server in cases:
+            self.assertEqual(server_name(game, uid), server, (game, uid))
 
     def test_pictures_download_once_and_survive_a_restart(self):
         profile = self.profiles[1]

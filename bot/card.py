@@ -36,6 +36,7 @@ PANEL = (255, 255, 255, 14)
 LINE = (255, 255, 255, 22)
 ART_MAX = 1100  # art is kept at most this tall
 ICON_MAX = 192
+FOOT = 22  # room under the gear for the server and UID
 ART_DROP = 110  # tall art starts this far down, so the head sits below the name
 
 
@@ -186,7 +187,18 @@ def crit_value(build: CharacterBuild) -> float | None:
     return total if seen else None
 
 
-def draw_card(build: CharacterBuild, images: dict[str, Image.Image]) -> bytes:
+def server_name(game: str, uid: str) -> str | None:
+    """The game server a UID belongs to, read from its leading digits (None if unknown)."""
+    if game == "zzz":
+        if len(uid) == 8:
+            return "China"
+        return {"10": "America", "13": "Asia", "15": "Europe", "17": "TW/HK/MO"}.get(uid[:2])
+    if len(uid) == 9:
+        return {"6": "America", "7": "Europe", "8": "Asia", "9": "TW/HK/MO"}.get(uid[0], "China")
+    return None
+
+
+def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | None = None) -> bytes:
     global FONTS
     FONTS = FONTS or Fonts()
     f = FONTS
@@ -282,7 +294,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image]) -> bytes:
     if gear:
         cols, rows = 2, max(3, math.ceil(len(gear) / 2))
         gw = (W - PAD - GEAR_X - 12 * (cols - 1)) / cols
-        gh = (H - 2 * PAD - 12 * (rows - 1)) / rows
+        gh = (H - 2 * PAD - FOOT - 12 * (rows - 1)) / rows
         for i, piece in enumerate(gear):
             x0 = GEAR_X + (i % cols) * (gw + 12)
             y0 = PAD + (i // cols) * (gh + 12)
@@ -291,6 +303,11 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image]) -> bytes:
             _gear(card, piece, images.get(piece.piece_icon or ""), box, light, labels["max_level"], badge)
     else:
         draw.text((GEAR_X + 20, PAD + 20), f"No {labels['gear'].lower()} equipped.", font=f.stat, fill=DIM)
+
+    if uid:
+        server = server_name(build.game, uid)
+        foot = f"{server} · UID {uid}" if server else f"UID {uid}"
+        ImageDraw.Draw(card).text((W - PAD - 4, H - PAD + 2), foot, font=f.small, fill=TEXT, anchor="rd")
 
     out = io.BytesIO()
     card.convert("RGB").save(out, "PNG", optimize=True)
@@ -457,7 +474,7 @@ class CardMaker:
         urls.discard(None)
         loaded = await asyncio.gather(*(self._image(u, big=u == build.art_url) for u in urls))
         images = {u: img for u, img in zip(urls, loaded) if img is not None}
-        png = await asyncio.to_thread(draw_card, build, images)
+        png = await asyncio.to_thread(draw_card, build, images, profile.uid)
         if len(self.cards) >= 40:
             self.cards.pop(next(iter(self.cards)))
         self.cards[key] = png
