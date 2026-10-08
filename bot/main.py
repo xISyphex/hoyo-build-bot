@@ -14,6 +14,7 @@ from discord import app_commands
 from discord.ext import tasks
 
 from . import matching
+from .access import PRIVATE, AccessList
 from .assets import Assets
 from .claims import ClaimStore
 from .card import CardMaker
@@ -30,12 +31,23 @@ EFFECT_BUTTON_NAMES = {"genshin": "Weapon", "hsr": "LC", "zzz": "Wengine"}
 GAME_NAMES = {"genshin": "Genshin Impact", "hsr": "Honkai: Star Rail", "zzz": "Zenless Zone Zero"}
 
 
+class PrivateTree(app_commands.CommandTree):
+    """Lets only the owner and the users on the access list run commands."""
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if self.client.access.allowed(interaction.user.id):
+            return True
+        if interaction.type == discord.InteractionType.application_command:
+            await interaction.response.send_message(PRIVATE, ephemeral=True)
+        return False  # autocomplete just shows no suggestions
+
+
 class HoyoBot(discord.Client):
     def __init__(self) -> None:
         super().__init__(intents=discord.Intents.none())
         # Commands work wherever the bot is in the server, and also for people who added it
         # to their own account ("User Install"): in any server, DMs and group chats.
-        self.tree = app_commands.CommandTree(
+        self.tree = PrivateTree(
             self,
             allowed_installs=app_commands.AppInstallationType(guild=True, user=True),
             allowed_contexts=app_commands.AppCommandContext(guild=True, dm_channel=True, private_channel=True),
@@ -44,6 +56,7 @@ class HoyoBot(discord.Client):
         self.assets = Assets(cache_dir)
         # Lives next to the game data, which the VM setup script and the Docker volume keep across updates.
         self.claims = ClaimStore(os.environ.get("CLAIMS_FILE", os.path.join(cache_dir, "claims.json")))
+        self.access = AccessList(os.environ.get("ACCESS_FILE", os.path.join(cache_dir, "access.json")))
         self.session: aiohttp.ClientSession | None = None
         self.enka: EnkaClient | None = None
         self.set_emojis: SetEmojis | None = None
@@ -61,9 +74,14 @@ class HoyoBot(discord.Client):
             self.assets.load()
         self.refresh_assets.start()
 
+        # The bot's owner (or its team on the Developer Portal) always has access and manages the list.
+        app = await self.application_info()
+        self.access.owners = {m.id for m in app.team.members} if app.team else {app.owner.id}
+
         for game in GAME_NAMES:
             self.tree.add_command(make_command(game))
             self.tree.add_command(make_claim_command(game))
+        self.tree.add_command(AccessGroup())
         guild_id = os.environ.get("DEV_GUILD_ID")
         if guild_id:
             # Guild commands appear instantly; global ones can take up to an hour.
@@ -160,6 +178,12 @@ class CharacterView(discord.ui.View):
         if build.weapon and build.weapon.effect:
             self.add_item(EffectButton(profile, build, show_effect))
         self.add_item(discord.ui.Button(label="Open on Enka.Network", url=profile.profile_url))
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.client.access.allowed(interaction.user.id):
+            return True
+        await interaction.response.send_message(PRIVATE, ephemeral=True)
+        return False
 
 
 def make_command(game: str) -> app_commands.Command:
@@ -269,6 +293,47 @@ def make_claim_command(game: str) -> app_commands.Command:
         await interaction.followup.send(msg)
 
     return claim
+
+
+class AccessGroup(app_commands.Group):
+    """/access add, remove and list: who besides the owner may use the bot."""
+
+    def __init__(self) -> None:
+        super().__init__(name="access", description="Choose who can use this bot (owner only)")
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.client.access.is_owner(interaction.user.id):
+            return True
+        await interaction.response.send_message("Only the bot's owner can change who has access.", ephemeral=True)
+        return False
+
+    @app_commands.command(name="add", description="Let someone use the bot")
+    @app_commands.describe(user="The Discord user to allow")
+    async def add(self, interaction: discord.Interaction, user: discord.User) -> None:
+        added = interaction.client.access.add(user.id, user.name)
+        msg = f"{user.mention} can now use the bot." if added else f"{user.mention} already had access."
+        await interaction.response.send_message(msg, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+    @app_commands.command(name="remove", description="Stop someone from using the bot")
+    @app_commands.describe(user="The Discord user to remove")
+    async def remove(self, interaction: discord.Interaction, user: discord.User) -> None:
+        access: AccessList = interaction.client.access
+        if access.is_owner(user.id):
+            msg = "That's the bot's owner, who always has access."
+        elif access.remove(user.id):
+            msg = f"{user.mention} can no longer use the bot."
+        else:
+            msg = f"{user.mention} wasn't on the list."
+        await interaction.response.send_message(msg, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+    @app_commands.command(name="list", description="Show who can use the bot")
+    async def list_(self, interaction: discord.Interaction) -> None:
+        users = interaction.client.access.users
+        lines = [f"• <@{uid}> ({name}, ID {uid})" for uid, name in users.items()]
+        msg = "Besides you, these people can use the bot:\n" + "\n".join(lines) if lines else (
+            "Only you can use the bot right now. Add people with `/access add`."
+        )
+        await interaction.response.send_message(msg[:2000], ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
 
 def run() -> None:
