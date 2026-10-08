@@ -248,12 +248,12 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     pill = build.element
     pw = draw.textlength(pill, font=f.meta) + 24
     draw.rounded_rectangle((PAD + 4, y, PAD + 4 + pw, y + 34), 17, fill=accent + (255,))
-    draw.text((PAD + 16, y + 4), pill, font=f.meta, fill=(16, 14, 26) if sum(accent) > 450 else TEXT)
+    draw.text((PAD + 4 + pw / 2, y + 17), pill, font=f.meta, fill=(16, 14, 26) if sum(accent) > 450 else TEXT, anchor="mm")
     meta = f"Lv. {build.level}"
-    draw.text((PAD + 16 + pw, y + 4), meta, font=f.meta, fill=TEXT)
+    draw.text((PAD + 16 + pw, y + 17), meta, font=f.meta, fill=TEXT, anchor="lm")
     x = PAD + 28 + pw + draw.textlength(meta, font=f.meta)
     if build.game == "zzz":
-        draw.text((x, y + 4), f"{ZZZ_RARITY.get(build.rarity, '?')}-Rank", font=f.meta, fill=GOLD)
+        draw.text((x, y + 17), f"{ZZZ_RARITY.get(build.rarity, '?')}-Rank", font=f.meta, fill=GOLD, anchor="lm")
     else:
         for i in range(build.rarity):
             _star(draw, x + 10 + i * 22, y + 17, 10, GOLD)
