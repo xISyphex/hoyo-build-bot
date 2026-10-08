@@ -36,6 +36,7 @@ PANEL = (255, 255, 255, 14)
 LINE = (255, 255, 255, 22)
 ART_MAX = 1100  # art is kept at most this tall
 ICON_MAX = 192
+ART_DROP = 110  # tall art starts this far down, so the head sits below the name
 
 
 def _font(weight: str, size: int) -> ImageFont.FreeTypeFont:
@@ -124,14 +125,23 @@ def _paste_art(card: Image.Image, art: Image.Image | None) -> None:
     if art is None:
         return
     art = art.convert("RGBA")
-    scale = (H + 60) / art.height
-    if art.width * scale < ART_W + 140:
-        scale = (ART_W + 140) / art.width
-    art = art.resize((round(art.width * scale), round(art.height * scale)), Image.LANCZOS)
     width = ART_W + 140
-    left = max((art.width - width) // 2, 0)
-    top = max((art.height - H) // 3, 0)
-    art = art.crop((left, top, left + width, top + H))
+    if art.height > art.width * 1.2:
+        # Tall full-body art (ZZZ): show the whole top of the figure, starting below the name,
+        # instead of zooming in until it fills the width and the face hides behind the header.
+        scale = (H + 60) / art.height
+        art = art.resize((round(art.width * scale), round(art.height * scale)), Image.LANCZOS)
+        canvas = Image.new("RGBA", (width, H), (0, 0, 0, 0))
+        canvas.alpha_composite(art.crop((0, 0, art.width, min(art.height, H - ART_DROP))), (max((width - art.width) // 2 - 30, 0), ART_DROP))
+        art = canvas
+    else:
+        scale = (H + 60) / art.height
+        if art.width * scale < width:
+            scale = width / art.width
+        art = art.resize((round(art.width * scale), round(art.height * scale)), Image.LANCZOS)
+        left = max((art.width - width) // 2, 0)
+        top = max((art.height - H) // 3, 0)
+        art = art.crop((left, top, left + width, top + H))
     fade = Image.new("L", (width, 1))
     for x in range(width):
         fade.putpixel((x, 0), 255 if x < width * 0.55 else round(255 * max(0, 1 - (x - width * 0.55) / (width * 0.45))))
@@ -410,6 +420,95 @@ def _zzz_marks(img: Image.Image, n: int, accent, light) -> Image.Image:
     return img.rotate(-4, resample=Image.BICUBIC, expand=True)
 
 
+def _zzz_tapes(img: Image.Image, n: int, accent, light) -> Image.Image:
+    """Random Play's shelf: six VHS tapes stacked, the unlocked ones with a bright label."""
+    w, h = img.size
+    x0, x1 = w * 0.06, w * 0.94
+    th = h / 6
+    draw = ImageDraw.Draw(img)
+    for i in range(6):
+        y0, y1 = i * th + 3 * SS, (i + 1) * th - 3 * SS
+        lit = i < n
+        draw.rounded_rectangle((x0, y0, x1, y1), 4 * SS, fill=(22, 22, 28, 240) if lit else (22, 22, 28, 150),
+                               outline=(255, 255, 255, 60 if lit else 30), width=SS)
+        lx0, lx1, ly0, ly1 = x0 + 7 * SS, x0 + (x1 - x0) * 0.6, y0 + 7 * SS, y1 - 7 * SS
+        if lit:
+            draw.rounded_rectangle((lx0, ly0, lx1, ly1), 3 * SS, fill=light + (255,))
+            draw.rectangle((lx0, ly0 + (ly1 - ly0) * 0.62, lx1, ly1 - 2 * SS), fill=accent + (255,))
+            for k in range(3):  # handwritten-ish title lines on the label
+                yy = ly0 + 6 * SS + k * 5 * SS
+                draw.line((lx0 + 6 * SS, yy, lx0 + (30 - k * 8) * SS, yy), fill=(20, 18, 30, 200), width=2 * SS)
+        else:
+            draw.rounded_rectangle((lx0, ly0, lx1, ly1), 3 * SS, outline=(255, 255, 255, 50), width=SS)
+        for hx in (x0 + (x1 - x0) * 0.72, x0 + (x1 - x0) * 0.87):  # the two reel windows
+            r = 5 * SS
+            cy = (y0 + y1) / 2
+            draw.ellipse((hx - r, cy - r, hx + r, cy + r), fill=(0, 0, 0, 220), outline=(255, 255, 255, 90 if lit else 40), width=SS)
+    return img.rotate(-3, resample=Image.BICUBIC, expand=True)
+
+
+def _zzz_tvs(img: Image.Image, n: int, accent, light) -> Image.Image:
+    """A stack of six little CRT TVs, like the wall of screens in the HDD room: lit ones glow, the rest are off."""
+    w, h = img.size
+    th = h / 6
+    draw = ImageDraw.Draw(img)
+    th = (h - 10 * SS) / 6
+    ax, ay = w * 0.55, 10 * SS  # rabbit-ear antenna on the top set
+    draw.line((ax, ay, ax - 12 * SS, 0), fill=(255, 255, 255, 120), width=2 * SS)
+    draw.line((ax, ay, ax + 12 * SS, 0), fill=(255, 255, 255, 120), width=2 * SS)
+    for i in range(6):
+        y0, y1 = 10 * SS + i * th + 2 * SS, 10 * SS + (i + 1) * th - 2 * SS
+        x0, x1 = w * (0.08 if i % 2 else 0.18), w * (0.82 if i % 2 else 0.92)  # stacked a bit unevenly
+        lit = i < n
+        draw.rounded_rectangle((x0, y0, x1, y1), 8 * SS, fill=(30, 28, 36, 245) if lit else (30, 28, 36, 170),
+                               outline=(255, 255, 255, 70 if lit else 35), width=SS)
+        sx0, sy0, sx1, sy1 = x0 + 6 * SS, y0 + 6 * SS, x1 - 16 * SS, y1 - 6 * SS
+        if lit:
+            screen = Image.new("RGBA", (int(sx1 - sx0), int(sy1 - sy0)))
+            sd = ImageDraw.Draw(screen)
+            for row in range(screen.height):
+                c = _mix(light, accent, row / screen.height)
+                sd.line((0, row, screen.width, row), fill=c + ((255,) if (row // SS) % 3 else (200,)))  # scanlines
+            mask = Image.new("L", screen.size, 0)
+            ImageDraw.Draw(mask).rounded_rectangle((0, 0, screen.width - 1, screen.height - 1), 6 * SS, fill=255)
+            screen.putalpha(ImageChops.multiply(screen.getchannel("A"), mask))
+            img.alpha_composite(screen, (int(sx0), int(sy0)))
+        else:
+            draw.rounded_rectangle((sx0, sy0, sx1, sy1), 6 * SS, fill=(8, 8, 12, 200))
+        kx = x1 - 9 * SS
+        for ky in (y0 + 12 * SS, y0 + 22 * SS):  # knobs
+            draw.ellipse((kx - 3 * SS, ky - 3 * SS, kx + 3 * SS, ky + 3 * SS), fill=light + (255,) if lit else (255, 255, 255, 50))
+    return img
+
+
+def _zzz_gauge(img: Image.Image, n: int, accent, light) -> Image.Image:
+    """A street-style power gauge: six chunky slanted cells behind hazard tape, filling up from the top."""
+    w, h = img.size
+    draw = ImageDraw.Draw(img)
+    x0, x1 = w * 0.30, w * 0.92
+    draw.rounded_rectangle((x0 - 6 * SS, 0, x1 + 6 * SS, h), 6 * SS, fill=(12, 12, 16, 220))
+    stripe = 10 * SS  # hazard tape down the left side
+    tape = Image.new("RGBA", (int(w * 0.18), h), (255, 209, 102, 230))
+    td = ImageDraw.Draw(tape)
+    for k in range(-tape.width, h, stripe * 2):
+        td.polygon([(0, k), (tape.width, k + tape.width), (tape.width, k + tape.width + stripe), (0, k + stripe)], fill=(16, 14, 26, 255))
+    img.alpha_composite(tape, (int(w * 0.04), 0))
+    ch = (h - 8 * SS) / 6
+    sk = 10 * SS
+    for i in range(6):
+        y0, y1 = 4 * SS + i * ch + 3 * SS, 4 * SS + (i + 1) * ch - 3 * SS
+        cell = [(x0 + sk, y0), (x1, y0), (x1 - sk, y1), (x0, y1)]
+        if i < n:
+            draw.polygon(cell, fill=light + (255,))
+            draw.line((x0 + sk * 0.7, y1 - 4 * SS, x1 - sk * 1.3, y1 - 4 * SS), fill=accent + (255,), width=3 * SS)
+        else:
+            draw.polygon(cell, fill=(255, 255, 255, 25), outline=(255, 255, 255, 60))
+    return img
+
+
+ZZZ_MARKS = os.environ.get("ZZZ_MARKS", "film")
+
+
 def _cons_marks(card: Image.Image, build: CharacterBuild, accent, light) -> None:
     """Six marks down the left edge of the art, lit for each constellation the character has."""
     size = (CONS_W * SS, (CONS_BOTTOM - CONS_TOP) * SS)
@@ -420,7 +519,8 @@ def _cons_marks(card: Image.Image, build: CharacterBuild, accent, light) -> None
     elif build.game == "hsr":
         _hsr_marks(img, n, accent, light)
     else:
-        img = _zzz_marks(img, n, accent, light)
+        draw_zzz = {"tapes": _zzz_tapes, "tvs": _zzz_tvs, "gauge": _zzz_gauge}.get(ZZZ_MARKS, _zzz_marks)
+        img = draw_zzz(img, n, accent, light)
     img = img.resize((img.width // SS, img.height // SS), Image.LANCZOS)
     card.alpha_composite(img, (PAD - 10 - (img.width - CONS_W) // 2, CONS_TOP - (img.height - (CONS_BOTTOM - CONS_TOP)) // 2))
 
