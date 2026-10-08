@@ -72,9 +72,9 @@ class CardTest(unittest.TestCase):
             if build.weapon:
                 self.assertTrue(build.weapon.icon_url.startswith("https://"), profile.game)
 
-    def test_crit_value_counts_substats_only(self):
+    def test_crit_value_counts_main_stats_and_substats(self):
         castorice = next(c for c in self.profiles[1].characters if c.name == "Castorice")
-        self.assertAlmostEqual(crit_value(castorice), 153.7, places=1)
+        self.assertAlmostEqual(crit_value(castorice), 153.7 + 64.8, places=1)  # subs + CRIT DMG body
 
     def test_pictures_download_once_and_survive_a_restart(self):
         profile = self.profiles[1]

@@ -16,7 +16,7 @@ import os
 from pathlib import Path
 
 import aiohttp
-from PIL import Image, ImageChops, ImageDraw, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 from .embeds import ELEMENT_COLORS, GAME_LABELS, ZZZ_RARITY, _is_zero, _name
 from .models import CharacterBuild, Gear, PlayerProfile
@@ -165,10 +165,10 @@ def _icon(card: Image.Image, img: Image.Image | None, box) -> None:
 
 
 def crit_value(build: CharacterBuild) -> float | None:
-    """CRIT Rate × 2 + CRIT DMG from gear substats, a common way to rate a build's rolls."""
+    """CRIT DMG + CRIT Rate × 2 over all gear: main stats (like a crit body or circlet) and substats."""
     total, seen = 0.0, False
     for piece in build.gear:
-        for s in piece.subs:
+        for s in [piece.main, *piece.subs]:
             if s.name in ("CRIT Rate", "CRIT DMG"):
                 seen = True
                 value = float(s.value.rstrip("%").replace(",", ""))
@@ -320,7 +320,8 @@ def _gear(card: Image.Image, piece: Gear, icon: Image.Image | None, box, light, 
         y += step
 
 
-MARK = 54  # one constellation / eidolon / mindscape mark, drawn 4x and shrunk for smooth edges
+CONS_W, CONS_TOP, CONS_BOTTOM = 84, 160, H - PAD - 176  # the strip of six marks left of the art
+SS = 4  # marks are drawn this many times bigger and shrunk, for smooth edges
 
 
 def _sparkle(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, fill, waist: float = 0.22) -> None:
@@ -332,59 +333,96 @@ def _sparkle(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, fill, wa
     draw.polygon(pts, fill=fill)
 
 
-def _mark(game: str, accent, light, owned: bool) -> Image.Image:
-    """One mark in the game's own style, lit in the element's colors when owned.
+def _glow(size, points, radius: float, color) -> Image.Image:
+    """Soft colored light around the given points."""
+    small = Image.new("RGBA", (size[0] // SS, size[1] // SS), (0, 0, 0, 0))
+    d = ImageDraw.Draw(small)
+    r = radius / SS
+    for x, y in points:
+        d.ellipse((x / SS - r, y / SS - r, x / SS + r, y / SS + r), fill=color)
+    return small.filter(ImageFilter.GaussianBlur(r / 2)).resize(size, Image.BICUBIC)
 
-    Genshin: a round star medallion like its constellation screen.
-    Star Rail: an upright card like its eidolons.
-    ZZZ: a slanted street-style tag with a double slash.
-    """
-    size = MARK * 4
-    c = size / 2
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    if owned:  # a soft glow of the element color behind it
-        glow = Image.new("RGBA", (MARK, MARK), (0, 0, 0, 0))
-        ImageDraw.Draw(glow).ellipse((4, 4, MARK - 4, MARK - 4), fill=accent + (120,))
-        img = glow.resize((size, size), Image.BICUBIC)
+
+def _genshin_marks(img: Image.Image, n: int, accent, light) -> None:
+    """A constellation: six stars zig-zagging down, joined by lines that light up as they're unlocked."""
+    w, h = img.size
+    pts = [(w * (0.36 if i % 2 == 0 else 0.64), h * (0.07 + i * 0.172)) for i in range(6)]
+    img.alpha_composite(_glow(img.size, pts[:n], 20 * SS, accent + (200,)))
     draw = ImageDraw.Draw(img)
-    line = light + (255,) if owned else (255, 255, 255, 70)
-    body = (14, 12, 24, 215) if owned else (14, 12, 24, 120)
-    core = (255, 255, 255, 240) if owned else (255, 255, 255, 60)
-    if game == "genshin":
-        draw.ellipse((c - 86, c - 86, c + 86, c + 86), fill=body, outline=line, width=7)
-        draw.ellipse((c - 66, c - 66, c + 66, c + 66), outline=line[:3] + (line[3] // 2,), width=3)
-        for k in range(4):  # little stars on the ring
-            a = math.pi / 4 + k * math.pi / 2
-            _sparkle(draw, c + 86 * math.cos(a), c + 86 * math.sin(a), 16, line, 0.35)
-        _sparkle(draw, c, c, 56, line)
-        _sparkle(draw, c, c, 22, core, 0.3)
-    elif game == "hsr":
-        w, h = 62, 92
-        draw.rounded_rectangle((c - w, c - h, c + w, c + h), 16, fill=body, outline=line, width=7)
-        draw.rounded_rectangle((c - w + 16, c - h + 16, c + w - 16, c + h - 16), 8, outline=line[:3] + (line[3] // 2,), width=3)
-        draw.polygon([(c, c - 48), (c + 30, c), (c, c + 48), (c - 30, c)], fill=line)
-        draw.polygon([(c, c - 20), (c + 12, c), (c, c + 20), (c - 12, c)], fill=core)
-        for dy in (-h + 34, h - 34):
-            draw.polygon([(c, c + dy - 8), (c + 6, c + dy), (c, c + dy + 8), (c - 6, c + dy)], fill=line)
-    else:
-        sk, w, h, cut = 34, 70, 74, 22  # slant, half width, half height, clipped corner
-        draw.polygon([
-            (c - w + sk, c - h), (c + w + sk - cut, c - h), (c + w + sk, c - h + cut),
-            (c + w - sk, c + h), (c - w - sk + cut, c + h), (c - w - sk, c + h - cut),
-        ], fill=line if owned else body, outline=None if owned else line, width=6)
-        ink = (16, 14, 26, 255) if owned else (255, 255, 255, 70)
-        for dx in (-26, 18):
-            draw.polygon([(c + dx + 14, c - 46), (c + dx + 36, c - 46), (c + dx - 14, c + 46), (c + dx - 36, c + 46)], fill=ink)
-    return img.resize((MARK, MARK), Image.LANCZOS)
+    for i in range(5):
+        lit = i + 1 < n
+        draw.line((pts[i], pts[i + 1]), fill=light + (240,) if lit else (255, 255, 255, 90), width=(3 if lit else 2) * SS)
+    for i, (x, y) in enumerate(pts):
+        if i < n:
+            draw.ellipse((x - 17 * SS, y - 17 * SS, x + 17 * SS, y + 17 * SS), outline=light + (150,), width=SS)
+            _sparkle(draw, x, y, 22 * SS, light + (255,))
+            _sparkle(draw, x, y, 10 * SS, (255, 255, 255, 255), 0.3)
+        else:
+            _sparkle(draw, x, y, 14 * SS, (255, 255, 255, 120))
+
+
+def _hsr_marks(img: Image.Image, n: int, accent, light) -> None:
+    """A Trailblaze route map: six stations on one line, travelled up to the last eidolon unlocked."""
+    w, h = img.size
+    x = w * 0.42
+    ys = [h * (0.07 + i * 0.172) for i in range(6)]
+    if n:
+        img.alpha_composite(_glow(img.size, [(x, y) for y in ys[:n]], 20 * SS, accent + (170,)))
+    draw = ImageDraw.Draw(img)
+    draw.line((x, ys[0], x, ys[-1]), fill=(255, 255, 255, 55), width=6 * SS)
+    if n > 1:
+        draw.line((x, ys[0], x, ys[n - 1]), fill=light + (255,), width=8 * SS)
+    for i, y in enumerate(ys):
+        r = 15 * SS
+        if i < n:
+            draw.ellipse((x - r, y - r, x + r, y + r), fill=(255, 255, 255, 255), outline=light + (255,), width=6 * SS)
+            draw.ellipse((x - 5 * SS, y - 5 * SS, x + 5 * SS, y + 5 * SS), fill=accent + (255,))
+        else:
+            draw.ellipse((x - r, y - r, x + r, y + r), fill=(14, 12, 24, 170), outline=(255, 255, 255, 80), width=4 * SS)
+
+
+def _zzz_marks(img: Image.Image, n: int, accent, light) -> Image.Image:
+    """Mindscape Cinema: a strip of film, six frames, the unlocked ones lit. Tilted a little, for attitude."""
+    w, h = img.size
+    x0, x1 = w * 0.12, w * 0.80
+    draw = ImageDraw.Draw(img)
+    draw.rounded_rectangle((x0, 0, x1, h), 6 * SS, fill=(10, 10, 14, 225))
+    hole_w, hole_h = 7 * SS, 9 * SS
+    y = 6 * SS
+    while y + hole_h < h - 4 * SS:  # sprocket holes down both sides
+        for hx in (x0 + 4 * SS, x1 - 4 * SS - hole_w):
+            draw.rounded_rectangle((hx, y, hx + hole_w, y + hole_h), 2 * SS, fill=(255, 255, 255, 60))
+        y += 18 * SS
+    fx0, fx1 = x0 + 15 * SS, x1 - 15 * SS
+    fh = h / 6
+    for i in range(6):
+        fy0, fy1 = i * fh + 4 * SS, (i + 1) * fh - 4 * SS
+        if i < n:
+            frame = Image.new("RGBA", (int(fx1 - fx0), int(fy1 - fy0)))
+            fd = ImageDraw.Draw(frame)
+            for row in range(frame.height):  # element-colored gradient, brighter at the top
+                fd.line((0, row, frame.width, row), fill=_mix(light, accent, row / frame.height) + (255,))
+            img.alpha_composite(frame, (int(fx0), int(fy0)))
+            cx, cy = (fx0 + fx1) / 2, (fy0 + fy1) / 2
+            draw.polygon([(cx - 6 * SS, cy - 9 * SS), (cx + 9 * SS, cy), (cx - 6 * SS, cy + 9 * SS)], fill=(16, 14, 26, 230))
+        else:
+            draw.rectangle((fx0, fy0, fx1, fy1), fill=(40, 40, 50, 200), outline=(255, 255, 255, 40), width=SS)
+    return img.rotate(-4, resample=Image.BICUBIC, expand=True)
 
 
 def _cons_marks(card: Image.Image, build: CharacterBuild, accent, light) -> None:
     """Six marks down the left edge of the art, lit for each constellation the character has."""
-    top, bottom = 168, H - PAD - 180
-    step = (bottom - top - MARK) / 5
-    marks = {owned: _mark(build.game, accent, light, owned) for owned in (True, False)}
-    for i in range(6):
-        card.alpha_composite(marks[i < build.constellation], (PAD - 6, round(top + i * step)))
+    size = (CONS_W * SS, (CONS_BOTTOM - CONS_TOP) * SS)
+    img = Image.new("RGBA", size, (0, 0, 0, 0))
+    n = max(0, min(build.constellation, 6))
+    if build.game == "genshin":
+        _genshin_marks(img, n, accent, light)
+    elif build.game == "hsr":
+        _hsr_marks(img, n, accent, light)
+    else:
+        img = _zzz_marks(img, n, accent, light)
+    img = img.resize((img.width // SS, img.height // SS), Image.LANCZOS)
+    card.alpha_composite(img, (PAD - 10 - (img.width - CONS_W) // 2, CONS_TOP - (img.height - (CONS_BOTTOM - CONS_TOP)) // 2))
 
 
 class CardMaker:
