@@ -32,8 +32,6 @@ class Weapon:
     refinement: int  # refinement / superimposition / phase
     rarity: int
     stats: list[Stat] = field(default_factory=list)
-    effect_name: str | None = None  # passive / light cone ability / W-Engine effect
-    effect: str | None = None  # plain text, already filled in for the refinement
     icon_url: str | None = None  # picture of the weapon / light cone / W-Engine
 
 

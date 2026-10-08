@@ -6,7 +6,7 @@ import re
 
 import discord
 
-from .models import CharacterBuild, Gear, PlayerProfile, Stat, Weapon
+from .models import CharacterBuild, Gear, PlayerProfile, Stat
 
 GAME_LABELS = {
     "genshin": {
@@ -40,9 +40,7 @@ SHORT_NAMES = {
     "Outgoing Healing": "Healing", "Healing Bonus": "Healing",
 }
 ZZZ_RARITY = {4: "S", 3: "A", 2: "B"}
-EFFECT_LIMIT = 900  # characters of weapon effect text per embed
 FIELD_LIMIT = 1024
-EMBED_LIMIT = 6000
 DOT = "•"
 
 
@@ -50,16 +48,6 @@ def _rarity(game: str, rarity: int) -> str:
     if game == "zzz":
         return f"{ZZZ_RARITY.get(rarity, '?')}-Rank"
     return "★" * rarity
-
-
-def _shorten(text: str, limit: int) -> str:
-    if len(text) <= limit:
-        return text
-    return text[: max(limit - 1, 0)].rstrip() + "…"
-
-
-def _quote(text: str) -> str:
-    return "\n".join(f"> {line}" if line.strip() else ">" for line in text.splitlines())
 
 
 def _is_zero(value: str) -> bool:
@@ -95,25 +83,9 @@ def _stat_fields(build: CharacterBuild) -> list[tuple[str, str]]:
     return [("Stats", "\n".join(col)[:FIELD_LIMIT]) for col in columns if col] or [("Stats", "No stats.")]
 
 
-def _weapon_value(lines: list[str], weapon: Weapon, effect_limit: int) -> str:
-    value = "\n".join(lines)
-    if weapon.effect and effect_limit > 20:
-        title = f"> **{weapon.effect_name}**\n" if weapon.effect_name else ""
-        budget = effect_limit
-        while True:
-            # The "> " quote prefixes count too, so trim until the field fits.
-            effect = _quote(_shorten(weapon.effect, budget))
-            extra = len(value) + 1 + len(title) + len(effect) - FIELD_LIMIT
-            if extra <= 0 or budget <= 20:
-                break
-            budget -= extra
-        value += f"\n{title}{effect}"
-    return value[:FIELD_LIMIT]
-
-
 def _sub(stat: Stat) -> str:
-    """A substat, led by how many times it rolled (counting its first roll)."""
-    rolls = f"`{stat.rolls}×` " if stat.rolls else ""
+    """A substat, led by how many times it was upgraded (its first roll is the base, not an upgrade)."""
+    rolls = f"`+{stat.rolls - 1}` " if stat.rolls > 1 else ""
     return f"{rolls}{_name(stat)} **{stat.value}**"
 
 
@@ -155,10 +127,9 @@ def _gear_order(build: CharacterBuild) -> list[Gear]:
 def build_embed(
     profile: PlayerProfile,
     build: CharacterBuild,
-    show_effect: bool = False,
     piece_emojis: dict[str, str] | None = None,
 ) -> discord.Embed:
-    """The build card. The weapon effect only shows when show_effect is set (the "Show ... effect" button).
+    """The all-text build reply, used when the card image can't be drawn.
 
     piece_emojis maps a piece's image URL to its emoji, shown next to the piece's slot name.
     """
@@ -189,48 +160,17 @@ def build_embed(
     if not build.gear:
         embed.add_field(name=labels["gear"], value="Nothing equipped.", inline=False)
 
-    # The weapon comes last, so its effect (when shown) doesn't push the gear down.
-    weapon_field = None
+    # The weapon comes last.
     if build.weapon:
         w = build.weapon
         lines = [f"**{w.name}** · {labels['refine']}{w.refinement} · Lv. {w.level}"]
         if w.stats:
             lines.append(" · ".join(f"{_name(s)} **{s.value}**" for s in w.stats))
-        weapon_field = len(embed.fields)
-        limit = EFFECT_LIMIT if show_effect else 0
-        embed.add_field(name=labels["weapon"], value=_weapon_value(lines, w, limit), inline=False)
+        embed.add_field(name=labels["weapon"], value="\n".join(lines)[:FIELD_LIMIT], inline=False)
 
     footer = "Data from Enka.Network"
     if build.notes:
         footer = " ".join(build.notes) + " · " + footer
     embed.set_footer(text=footer)
-
-    # Discord rejects embeds over 6,000 characters; the effect text is the
-    # only part long enough to matter, so it gives way first.
-    if show_effect and weapon_field is not None and build.weapon.effect:
-        budget = min(EFFECT_LIMIT, len(build.weapon.effect))
-        while len(embed) > EMBED_LIMIT and budget > 20:
-            budget -= len(embed) - EMBED_LIMIT
-            value = _weapon_value(lines, build.weapon, budget)
-            embed.set_field_at(weapon_field, name=labels["weapon"], value=value, inline=False)
     return embed
 
-
-def card_embed(profile: PlayerProfile, build: CharacterBuild, filename: str, show_effect: bool = False) -> discord.Embed:
-    """A short embed around the build card image; the card itself carries the stats and gear."""
-    labels = GAME_LABELS[build.game]
-    # No title: the card already shows the name in large letters.
-    embed = discord.Embed(color=ELEMENT_COLORS.get(build.element, labels["color"]))
-    embed.set_author(name=f"{profile.nickname} · UID {profile.uid} · {labels['title']}", url=profile.profile_url)
-    embed.set_image(url=f"attachment://{filename}")
-    w = build.weapon
-    if show_effect and w and w.effect:
-        title = f"**{w.effect_name}**\n" if w.effect_name else ""
-        embed.description = f"**{w.name}** · {labels['refine']}{w.refinement}\n" + _quote(
-            f"{title}{_shorten(w.effect, 3500)}"
-        )
-    footer = "Data from Enka.Network"
-    if build.notes:
-        footer = " ".join(build.notes) + " · " + footer
-    embed.set_footer(text=footer)
-    return embed

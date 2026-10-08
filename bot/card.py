@@ -16,7 +16,7 @@ import os
 from pathlib import Path
 
 import aiohttp
-from PIL import Image, ImageChops, ImageDraw, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 from .embeds import ELEMENT_COLORS, GAME_LABELS, ZZZ_RARITY, _is_zero, _name
 from .models import CharacterBuild, Gear, PlayerProfile
@@ -36,6 +36,7 @@ PANEL = (255, 255, 255, 14)
 LINE = (255, 255, 255, 22)
 ART_MAX = 1100  # art is kept at most this tall
 ICON_MAX = 192
+ART_DROP = 110  # tall art starts this far down, so the head sits below the name
 
 
 def _font(weight: str, size: int) -> ImageFont.FreeTypeFont:
@@ -60,6 +61,7 @@ class Fonts:
         self.sub = _font("Regular", 18)
         self.sub_b = _font("SemiBold", 18)
         self.wname = _font("Bold", 21)
+        self.stamp = _font("Regular", 14)
 
 
 FONTS: Fonts | None = None
@@ -124,14 +126,23 @@ def _paste_art(card: Image.Image, art: Image.Image | None) -> None:
     if art is None:
         return
     art = art.convert("RGBA")
-    scale = (H + 60) / art.height
-    if art.width * scale < ART_W + 140:
-        scale = (ART_W + 140) / art.width
-    art = art.resize((round(art.width * scale), round(art.height * scale)), Image.LANCZOS)
     width = ART_W + 140
-    left = max((art.width - width) // 2, 0)
-    top = max((art.height - H) // 3, 0)
-    art = art.crop((left, top, left + width, top + H))
+    if art.height > art.width * 1.2:
+        # Tall full-body art (ZZZ): show the whole top of the figure, starting below the name,
+        # instead of zooming in until it fills the width and the face hides behind the header.
+        scale = (H + 60) / art.height
+        art = art.resize((round(art.width * scale), round(art.height * scale)), Image.LANCZOS)
+        canvas = Image.new("RGBA", (width, H), (0, 0, 0, 0))
+        canvas.alpha_composite(art.crop((0, 0, art.width, min(art.height, H - ART_DROP))), (max((width - art.width) // 2 - 30, 0), ART_DROP))
+        art = canvas
+    else:
+        scale = (H + 60) / art.height
+        if art.width * scale < width:
+            scale = width / art.width
+        art = art.resize((round(art.width * scale), round(art.height * scale)), Image.LANCZOS)
+        left = max((art.width - width) // 2, 0)
+        top = max((art.height - H) // 3, 0)
+        art = art.crop((left, top, left + width, top + H))
     fade = Image.new("L", (width, 1))
     for x in range(width):
         fade.putpixel((x, 0), 255 if x < width * 0.55 else round(255 * max(0, 1 - (x - width * 0.55) / (width * 0.45))))
@@ -165,10 +176,10 @@ def _icon(card: Image.Image, img: Image.Image | None, box) -> None:
 
 
 def crit_value(build: CharacterBuild) -> float | None:
-    """CRIT Rate × 2 + CRIT DMG from gear substats, a common way to rate a build's rolls."""
+    """CRIT DMG + CRIT Rate × 2 over all gear: main stats (like a crit body or circlet) and substats."""
     total, seen = 0.0, False
     for piece in build.gear:
-        for s in piece.subs:
+        for s in [piece.main, *piece.subs]:
             if s.name in ("CRIT Rate", "CRIT DMG"):
                 seen = True
                 value = float(s.value.rstrip("%").replace(",", ""))
@@ -176,7 +187,18 @@ def crit_value(build: CharacterBuild) -> float | None:
     return total if seen else None
 
 
-def draw_card(build: CharacterBuild, images: dict[str, Image.Image]) -> bytes:
+def server_name(game: str, uid: str) -> str | None:
+    """The game server a UID belongs to, read from its leading digits (None if unknown)."""
+    if game == "zzz":
+        if len(uid) == 8:
+            return "China"
+        return {"10": "America", "13": "Asia", "15": "Europe", "17": "TW/HK/MO"}.get(uid[:2])
+    if len(uid) == 9:
+        return {"6": "America", "7": "Europe", "8": "Asia", "9": "TW/HK/MO"}.get(uid[0], "China")
+    return None
+
+
+def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | None = None) -> bytes:
     global FONTS
     FONTS = FONTS or Fonts()
     f = FONTS
@@ -201,7 +223,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image]) -> bytes:
     pw = draw.textlength(pill, font=f.meta) + 24
     draw.rounded_rectangle((PAD + 4, y, PAD + 4 + pw, y + 34), 17, fill=accent + (255,))
     draw.text((PAD + 16, y + 4), pill, font=f.meta, fill=(16, 14, 26) if sum(accent) > 450 else TEXT)
-    meta = f"Lv. {build.level} · {labels['cons']}{build.constellation}"
+    meta = f"Lv. {build.level}"
     draw.text((PAD + 16 + pw, y + 4), meta, font=f.meta, fill=TEXT)
     x = PAD + 28 + pw + draw.textlength(meta, font=f.meta)
     if build.game == "zzz":
@@ -209,6 +231,8 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image]) -> bytes:
     else:
         for i in range(build.rarity):
             _star(draw, x + 10 + i * 22, y + 17, 10, GOLD)
+
+    _cons_marks(card, build, accent, light)
 
     # Weapon, bottom left.
     if build.weapon:
@@ -280,6 +304,12 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image]) -> bytes:
     else:
         draw.text((GEAR_X + 20, PAD + 20), f"No {labels['gear'].lower()} equipped.", font=f.stat, fill=DIM)
 
+    if uid:
+        server = server_name(build.game, uid)
+        foot = f"{server} · UID {uid}" if server else f"UID {uid}"
+        # A small stamp in the image's own corner, outside the layout.
+        ImageDraw.Draw(card).text((W - 8, H - 5), foot, font=f.stamp, fill=TEXT, anchor="rd")
+
     out = io.BytesIO()
     card.convert("RGB").save(out, "PNG", optimize=True)
     return out.getvalue()
@@ -306,15 +336,125 @@ def _gear(card: Image.Image, piece: Gear, icon: Image.Image | None, box, light, 
     for s in piece.subs:
         mid = y + step / 2
         value_w = draw.textlength(s.value, font=f.sub_b)
-        dots_w = 8 * s.rolls
+        upgrades = max(s.rolls - 1, 0)  # the first roll is the base value, not an upgrade
+        dots_w = 8 * upgrades
         label = _fit_text(draw, _name(s), f.sub, x1 - x0 - 34 - value_w - dots_w)
         draw.text((x0 + 14, mid), label, font=f.sub, fill=TEXT, anchor="lm")
         draw.text((x1 - 12, mid), s.value, font=f.sub_b, fill=TEXT, anchor="rm")
         dx = x1 - 20 - value_w
-        for _ in range(s.rolls):
+        for _ in range(upgrades):
             draw.ellipse((dx - 6, mid - 3, dx, mid + 3), fill=light)
             dx -= 8
         y += step
+
+
+CONS_W, CONS_TOP, CONS_BOTTOM = 84, 160, H - PAD - 176  # the strip of six marks left of the art
+SS = 4  # marks are drawn this many times bigger and shrunk, for smooth edges
+
+
+def _sparkle(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, fill, waist: float = 0.22) -> None:
+    pts = []
+    for i in range(8):
+        a = -math.pi / 2 + i * math.pi / 4
+        rad = r if i % 2 == 0 else r * waist
+        pts.append((cx + rad * math.cos(a), cy + rad * math.sin(a)))
+    draw.polygon(pts, fill=fill)
+
+
+def _glow(size, points, radius: float, color) -> Image.Image:
+    """Soft colored light around the given points."""
+    small = Image.new("RGBA", (size[0] // SS, size[1] // SS), (0, 0, 0, 0))
+    d = ImageDraw.Draw(small)
+    r = radius / SS
+    for x, y in points:
+        d.ellipse((x / SS - r, y / SS - r, x / SS + r, y / SS + r), fill=color)
+    return small.filter(ImageFilter.GaussianBlur(r / 2)).resize(size, Image.BICUBIC)
+
+
+def _genshin_marks(img: Image.Image, n: int, accent, light) -> None:
+    """A constellation: six stars zig-zagging down, joined by lines that light up as they're unlocked."""
+    w, h = img.size
+    pts = [(w * (0.36 if i % 2 == 0 else 0.64), h * (0.07 + i * 0.172)) for i in range(6)]
+    img.alpha_composite(_glow(img.size, pts[:n], 20 * SS, accent + (200,)))
+    draw = ImageDraw.Draw(img)
+    for i in range(5):
+        lit = i + 1 < n
+        draw.line((pts[i], pts[i + 1]), fill=light + (240,) if lit else (255, 255, 255, 90), width=(3 if lit else 2) * SS)
+    for i, (x, y) in enumerate(pts):
+        if i < n:
+            draw.ellipse((x - 17 * SS, y - 17 * SS, x + 17 * SS, y + 17 * SS), outline=light + (150,), width=SS)
+            _sparkle(draw, x, y, 22 * SS, light + (255,))
+            _sparkle(draw, x, y, 10 * SS, (255, 255, 255, 255), 0.3)
+        else:
+            _sparkle(draw, x, y, 14 * SS, (255, 255, 255, 120))
+
+
+def _hsr_marks(img: Image.Image, n: int, accent, light) -> None:
+    """A Trailblaze route map: six stations on one line, travelled up to the last eidolon unlocked."""
+    w, h = img.size
+    x = w * 0.42
+    ys = [h * (0.07 + i * 0.172) for i in range(6)]
+    if n:
+        img.alpha_composite(_glow(img.size, [(x, y) for y in ys[:n]], 20 * SS, accent + (170,)))
+    draw = ImageDraw.Draw(img)
+    draw.line((x, ys[0], x, ys[-1]), fill=(255, 255, 255, 55), width=6 * SS)
+    if n > 1:
+        draw.line((x, ys[0], x, ys[n - 1]), fill=light + (255,), width=8 * SS)
+    for i, y in enumerate(ys):
+        r = 15 * SS
+        if i < n:
+            draw.ellipse((x - r, y - r, x + r, y + r), fill=(255, 255, 255, 255), outline=light + (255,), width=6 * SS)
+            draw.ellipse((x - 5 * SS, y - 5 * SS, x + 5 * SS, y + 5 * SS), fill=accent + (255,))
+        else:
+            draw.ellipse((x - r, y - r, x + r, y + r), fill=(14, 12, 24, 170), outline=(255, 255, 255, 80), width=4 * SS)
+
+
+def _zzz_marks(img: Image.Image, n: int, accent, light) -> None:
+    """A stack of six little CRT TVs, like the wall of screens in the HDD room: lit ones glow, the rest are off."""
+    w, h = img.size
+    th = h / 6
+    draw = ImageDraw.Draw(img)
+    th = (h - 10 * SS) / 6
+    ax, ay = w * 0.55, 10 * SS  # rabbit-ear antenna on the top set
+    draw.line((ax, ay, ax - 12 * SS, 0), fill=(255, 255, 255, 120), width=2 * SS)
+    draw.line((ax, ay, ax + 12 * SS, 0), fill=(255, 255, 255, 120), width=2 * SS)
+    for i in range(6):
+        y0, y1 = 10 * SS + i * th + 2 * SS, 10 * SS + (i + 1) * th - 2 * SS
+        x0, x1 = w * (0.08 if i % 2 else 0.18), w * (0.82 if i % 2 else 0.92)  # stacked a bit unevenly
+        lit = i < n
+        draw.rounded_rectangle((x0, y0, x1, y1), 8 * SS, fill=(30, 28, 36, 245) if lit else (30, 28, 36, 170),
+                               outline=(255, 255, 255, 70 if lit else 35), width=SS)
+        sx0, sy0, sx1, sy1 = x0 + 6 * SS, y0 + 6 * SS, x1 - 16 * SS, y1 - 6 * SS
+        if lit:
+            screen = Image.new("RGBA", (int(sx1 - sx0), int(sy1 - sy0)))
+            sd = ImageDraw.Draw(screen)
+            for row in range(screen.height):
+                c = _mix(light, accent, row / screen.height)
+                sd.line((0, row, screen.width, row), fill=c + ((255,) if (row // SS) % 3 else (200,)))  # scanlines
+            mask = Image.new("L", screen.size, 0)
+            ImageDraw.Draw(mask).rounded_rectangle((0, 0, screen.width - 1, screen.height - 1), 6 * SS, fill=255)
+            screen.putalpha(ImageChops.multiply(screen.getchannel("A"), mask))
+            img.alpha_composite(screen, (int(sx0), int(sy0)))
+        else:
+            draw.rounded_rectangle((sx0, sy0, sx1, sy1), 6 * SS, fill=(8, 8, 12, 200))
+        kx = x1 - 9 * SS
+        for ky in (y0 + 12 * SS, y0 + 22 * SS):  # knobs
+            draw.ellipse((kx - 3 * SS, ky - 3 * SS, kx + 3 * SS, ky + 3 * SS), fill=light + (255,) if lit else (255, 255, 255, 50))
+
+
+def _cons_marks(card: Image.Image, build: CharacterBuild, accent, light) -> None:
+    """Six marks down the left edge of the art, lit for each constellation the character has."""
+    size = (CONS_W * SS, (CONS_BOTTOM - CONS_TOP) * SS)
+    img = Image.new("RGBA", size, (0, 0, 0, 0))
+    n = max(0, min(build.constellation, 6))
+    if build.game == "genshin":
+        _genshin_marks(img, n, accent, light)
+    elif build.game == "hsr":
+        _hsr_marks(img, n, accent, light)
+    else:
+        _zzz_marks(img, n, accent, light)
+    img = img.resize((img.width // SS, img.height // SS), Image.LANCZOS)
+    card.alpha_composite(img, (PAD - 10 - (img.width - CONS_W) // 2, CONS_TOP - (img.height - (CONS_BOTTOM - CONS_TOP)) // 2))
 
 
 class CardMaker:
@@ -335,7 +475,7 @@ class CardMaker:
         urls.discard(None)
         loaded = await asyncio.gather(*(self._image(u, big=u == build.art_url) for u in urls))
         images = {u: img for u, img in zip(urls, loaded) if img is not None}
-        png = await asyncio.to_thread(draw_card, build, images)
+        png = await asyncio.to_thread(draw_card, build, images, profile.uid)
         if len(self.cards) >= 40:
             self.cards.pop(next(iter(self.cards)))
         self.cards[key] = png

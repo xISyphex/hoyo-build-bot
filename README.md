@@ -15,11 +15,12 @@ Each person has one claimed UID per game; claiming again replaces it. A UID type
 into the lookup still wins over the claimed one. Claims are saved to
 `claims.json` in the cache folder, so they survive restarts and updates.
 
-The reply is a build card: one image with the character art, final stats,
-every artifact / relic / drive disc with its substats (a dot per roll), the
-weapon / light cone / W-Engine, set bonuses and the Crit Value of the substats.
-A **Show LC / Weapon / Wengine effect** button reveals the effect text, and a
-dropdown switches to the player's other showcased characters.
+The reply is just the build card image: the character art, constellations /
+eidolons / mindscapes, final stats, every artifact / relic / drive disc with its
+substats (a dot per upgrade), the weapon / light cone / W-Engine, set bonuses,
+the Crit Value (CRIT DMG + CRIT Rate × 2 over all gear) and the server and UID.
+A dropdown under it switches to the player's other showcased characters, next to
+a link to the profile on Enka.Network.
 
 Card pictures are downloaded once, shrunk and kept in `images/` inside the cache
 folder. If a card can't be drawn, the bot falls back to an all-text reply whose
@@ -95,10 +96,6 @@ Game data (names, base stats) is downloaded from Enka's
 start and refreshed every 12 hours, so new characters work without a redeploy.
 Profiles are cached for the `ttl` Enka returns, as Enka asks.
 
-Genshin weapon passives come from
-[genshin-db](https://github.com/theBowja/genshin-db) (MIT). Each weapon's file is
-downloaded the first time that weapon is shown and cached in `CACHE_DIR`.
-
 ## Tests
 
 ```bash
@@ -115,10 +112,9 @@ bot/
   main.py        Discord client, slash commands, autocomplete, dropdown
   enka.py        Enka.Network HTTP client with ttl cache and error messages
   assets.py      Downloads and indexes Enka's game data files
-  gi_weapon_effects.py  Genshin weapon passives from genshin-db
   games/         One parser per game -> models.CharacterBuild
   card.py        Draws the build card image (Pillow)
-  embeds.py      Embed around the card, and the all-text fallback reply
+  embeds.py      All-text fallback reply, used if the card can't be drawn
   matching.py    Forgiving name matching ("raiden", "hutao", typos)
   claims.py      Claimed UIDs per Discord user and game, saved as JSON
   access.py      Who may use the bot (owner + /access list), saved as JSON

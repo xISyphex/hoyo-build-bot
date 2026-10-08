@@ -19,7 +19,7 @@ from .access import PRIVATE, AccessList
 from .assets import Assets
 from .claims import ClaimStore
 from .card import CardMaker
-from .embeds import build_embed, card_embed
+from .embeds import build_embed
 from .enka import ERRORS, EnkaClient, EnkaError
 from .models import CharacterBuild, PlayerProfile
 from .ratelimit import LookupLimit
@@ -29,7 +29,6 @@ log = logging.getLogger("hoyo-bot")
 
 USER_AGENT = os.environ.get("ENKA_USER_AGENT", "HoyoBuildBot/1.0 (Discord bot)")
 UID_RE = re.compile(r"^\d{8,10}$")
-EFFECT_BUTTON_NAMES = {"genshin": "Weapon", "hsr": "LC", "zzz": "Wengine"}
 GAME_NAMES = {"genshin": "Genshin Impact", "hsr": "Honkai: Star Rail", "zzz": "Zenless Zone Zero"}
 
 
@@ -110,27 +109,20 @@ class HoyoBot(discord.Client):
         await super().close()
 
 
-async def render(
-    bot: HoyoBot, profile: PlayerProfile, build: CharacterBuild, show_effect: bool = False
-) -> dict:
-    """Build card, embed and buttons for one character, ready to send.
+async def render(bot: HoyoBot, profile: PlayerProfile, build: CharacterBuild) -> dict:
+    """The build card image and its dropdown for one character, ready to send.
 
     If the card can't be drawn, the reply falls back to the all-text embed.
     """
-    view = CharacterView(profile, build, show_effect)
+    view = CharacterView(profile, build)
     try:
         png = await bot.cards.render(profile, build)
     except Exception:
         log.exception("Could not draw the build card for %s", build.name)
     else:
-        name = "build.png"
-        return {
-            "embed": card_embed(profile, build, name, show_effect=show_effect),
-            "view": view,
-            "file": discord.File(io.BytesIO(png), filename=name),
-        }
+        return {"embed": None, "view": view, "file": discord.File(io.BytesIO(png), filename="build.png")}
     pieces = await bot.set_emojis.for_pieces(build)
-    return {"embed": build_embed(profile, build, show_effect=show_effect, piece_emojis=pieces), "view": view}
+    return {"embed": build_embed(profile, build, piece_emojis=pieces), "view": view}
 
 
 def as_edit(reply: dict) -> dict:
@@ -159,28 +151,11 @@ class CharacterSelect(discord.ui.Select):
         await interaction.edit_original_response(**as_edit(await render(interaction.client, self.profile, build)))
 
 
-class EffectButton(discord.ui.Button):
-    """Shows or hides the weapon / light cone / W-Engine effect text."""
-
-    def __init__(self, profile: PlayerProfile, build: CharacterBuild, shown: bool):
-        label = f"{'Hide' if shown else 'Show'} {EFFECT_BUTTON_NAMES[build.game]} effect"
-        super().__init__(label=label, style=discord.ButtonStyle.secondary)
-        self.profile, self.build, self.shown = profile, build, shown
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer()
-        await interaction.edit_original_response(
-            **as_edit(await render(interaction.client, self.profile, self.build, show_effect=not self.shown))
-        )
-
-
 class CharacterView(discord.ui.View):
-    def __init__(self, profile: PlayerProfile, build: CharacterBuild, show_effect: bool = False):
+    def __init__(self, profile: PlayerProfile, build: CharacterBuild):
         super().__init__(timeout=600)
         if len(profile.characters) > 1:
             self.add_item(CharacterSelect(profile, build.name))
-        if build.weapon and build.weapon.effect:
-            self.add_item(EffectButton(profile, build, show_effect))
         self.add_item(discord.ui.Button(label="Open on Enka.Network", url=profile.profile_url))
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:

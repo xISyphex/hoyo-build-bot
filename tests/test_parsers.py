@@ -135,10 +135,9 @@ class GenshinLiveTest(unittest.TestCase):
 
         for build in self.profile.characters:
             with self.subTest(character=build.name):
-                for shown in (False, True):
-                    embed = build_embed(self.profile, build, show_effect=shown)
-                    self.assertLessEqual(len(embed), 6000)
-                    self.assertTrue(all(len(f.value) <= 1024 for f in embed.fields))
+                embed = build_embed(self.profile, build)
+                self.assertLessEqual(len(embed), 6000)
+                self.assertTrue(all(len(f.value) <= 1024 for f in embed.fields))
 
 
 class StarRailTest(unittest.TestCase):
@@ -238,42 +237,14 @@ class StarRailLiveTest(unittest.TestCase):
         self.assertEqual(unknown.name, "Character 9999")
         self.assertIn("newer than the game data", unknown.notes[0])
 
-    def test_light_cone_effect(self):
-        lc = self.by_name["Castorice"].weapon
-        self.assertEqual(lc.effect_name, "Engrave")
-        self.assertTrue(lc.effect.startswith("Increases the wearer's Max HP by 30%."))
-        self.assertNotIn("#", lc.effect)
-        # Superimposition 2 uses the second column of numbers (37.5% HP, 35% DEF ignore).
-        data = json.loads(json.dumps(self.data))
-        data["detailInfo"]["avatarDetailList"][0]["equipment"]["rank"] = 2
-        s2 = starrail.parse_profile(self.assets, "800069903", data).characters[0].weapon
-        self.assertIn("Max HP by 37.5%", s2.effect)
-        self.assertIn("ignore 35% of the target's DEF", s2.effect)
-        # A light cone on a character of another path gives no bonus, and says so.
-        data["detailInfo"]["avatarDetailList"][0]["avatarId"] = 1001  # March 7th, Preservation
-        off_path = starrail.parse_profile(self.assets, "800069903", data).characters[0].weapon
-        self.assertEqual(off_path.effect_name, "Engrave (inactive: path doesn't match)")
-
     def test_every_embed_fits_discord_limits(self):
         from bot.embeds import build_embed
 
         for build in self.profile.characters:
             with self.subTest(character=build.name):
-                for shown in (False, True):
-                    embed = build_embed(self.profile, build, show_effect=shown)
-                    self.assertLessEqual(len(embed), 6000)
-                    self.assertTrue(all(len(f.value) <= 1024 for f in embed.fields))
-        castorice = build_embed(self.profile, self.by_name["Castorice"], show_effect=True)
-        self.assertIn("> **Engrave**\n> Increases the wearer's Max HP by 30%.", weapon_field(castorice))
-
-    def test_every_light_cone_effect_fills_in(self):
-        for tid in self.assets.data["hsr_lc_ranks"]:
-            for rank in range(1, 6):
-                with self.subTest(light_cone=tid, rank=rank):
-                    effect = starrail.light_cone_effect(self.assets, tid, rank)
-                    self.assertNotRegex(effect["effect"], r"#\d")
-                    self.assertLessEqual(len(effect["effect"]), 1000)
-
+                embed = build_embed(self.profile, build)
+                self.assertLessEqual(len(embed), 6000)
+                self.assertTrue(all(len(f.value) <= 1024 for f in embed.fields))
 
 class ZenlessTest(unittest.TestCase):
     @classmethod
@@ -322,34 +293,13 @@ class ZenlessTest(unittest.TestCase):
         self.assertEqual(miyabi.set_bonuses, ["4pc Branch & Blade Song", "2pc Woodpecker Electro"])
         self.assertEqual(miyabi.weapon.name, "Fusion Compiler")
 
-    def test_wengine_effect_for_phase(self):
-        # Shape of Hakushin's per-phase W-Engine talents, as cached by Assets.
-        effects = {"14118": {
-            "1": {"name": "Frostbite", "desc": "Increases ATK by <color=#2BAD00>12%</color>.\\nStacks up to 3 times."},
-            "5": {"name": "Frostbite", "desc": "Increases ATK by <color=#2BAD00>24%</color>.\\nStacks up to 3 times."},
-        }}
-        self.assets.data["zzz_weapon_effects"] = effects
-        try:
-            data = fixture("zzz_live.json")
-            miyabi = zenless.parse_profile(self.assets, "1300003409", data).characters[3]
-            self.assertEqual(miyabi.weapon.effect_name, "Frostbite")
-            self.assertEqual(miyabi.weapon.effect, "Increases ATK by 12%.\nStacks up to 3 times.")
-            data["PlayerInfo"]["ShowcaseDetail"]["AvatarList"][3]["Weapon"]["UpgradeLevel"] = 5
-            miyabi = zenless.parse_profile(self.assets, "1300003409", data).characters[3]
-            self.assertIn("24%", miyabi.weapon.effect)
-            # No cached effect for a W-Engine: nothing shown, no error.
-            anby = zenless.parse_profile(self.assets, "1300003409", data).characters[0]
-            self.assertIsNone(anby.weapon.effect)
-        finally:
-            self.assets.data["zzz_weapon_effects"] = {}
-
     def test_live_embeds_fit_discord_limits(self):
         from bot.embeds import build_embed
 
         profile = zenless.parse_profile(self.assets, "1300003409", fixture("zzz_live.json"))
         for build in profile.characters:
             with self.subTest(character=build.name):
-                embed = build_embed(profile, build, show_effect=True)
+                embed = build_embed(profile, build)
                 self.assertLessEqual(len(embed), 6000)
                 self.assertTrue(all(len(f.value) <= 1024 for f in embed.fields))
 
@@ -357,63 +307,6 @@ class ZenlessTest(unittest.TestCase):
         self.assertEqual(zenless._element(["ZhenZhenAssault", "Physics"]), "Physical")
         self.assertEqual(zenless._element(["Wind"]), "Wind")
         self.assertEqual(zenless._element(["Lumen"]), "Lumen")
-
-
-class _FakeResponse:
-    def __init__(self, body):
-        self.body = body
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *exc):
-        return False
-
-    def raise_for_status(self):
-        if self.body is None:
-            raise RuntimeError("HTTP 404")
-
-    async def json(self, content_type=None):
-        return self.body
-
-
-class _FakeSession:
-    def __init__(self, routes):
-        self.routes, self.requested = routes, []
-
-    def get(self, url):
-        self.requested.append(url)
-        return _FakeResponse(self.routes.get(url))
-
-
-class ZenlessEffectsRefreshTest(unittest.TestCase):
-    def test_caches_new_wengines_only(self):
-        import asyncio
-        import tempfile
-
-        from bot.assets import HAKUSHIN
-
-        with tempfile.TemporaryDirectory() as tmp:
-            assets = Assets(tmp)
-            (Path(tmp) / "zzz").mkdir()
-            (Path(tmp) / "zzz" / "weapon_effects.json").write_text('{"14102": {"1": {"name": "Old", "desc": "x"}}}')
-            session = _FakeSession({
-                HAKUSHIN + "manifest.json": {"zzz": {"live": "2.3", "latest": "2.4"}},
-                HAKUSHIN + "zzz/2.3/weapon.json": {"14102": {}, "14118": {}, "13101": {}},
-                HAKUSHIN + "zzz/2.3/en/weapon/14118.json": {"talents": {"1": {"name": "Frostbite", "desc": "ATK +12%"}}},
-            })
-            asyncio.run(assets._refresh_zzz_effects(session))
-            assets.load()
-            effects = assets.data["zzz_weapon_effects"]
-            self.assertEqual(effects["14102"]["1"]["name"], "Old")  # cached, not refetched
-            self.assertEqual(effects["14118"]["1"]["desc"], "ATK +12%")
-            self.assertNotIn("13101", effects)  # failed download is skipped, retried next refresh
-            self.assertNotIn(HAKUSHIN + "zzz/2.3/en/weapon/14102.json", session.requested)
-
-            # Hakushin unreachable: keep the cache, no exception.
-            asyncio.run(assets._refresh_zzz_effects(_FakeSession({})))
-            assets.load()
-            self.assertIn("14118", assets.data["zzz_weapon_effects"])
 
 
 class MatchingTest(unittest.TestCase):
@@ -445,7 +338,7 @@ class EmbedTest(unittest.TestCase):
 
         for build in self.profile.characters:
             with self.subTest(character=build.name):
-                embed = build_embed(self.profile, build, show_effect=True)
+                embed = build_embed(self.profile, build)
                 self.assertLessEqual(len(embed), 6000)
                 self.assertLessEqual(len(embed.fields), 25)
                 self.assertTrue(all(len(f.value) <= 1024 for f in embed.fields))
@@ -482,10 +375,6 @@ class EmbedTest(unittest.TestCase):
         self.assertLessEqual(len(payload["options"][1]["description"]), 100)
         claim = tree.get_command("genshin-claim").to_dict(tree)
         self.assertEqual([o["name"] for o in claim["options"]], ["uid"])
-
-
-def weapon_field(embed) -> str:
-    return next(f.value for f in embed.fields if f.name in ("Weapon", "Light Cone", "W-Engine"))
 
 
 class GearOrderTest(unittest.TestCase):
@@ -531,74 +420,6 @@ class ShortStatNameTest(unittest.TestCase):
             ("Outgoing Healing", "Healing"), ("CRIT Rate", "CRIT Rate"),
         ]:
             self.assertEqual(_name(Stat(long, "1")), short)
-
-
-class WeaponEffectTest(unittest.TestCase):
-    """Genshin weapon passives from genshin-db, rendered in the embed (no network)."""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.assets = load_assets()
-
-    def setUp(self):
-        self.profile = genshin.parse_profile(self.assets, "618285856", fixture("genshin_live.json"))
-
-    def fill_from_cache(self, files: dict[str, dict]) -> None:
-        import asyncio
-        import tempfile
-
-        from bot.gi_weapon_effects import GenshinWeaponEffects
-
-        with tempfile.TemporaryDirectory() as tmp:
-            folder = Path(tmp) / "gi" / "weapon_effects"
-            folder.mkdir(parents=True)
-            (folder / "_index.json").write_text(json.dumps({"Skyward Harp": "skywardharp"}))
-            for name, data in files.items():
-                (folder / f"{name}.json").write_text(json.dumps(data))
-            asyncio.run(GenshinWeaponEffects(None, tmp).fill(self.profile))
-
-    def test_passive_uses_the_weapons_refinement(self):
-        self.fill_from_cache({
-            "skywardharp": {
-                "effectName": "Echoing Ballad",
-                **{f"r{r}": {"description": f"Increases CRIT DMG by {15 + 5 * r}%."} for r in range(1, 6)},
-            },
-            "freedomsworn": {"effectName": "Revolutionary Chorale", "r1": {"description": "x" * 2000}},
-        })
-        harp = self.profile.characters[0].weapon  # Amber's Skyward Harp is R2
-        self.assertEqual((harp.effect_name, harp.effect), ("Echoing Ballad", "Increases CRIT DMG by 25%."))
-        # Weapons the cache doesn't have stay without an effect instead of failing the lookup.
-        # (No session, so nothing is downloaded.)
-        self.assertIsNone(self.profile.characters[2].weapon.effect)
-
-        from bot.embeds import build_embed
-
-        # Hidden until "Show Weapon effect" is pressed.
-        self.assertNotIn("Echoing Ballad", weapon_field(build_embed(self.profile, self.profile.characters[0])))
-        amber = weapon_field(build_embed(self.profile, self.profile.characters[0], show_effect=True))
-        self.assertTrue(amber.endswith("> **Echoing Ballad**\n> Increases CRIT DMG by 25%."))
-        bennett = weapon_field(build_embed(self.profile, self.profile.characters[1], show_effect=True))
-        self.assertLessEqual(len(bennett), 1024)
-        self.assertTrue(bennett.endswith("…"))
-
-    def test_long_effect_never_pushes_embed_over_the_limit(self):
-        from bot.embeds import EMBED_LIMIT, build_embed
-        from bot.models import Stat
-
-        build = self.profile.characters[0]
-        build.weapon.effect_name, build.weapon.effect = "Long", "y" * 900
-        # Fill the embed to just under the limit without the effect.
-        build.notes = ["n" * 2000]
-        for piece in build.gear:
-            piece.subs = [Stat("s" * 100, "v" * 100) for _ in range(3)]
-        build.weapon.effect = None
-        without = len(build_embed(self.profile, build, show_effect=True))
-        build.weapon.effect = "y" * 900
-        self.assertLess(without, EMBED_LIMIT - 100)
-        self.assertGreater(without + 900, EMBED_LIMIT)
-        embed = build_embed(self.profile, build, show_effect=True)
-        self.assertLessEqual(len(embed), EMBED_LIMIT)
-        self.assertIn("> **Long**\n> yyy", weapon_field(embed))
 
 
 class StarRailResFallbackTest(unittest.TestCase):

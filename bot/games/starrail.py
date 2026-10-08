@@ -9,7 +9,6 @@ conditions) are not in the meta file and are left out, as in-game.
 
 from __future__ import annotations
 
-import re
 from collections import defaultdict
 
 from ..assets import Assets
@@ -67,38 +66,6 @@ PROP_SHORT = {
     "ElationDamageAddedRatioBase": "Elation DMG",
 }
 TALENT_LABELS = ["Basic ATK", "Skill", "Ultimate", "Talent"]
-
-
-PLACEHOLDER = re.compile(r"#(\d+)\[(i|f\d)\](%?)")
-
-
-def _fill(desc: str, params: list) -> str:
-    """Replace the game's #1[i]% style placeholders with this rank's numbers."""
-
-    def sub(m: re.Match) -> str:
-        idx, kind, pct = int(m.group(1)) - 1, m.group(2), m.group(3)
-        if idx >= len(params):
-            return m.group(0)
-        value = params[idx] * (100 if pct else 1)
-        if kind == "i":
-            text = f"{value:.2f}".rstrip("0").rstrip(".")  # 37.5, 12, 0.5
-        else:
-            text = f"{value:.{int(kind[1:])}f}"
-        return f"{text}{pct}"
-
-    return PLACEHOLDER.sub(sub, desc)
-
-
-def light_cone_effect(assets: Assets, tid: str, rank: int, active: bool = True) -> dict:
-    """effect_name / effect for Weapon: the passive filled in for this superimposition."""
-    entry = assets.data.get("hsr_lc_ranks", {}).get(tid)
-    if not entry or not entry.get("params"):
-        return {}
-    params = entry["params"][min(max(rank, 1), len(entry["params"])) - 1]
-    name = entry.get("skill") or "Passive"
-    if not active:
-        name += " (inactive: path doesn't match)"
-    return {"effect_name": name, "effect": _fill(entry.get("desc", ""), params).strip()}
 
 
 def _fmt_prop(prop: str, value: float) -> Stat:
@@ -173,7 +140,6 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
             refinement=lc_rank,
             rarity=int(wep.get("Rarity", 0)),
             stats=[Stat("HP", fmt_int(lc_hp)), Stat("ATK", fmt_int(lc_atk)), Stat("DEF", fmt_int(lc_def))],
-            **light_cone_effect(assets, tid, lc_rank, path_match or not wep or not char),
             icon_url=f"{SRR_IMAGES}light_cone_preview/{tid}.png",
         )
 
