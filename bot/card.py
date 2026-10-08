@@ -201,7 +201,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image]) -> bytes:
     pw = draw.textlength(pill, font=f.meta) + 24
     draw.rounded_rectangle((PAD + 4, y, PAD + 4 + pw, y + 34), 17, fill=accent + (255,))
     draw.text((PAD + 16, y + 4), pill, font=f.meta, fill=(16, 14, 26) if sum(accent) > 450 else TEXT)
-    meta = f"Lv. {build.level} · {labels['cons']}{build.constellation}"
+    meta = f"Lv. {build.level}"
     draw.text((PAD + 16 + pw, y + 4), meta, font=f.meta, fill=TEXT)
     x = PAD + 28 + pw + draw.textlength(meta, font=f.meta)
     if build.game == "zzz":
@@ -209,6 +209,8 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image]) -> bytes:
     else:
         for i in range(build.rarity):
             _star(draw, x + 10 + i * 22, y + 17, 10, GOLD)
+
+    _cons_marks(card, build, accent, light)
 
     # Weapon, bottom left.
     if build.weapon:
@@ -306,15 +308,62 @@ def _gear(card: Image.Image, piece: Gear, icon: Image.Image | None, box, light, 
     for s in piece.subs:
         mid = y + step / 2
         value_w = draw.textlength(s.value, font=f.sub_b)
-        dots_w = 8 * s.rolls
+        upgrades = max(s.rolls - 1, 0)  # the first roll is the base value, not an upgrade
+        dots_w = 8 * upgrades
         label = _fit_text(draw, _name(s), f.sub, x1 - x0 - 34 - value_w - dots_w)
         draw.text((x0 + 14, mid), label, font=f.sub, fill=TEXT, anchor="lm")
         draw.text((x1 - 12, mid), s.value, font=f.sub_b, fill=TEXT, anchor="rm")
         dx = x1 - 20 - value_w
-        for _ in range(s.rolls):
+        for _ in range(upgrades):
             draw.ellipse((dx - 6, mid - 3, dx, mid + 3), fill=light)
             dx -= 8
         y += step
+
+
+MARK = 54  # one constellation / eidolon / mindscape mark, drawn 4x and shrunk for smooth edges
+
+
+def _mark_shape(draw: ImageDraw.ImageDraw, game: str, c: float, r: float, fill) -> None:
+    """Genshin: a four-point star, Star Rail: a diamond with a cut core, ZZZ: a hexagon."""
+    if game == "genshin":
+        pts = []
+        for i in range(8):
+            a = -math.pi / 2 + i * math.pi / 4
+            rad = r if i % 2 == 0 else r * 0.32
+            pts.append((c + rad * math.cos(a), c + rad * math.sin(a)))
+        draw.polygon(pts, fill=fill)
+    elif game == "hsr":
+        draw.polygon([(c, c - r), (c + r * 0.78, c), (c, c + r), (c - r * 0.78, c)], fill=fill)
+    else:
+        draw.polygon([(c + r * math.cos(math.pi / 6 + i * math.pi / 3), c + r * math.sin(math.pi / 6 + i * math.pi / 3)) for i in range(6)], fill=fill)
+
+
+def _mark(game: str, accent, light, owned: bool) -> Image.Image:
+    size = MARK * 4
+    c = size / 2
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    if owned:
+        glow = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        ImageDraw.Draw(glow).ellipse((c - 104, c - 104, c + 104, c + 104), fill=accent + (110,))
+        img = Image.alpha_composite(img, glow.resize((MARK, MARK), Image.LANCZOS).resize((size, size), Image.BILINEAR))
+        draw = ImageDraw.Draw(img)
+        draw.ellipse((c - 88, c - 88, c + 88, c + 88), fill=(14, 12, 24, 210), outline=light + (255,), width=10)
+        _mark_shape(draw, game, c, 62, light + (255,))
+        _mark_shape(draw, game, c, 26, (255, 255, 255, 235))
+    else:
+        draw.ellipse((c - 88, c - 88, c + 88, c + 88), fill=(14, 12, 24, 120), outline=(255, 255, 255, 60), width=8)
+        _mark_shape(draw, game, c, 62, (255, 255, 255, 55))
+    return img.resize((MARK, MARK), Image.LANCZOS)
+
+
+def _cons_marks(card: Image.Image, build: CharacterBuild, accent, light) -> None:
+    """Six marks down the left edge of the art, lit for each constellation the character has."""
+    top, bottom = 168, H - PAD - 180
+    step = (bottom - top - MARK) / 5
+    marks = {owned: _mark(build.game, accent, light, owned) for owned in (True, False)}
+    for i in range(6):
+        card.alpha_composite(marks[i < build.constellation], (PAD - 6, round(top + i * step)))
 
 
 class CardMaker:

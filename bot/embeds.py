@@ -112,8 +112,8 @@ def _weapon_value(lines: list[str], weapon: Weapon, effect_limit: int) -> str:
 
 
 def _sub(stat: Stat) -> str:
-    """A substat, led by how many times it rolled (counting its first roll)."""
-    rolls = f"`{stat.rolls}×` " if stat.rolls else ""
+    """A substat, led by how many times it was upgraded (its first roll is the base, not an upgrade)."""
+    rolls = f"`+{stat.rolls - 1}` " if stat.rolls > 1 else ""
     return f"{rolls}{_name(stat)} **{stat.value}**"
 
 
