@@ -36,7 +36,6 @@ PANEL = (255, 255, 255, 14)
 LINE = (255, 255, 255, 22)
 ART_MAX = 1100  # art is kept at most this tall
 ICON_MAX = 192
-FOOT = 34  # room under the gear for the server and UID
 ART_DROP = 110  # tall art starts this far down, so the head sits below the name
 
 
@@ -62,6 +61,7 @@ class Fonts:
         self.sub = _font("Regular", 18)
         self.sub_b = _font("SemiBold", 18)
         self.wname = _font("Bold", 21)
+        self.stamp = _font("Regular", 14)
 
 
 FONTS: Fonts | None = None
@@ -294,7 +294,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     if gear:
         cols, rows = 2, max(3, math.ceil(len(gear) / 2))
         gw = (W - PAD - GEAR_X - 12 * (cols - 1)) / cols
-        gh = (H - 2 * PAD - FOOT - 12 * (rows - 1)) / rows
+        gh = (H - 2 * PAD - 12 * (rows - 1)) / rows
         for i, piece in enumerate(gear):
             x0 = GEAR_X + (i % cols) * (gw + 12)
             y0 = PAD + (i // cols) * (gh + 12)
@@ -307,7 +307,8 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     if uid:
         server = server_name(build.game, uid)
         foot = f"{server} · UID {uid}" if server else f"UID {uid}"
-        ImageDraw.Draw(card).text((W - PAD - 4, H - PAD), foot, font=f.small, fill=TEXT, anchor="rd")  # lines up with the bottom of the other panels
+        # A small stamp in the image's own corner, outside the layout.
+        ImageDraw.Draw(card).text((W - 8, H - 5), foot, font=f.stamp, fill=TEXT, anchor="rd")
 
     out = io.BytesIO()
     card.convert("RGB").save(out, "PNG", optimize=True)
