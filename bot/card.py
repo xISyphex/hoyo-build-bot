@@ -323,37 +323,58 @@ def _gear(card: Image.Image, piece: Gear, icon: Image.Image | None, box, light, 
 MARK = 54  # one constellation / eidolon / mindscape mark, drawn 4x and shrunk for smooth edges
 
 
-def _mark_shape(draw: ImageDraw.ImageDraw, game: str, c: float, r: float, fill) -> None:
-    """Genshin: a four-point star, Star Rail: a diamond with a cut core, ZZZ: a hexagon."""
-    if game == "genshin":
-        pts = []
-        for i in range(8):
-            a = -math.pi / 2 + i * math.pi / 4
-            rad = r if i % 2 == 0 else r * 0.32
-            pts.append((c + rad * math.cos(a), c + rad * math.sin(a)))
-        draw.polygon(pts, fill=fill)
-    elif game == "hsr":
-        draw.polygon([(c, c - r), (c + r * 0.78, c), (c, c + r), (c - r * 0.78, c)], fill=fill)
-    else:
-        draw.polygon([(c + r * math.cos(math.pi / 6 + i * math.pi / 3), c + r * math.sin(math.pi / 6 + i * math.pi / 3)) for i in range(6)], fill=fill)
+def _sparkle(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, fill, waist: float = 0.22) -> None:
+    pts = []
+    for i in range(8):
+        a = -math.pi / 2 + i * math.pi / 4
+        rad = r if i % 2 == 0 else r * waist
+        pts.append((cx + rad * math.cos(a), cy + rad * math.sin(a)))
+    draw.polygon(pts, fill=fill)
 
 
 def _mark(game: str, accent, light, owned: bool) -> Image.Image:
+    """One mark in the game's own style, lit in the element's colors when owned.
+
+    Genshin: a round star medallion like its constellation screen.
+    Star Rail: an upright card like its eidolons.
+    ZZZ: a slanted street-style tag with a double slash.
+    """
     size = MARK * 4
     c = size / 2
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    if owned:  # a soft glow of the element color behind it
+        glow = Image.new("RGBA", (MARK, MARK), (0, 0, 0, 0))
+        ImageDraw.Draw(glow).ellipse((4, 4, MARK - 4, MARK - 4), fill=accent + (120,))
+        img = glow.resize((size, size), Image.BICUBIC)
     draw = ImageDraw.Draw(img)
-    if owned:
-        glow = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-        ImageDraw.Draw(glow).ellipse((c - 104, c - 104, c + 104, c + 104), fill=accent + (110,))
-        img = Image.alpha_composite(img, glow.resize((MARK, MARK), Image.LANCZOS).resize((size, size), Image.BILINEAR))
-        draw = ImageDraw.Draw(img)
-        draw.ellipse((c - 88, c - 88, c + 88, c + 88), fill=(14, 12, 24, 210), outline=light + (255,), width=10)
-        _mark_shape(draw, game, c, 62, light + (255,))
-        _mark_shape(draw, game, c, 26, (255, 255, 255, 235))
+    line = light + (255,) if owned else (255, 255, 255, 70)
+    body = (14, 12, 24, 215) if owned else (14, 12, 24, 120)
+    core = (255, 255, 255, 240) if owned else (255, 255, 255, 60)
+    if game == "genshin":
+        draw.ellipse((c - 86, c - 86, c + 86, c + 86), fill=body, outline=line, width=7)
+        draw.ellipse((c - 66, c - 66, c + 66, c + 66), outline=line[:3] + (line[3] // 2,), width=3)
+        for k in range(4):  # little stars on the ring
+            a = math.pi / 4 + k * math.pi / 2
+            _sparkle(draw, c + 86 * math.cos(a), c + 86 * math.sin(a), 16, line, 0.35)
+        _sparkle(draw, c, c, 56, line)
+        _sparkle(draw, c, c, 22, core, 0.3)
+    elif game == "hsr":
+        w, h = 62, 92
+        draw.rounded_rectangle((c - w, c - h, c + w, c + h), 16, fill=body, outline=line, width=7)
+        draw.rounded_rectangle((c - w + 16, c - h + 16, c + w - 16, c + h - 16), 8, outline=line[:3] + (line[3] // 2,), width=3)
+        draw.polygon([(c, c - 48), (c + 30, c), (c, c + 48), (c - 30, c)], fill=line)
+        draw.polygon([(c, c - 20), (c + 12, c), (c, c + 20), (c - 12, c)], fill=core)
+        for dy in (-h + 34, h - 34):
+            draw.polygon([(c, c + dy - 8), (c + 6, c + dy), (c, c + dy + 8), (c - 6, c + dy)], fill=line)
     else:
-        draw.ellipse((c - 88, c - 88, c + 88, c + 88), fill=(14, 12, 24, 120), outline=(255, 255, 255, 60), width=8)
-        _mark_shape(draw, game, c, 62, (255, 255, 255, 55))
+        sk, w, h, cut = 34, 70, 74, 22  # slant, half width, half height, clipped corner
+        draw.polygon([
+            (c - w + sk, c - h), (c + w + sk - cut, c - h), (c + w + sk, c - h + cut),
+            (c + w - sk, c + h), (c - w - sk + cut, c + h), (c - w - sk, c + h - cut),
+        ], fill=line if owned else body, outline=None if owned else line, width=6)
+        ink = (16, 14, 26, 255) if owned else (255, 255, 255, 70)
+        for dx in (-26, 18):
+            draw.polygon([(c + dx + 14, c - 46), (c + dx + 36, c - 46), (c + dx - 14, c + 46), (c + dx - 36, c + 46)], fill=ink)
     return img.resize((MARK, MARK), Image.LANCZOS)
 
 
