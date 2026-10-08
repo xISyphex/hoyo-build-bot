@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import math
 import os
 import re
 
@@ -21,6 +22,7 @@ from .card import CardMaker
 from .embeds import build_embed, card_embed
 from .enka import ERRORS, EnkaClient, EnkaError
 from .models import CharacterBuild, PlayerProfile
+from .ratelimit import LookupLimit
 from .set_emojis import SetEmojis
 
 log = logging.getLogger("hoyo-bot")
@@ -57,6 +59,8 @@ class HoyoBot(discord.Client):
         # Lives next to the game data, which the VM setup script and the Docker volume keep across updates.
         self.claims = ClaimStore(os.environ.get("CLAIMS_FILE", os.path.join(cache_dir, "claims.json")))
         self.access = AccessList(os.environ.get("ACCESS_FILE", os.path.join(cache_dir, "access.json")))
+        # New lookups per person per hour (the owner has no limit); the dropdown and buttons don't count.
+        self.lookups = LookupLimit(int(os.environ.get("LOOKUPS_PER_HOUR", "15")))
         self.session: aiohttp.ClientSession | None = None
         self.enka: EnkaClient | None = None
         self.set_emojis: SetEmojis | None = None
@@ -204,6 +208,15 @@ def make_command(game: str) -> app_commands.Command:
         if not UID_RE.match(uid):
             await interaction.response.send_message("A UID is 8 to 10 digits, like `618285856`.", ephemeral=True)
             return
+        if not bot.access.is_owner(interaction.user.id):
+            next_free = bot.lookups.take(interaction.user.id)
+            if next_free is not None:
+                await interaction.response.send_message(
+                    f"You've used your {bot.lookups.per_hour} lookups for this hour. "
+                    f"You can look up again <t:{math.ceil(next_free)}:R>.",
+                    ephemeral=True,
+                )
+                return
         await interaction.response.defer(thinking=True)
         try:
             profile = await bot.enka.fetch(game, uid)
