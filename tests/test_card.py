@@ -6,11 +6,11 @@ import asyncio
 import io
 import tempfile
 import unittest
+from types import SimpleNamespace
 
 from PIL import Image
 
 from bot.card import H, W, CardMaker, crit_value, draw_card, server_name
-from bot.embeds import card_embed
 from bot.games import genshin, starrail, zenless
 from test_parsers import fixture, load_assets
 
@@ -97,16 +97,26 @@ class CardTest(unittest.TestCase):
             asyncio.run(CardMaker(again, tmp).render(profile, build))
             self.assertEqual(again.requested, [build.weapon.icon_url])
 
-    def test_embed_shows_the_card_and_the_effect_only_when_asked(self):
+
+    def test_reply_is_just_the_card_with_the_dropdown(self):
+        import discord
+
+        from bot.main import as_edit, render
+
+        async def card(profile, build):
+            return b"png"
+
         profile = self.profiles[1]
-        build = next(c for c in profile.characters if c.weapon and c.weapon.effect)
-        embed = card_embed(profile, build, "build.png")
-        self.assertEqual(embed.image.url, "attachment://build.png")
-        self.assertFalse(embed.fields)
-        self.assertIsNone(embed.description)
-        shown = card_embed(profile, build, "build.png", show_effect=True)
-        self.assertIn(build.weapon.name, shown.description)
-        self.assertLessEqual(len(shown), 6000)
+        bot = SimpleNamespace(cards=SimpleNamespace(render=card))
+        reply = asyncio.run(render(bot, profile, profile.characters[0]))
+        self.assertIsNone(reply["embed"])  # no embed around the image
+        self.assertEqual(reply["file"].filename, "build.png")
+        labels = [getattr(item, "label", None) for item in reply["view"].children]
+        self.assertEqual(labels, [None, "Open on Enka.Network"])  # dropdown and link, no effect button
+        self.assertIsInstance(reply["view"].children[0], discord.ui.Select)
+        edit = as_edit(reply)
+        self.assertIsNone(edit["embed"])
+        self.assertEqual(len(edit["attachments"]), 1)
 
 
 if __name__ == "__main__":

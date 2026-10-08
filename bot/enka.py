@@ -9,7 +9,6 @@ import aiohttp
 
 from .assets import Assets
 from .games import genshin, starrail, zenless
-from .gi_weapon_effects import GenshinWeaponEffects
 from .models import PlayerProfile
 
 API = "https://enka.network/api/"
@@ -41,7 +40,6 @@ class EnkaClient:
     def __init__(self, session: aiohttp.ClientSession, assets: Assets):
         self.session = session
         self.assets = assets
-        self.gi_weapon_effects = GenshinWeaponEffects(session, assets.cache_dir)
         self._cache: dict[tuple[str, str], tuple[float, PlayerProfile]] = {}
         self._locks: dict[tuple[str, str], asyncio.Lock] = {}
 
@@ -60,8 +58,6 @@ class EnkaClient:
                 return cached[1]
             data = await self._get(ENDPOINTS[game].format(uid=uid))
             profile = PARSERS[game](self.assets, uid, data)
-            if game == "genshin":
-                await self.gi_weapon_effects.fill(profile)
             self._cache[key] = (time.monotonic() + max(profile.ttl, 30), profile)
             self._prune()
             return profile

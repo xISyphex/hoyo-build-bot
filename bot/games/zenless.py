@@ -12,7 +12,6 @@ final = base * (1 + percent / 10000) + flat.
 from __future__ import annotations
 
 import math
-import re
 from collections import defaultdict
 
 from ..assets import Assets
@@ -80,17 +79,6 @@ def _skill_levels(raw) -> dict[int, int]:
     return {int(s.get("Index", 0)): int(s.get("Level", 1)) for s in raw or []}
 
 
-def _effect(assets: Assets, weapon_id, phase: int) -> tuple[str | None, str | None]:
-    """W-Engine passive (name, plain text) for its phase, from Hakushin's per-phase talents."""
-    talents = assets.data.get("zzz_weapon_effects", {}).get(str(weapon_id)) or {}
-    talent = talents.get(str(phase)) or talents.get(str(max(1, min(phase, 5))))
-    if not talent or not talent.get("desc"):
-        return None, None
-    text = re.sub(r"<.*?>|\{SPRITE_PRESET#[^}]+\}", "", talent["desc"])
-    text = text.replace("\\n", "\n").replace("\r\n", "\n").strip()
-    return talent.get("name") or None, text
-
-
 def _element(types: list[str]) -> str:
     """First element we have a name for; e.g. Ye Shunguang is ["ZhenZhenAssault", "Physics"]."""
     for t in types:
@@ -145,15 +133,12 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
             val = math.floor(second["PropertyValue"] * (1 + 0.3 * brk))
             add(second["PropertyId"], val)
             stats.append(_prop_stat(second["PropertyId"], val))
-        effect_name, effect = _effect(assets, w.get("Id"), int(w.get("UpgradeLevel", 1)))
         weapon = Weapon(
             name=assets.zzz_text(wmeta.get("ItemName")) or f"W-Engine {w.get('Id')}",
             level=wlevel,
             refinement=int(w.get("UpgradeLevel", 1)),
             rarity=int(wmeta.get("Rarity", 0)),
             stats=stats,
-            effect_name=effect_name,
-            effect=effect,
             icon_url=f"https://enka.network{wmeta['ImagePath']}" if wmeta.get("ImagePath") else None,
         )
 
