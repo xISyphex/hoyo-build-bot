@@ -175,6 +175,7 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
                 refinement=refinement,
                 rarity=int(flat.get("rankLevel", 0)),
                 stats=[_prop(s["appendPropId"], s["statValue"]) for s in flat.get("weaponStats", [])],
+                icon_url=f"https://enka.network/ui/{flat['icon']}.png" if flat.get("icon") else None,
             )
         elif flat.get("itemType") == "ITEM_RELIQUARY":
             set_name = _set_name(assets, flat)
@@ -205,9 +206,10 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
             set_bonuses.append(f"2pc {set_name}")
 
     side_icon = meta.get("SideIconName")
-    icon = None
+    icon = art = None
     if side_icon:
         icon = "https://enka.network" + side_icon.replace("_Side", "")
+        art = "https://enka.network" + side_icon.replace("UI_AvatarIcon_Side_", "UI_Gacha_AvatarImg_")
 
     return CharacterBuild(
         game="genshin",
@@ -223,6 +225,7 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
         weapon=weapon,
         gear=gear,
         set_bonuses=set_bonuses,
+        art_url=art,
     )
 
 

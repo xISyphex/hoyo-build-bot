@@ -154,6 +154,7 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
             stats=stats,
             effect_name=effect_name,
             effect=effect,
+            icon_url=f"https://enka.network{wmeta['ImagePath']}" if wmeta.get("ImagePath") else None,
         )
 
     # Drive discs
@@ -248,6 +249,7 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
         gear=gear,
         set_bonuses=set_bonuses,
         notes=["W-Engine and disc main stats use Enka's approximate formulas and may be off by 1."],
+        art_url=f"https://enka.network{meta['Image']}" if meta.get("Image") else None,
     )
 
 

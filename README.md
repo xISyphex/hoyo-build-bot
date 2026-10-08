@@ -15,14 +15,17 @@ Each person has one claimed UID per game; claiming again replaces it. A UID type
 into the lookup still wins over the claimed one. Claims are saved to
 `claims.json` in the cache folder, so they survive restarts and updates.
 
-The reply shows final stats, every artifact / relic / drive disc with its
-picture and substats, and the weapon / light cone / W-Engine at the bottom.
+The reply is a build card: one image with the character art, final stats,
+every artifact / relic / drive disc with its substats (a dot per roll), the
+weapon / light cone / W-Engine, set bonuses and the Crit Value of the substats.
 A **Show LC / Weapon / Wengine effect** button reveals the effect text, and a
 dropdown switches to the player's other showcased characters.
 
-Gear pictures are uploaded once as the bot's own application emojis (Discord
-allows 2,000 per bot), because embed text can't hold images. They show up under
-**Emojis** on the bot's page in the Discord Developer Portal.
+Card pictures are downloaded once, shrunk and kept in `images/` inside the cache
+folder. If a card can't be drawn, the bot falls back to an all-text reply whose
+gear pictures are uploaded once as the bot's own application emojis (under
+**Emojis** on the bot's page in the Discord Developer Portal). The card uses the
+Inter font, bundled in `bot/fonts/` under the SIL Open Font License.
 
 Data comes from [Enka.Network](https://enka.network), which reads the player's
 **in-game showcase**. Only characters on that showcase can be looked up, and the
@@ -105,9 +108,10 @@ bot/
   assets.py      Downloads and indexes Enka's game data files
   gi_weapon_effects.py  Genshin weapon passives from genshin-db
   games/         One parser per game -> models.CharacterBuild
-  embeds.py      Turns a CharacterBuild into a Discord embed
+  card.py        Draws the build card image (Pillow)
+  embeds.py      Embed around the card, and the all-text fallback reply
   matching.py    Forgiving name matching ("raiden", "hutao", typos)
   claims.py      Claimed UIDs per Discord user and game, saved as JSON
-  set_emojis.py  Uploads gear piece pictures as the bot's emojis
+  set_emojis.py  Uploads gear piece pictures as emojis (text fallback)
 tests/           Parser tests with sample responses
 ```

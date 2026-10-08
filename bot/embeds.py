@@ -213,3 +213,23 @@ def build_embed(
             value = _weapon_value(lines, build.weapon, budget)
             embed.set_field_at(weapon_field, name=labels["weapon"], value=value, inline=False)
     return embed
+
+
+def card_embed(profile: PlayerProfile, build: CharacterBuild, filename: str, show_effect: bool = False) -> discord.Embed:
+    """A short embed around the build card image; the card itself carries the stats and gear."""
+    labels = GAME_LABELS[build.game]
+    # No title: the card already shows the name in large letters.
+    embed = discord.Embed(color=ELEMENT_COLORS.get(build.element, labels["color"]))
+    embed.set_author(name=f"{profile.nickname} · UID {profile.uid} · {labels['title']}", url=profile.profile_url)
+    embed.set_image(url=f"attachment://{filename}")
+    w = build.weapon
+    if show_effect and w and w.effect:
+        title = f"**{w.effect_name}**\n" if w.effect_name else ""
+        embed.description = f"**{w.name}** · {labels['refine']}{w.refinement}\n" + _quote(
+            f"{title}{_shorten(w.effect, 3500)}"
+        )
+    footer = "Data from Enka.Network"
+    if build.notes:
+        footer = " ".join(build.notes) + " · " + footer
+    embed.set_footer(text=footer)
+    return embed
