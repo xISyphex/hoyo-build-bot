@@ -40,22 +40,13 @@ ICON_MAX = 192
 ART_DROP = 110  # tall art starts this far down, so the head sits below the name
 
 
-FAMILIES = {  # weight -> file, and how much bigger the family needs to be to look the same size
-    "inter": ({"Regular": "Inter-Regular.otf", "SemiBold": "Inter-SemiBold.otf", "Bold": "Inter-Bold.otf"}, 1.0),
-    "rajdhani": ({"Regular": "Rajdhani-Medium.ttf", "SemiBold": "Rajdhani-SemiBold.ttf", "Bold": "Rajdhani-Bold.ttf"}, 1.16),
-    "chakra": ({"Regular": "ChakraPetch-Regular.ttf", "SemiBold": "ChakraPetch-SemiBold.ttf", "Bold": "ChakraPetch-Bold.ttf"}, 1.0),
-    "outfit": ({"Regular": "Outfit-Variable.ttf", "SemiBold": "Outfit-Variable.ttf", "Bold": "Outfit-Variable.ttf"}, 1.04),
-}
-FAMILY = os.environ.get("CARD_FONT", "rajdhani")
+FONT_FILES = {"Regular": "Rajdhani-Medium.ttf", "SemiBold": "Rajdhani-SemiBold.ttf", "Bold": "Rajdhani-Bold.ttf"}
+FONT_SCALE = 1.16  # Rajdhani is drawn small for its size; this matches the layout's sizes
 
 
 def _font(weight: str, size: int) -> ImageFont.FreeTypeFont:
-    files, scale = FAMILIES.get(FAMILY, FAMILIES["inter"])
     try:
-        font = ImageFont.truetype(str(FONT_DIR / files[weight]), round(size * scale))
-        if "Variable" in files[weight]:
-            font.set_variation_by_name(weight)
-        return font
+        return ImageFont.truetype(str(FONT_DIR / FONT_FILES[weight]), round(size * FONT_SCALE))
     except OSError:
         return ImageFont.load_default(size)
 
