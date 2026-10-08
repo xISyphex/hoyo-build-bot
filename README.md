@@ -27,6 +27,13 @@ gear pictures are uploaded once as the bot's own application emojis (under
 **Emojis** on the bot's page in the Discord Developer Portal). The card uses the
 Inter font, bundled in `bot/fonts/` under the SIL Open Font License.
 
+The bot is private: only its owner (the account that owns the app in the Discord
+Developer Portal, or its team) and the people the owner adds can use it. The
+owner manages the list from Discord with `/access add user:@someone`,
+`/access remove user:@someone` and `/access list`; everyone else gets a short
+"This bot is private" reply that only they can see. The list is saved to
+`access.json` in the cache folder (override with `ACCESS_FILE`).
+
 Data comes from [Enka.Network](https://enka.network), which reads the player's
 **in-game showcase**. Only characters on that showcase can be looked up, and the
 player must have *Show Character Details* turned on in their profile.
@@ -112,6 +119,7 @@ bot/
   embeds.py      Embed around the card, and the all-text fallback reply
   matching.py    Forgiving name matching ("raiden", "hutao", typos)
   claims.py      Claimed UIDs per Discord user and game, saved as JSON
+  access.py      Who may use the bot (owner + /access list), saved as JSON
   set_emojis.py  Uploads gear piece pictures as emojis (text fallback)
 tests/           Parser tests with sample responses
 ```
