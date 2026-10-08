@@ -32,7 +32,9 @@ Developer Portal, or its team) and the people the owner adds can use it. The
 owner manages the list from Discord with `/access add user:@someone`,
 `/access remove user:@someone` and `/access list`; everyone else gets a short
 "This bot is private" reply that only they can see. The list is saved to
-`access.json` in the cache folder (override with `ACCESS_FILE`).
+`access.json` in the cache folder (override with `ACCESS_FILE`). Each person
+can run 15 new lookups per hour (set `LOOKUPS_PER_HOUR` to change it); the
+owner has no limit, and the dropdown and buttons on a card don't count.
 
 Data comes from [Enka.Network](https://enka.network), which reads the player's
 **in-game showcase**. Only characters on that showcase can be looked up, and the
