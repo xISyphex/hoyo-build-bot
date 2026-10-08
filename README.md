@@ -26,7 +26,7 @@ Card pictures are downloaded once, shrunk and kept in `images/` inside the cache
 folder. If a card can't be drawn, the bot falls back to an all-text reply whose
 gear pictures are uploaded once as the bot's own application emojis (under
 **Emojis** on the bot's page in the Discord Developer Portal). The card uses the
-Inter font, bundled in `bot/fonts/` under the SIL Open Font License.
+Rajdhani font, bundled in `bot/fonts/` under the SIL Open Font License.
 
 The bot is private: only its owner (the account that owns the app in the Discord
 Developer Portal, or its team) and the people the owner adds can use it. The

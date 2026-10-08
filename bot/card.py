@@ -19,6 +19,7 @@ import aiohttp
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 from .embeds import ELEMENT_COLORS, GAME_LABELS, ZZZ_RARITY, _is_zero, _name
+from . import stat_icons
 from .models import CharacterBuild, Gear, PlayerProfile
 
 log = logging.getLogger("hoyo-bot")
@@ -39,9 +40,13 @@ ICON_MAX = 192
 ART_DROP = 110  # tall art starts this far down, so the head sits below the name
 
 
+FONT_FILES = {"Regular": "Rajdhani-Medium.ttf", "SemiBold": "Rajdhani-SemiBold.ttf", "Bold": "Rajdhani-Bold.ttf"}
+FONT_SCALE = 1.16  # Rajdhani is drawn small for its size; this matches the layout's sizes
+
+
 def _font(weight: str, size: int) -> ImageFont.FreeTypeFont:
     try:
-        return ImageFont.truetype(str(FONT_DIR / f"Inter-{weight}.otf"), size)
+        return ImageFont.truetype(str(FONT_DIR / FONT_FILES[weight]), round(size * FONT_SCALE))
     except OSError:
         return ImageFont.load_default(size)
 
@@ -62,6 +67,7 @@ class Fonts:
         self.sub_b = _font("SemiBold", 18)
         self.wname = _font("Bold", 21)
         self.stamp = _font("Regular", 14)
+        self.label = _font("Bold", 13)
 
 
 FONTS: Fonts | None = None
@@ -160,6 +166,14 @@ def _shade(card: Image.Image, box, top_alpha: int, bottom_alpha: int) -> None:
     card.alpha_composite(layer, (x0, y0))
 
 
+def _spaced(draw: ImageDraw.ImageDraw, xy, text: str, font, fill, spacing: float = 2.2, anchor: str = "lm") -> None:
+    """Small caps label with letter spacing (Pillow has no tracking option)."""
+    x, y = xy
+    for ch in text:
+        draw.text((x, y), ch, font=font, fill=fill, anchor=anchor)
+        x += draw.textlength(ch, font=font) + spacing
+
+
 def _panel(card: Image.Image, box, radius: int = 16, fill=PANEL) -> None:
     layer = Image.new("RGBA", card.size, (0, 0, 0, 0))
     ImageDraw.Draw(layer).rounded_rectangle(box, radius, fill=fill, outline=(255, 255, 255, 20))
@@ -256,38 +270,57 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
             draw.text((tx, ty), _fit_text(draw, line, f.small_b, tw), font=f.small_b, fill=TEXT)
             ty += 22
 
-    # Stats column.
+    # Stats column: a titled panel, one banded row per stat with its icon, then Crit Value and the sets.
     stats = [s for s in build.stats if not _is_zero(s.value)]
     sets = build.set_bonuses[:3]
     cv = crit_value(build)
-    set_lines = [(c, _wrap(ImageDraw.Draw(card), n, f.small, STATS_W - 40 - 36, 2)) for c, _, n in (b.partition(" ") for b in sets)]
-    footer_h = sum(8 + 22 * len(lines) for _, lines in set_lines) + (44 if cv is not None else 0)
+    set_lines = [(c, _wrap(ImageDraw.Draw(card), n, f.small, STATS_W - 32 - 52, 2)) for c, _, n in (b.partition(" ") for b in sets)]
+    footer_h = sum(10 + 22 * len(lines) for _, lines in set_lines) + (58 if cv is not None else 0)
     box = (STATS_X, PAD, STATS_X + STATS_W, H - PAD)
     _panel(card, box)
     draw = ImageDraw.Draw(card)
-    row_h = min(44, (box[3] - box[1] - 24 - footer_h - (16 if footer_h else 0)) / max(len(stats), 1))
-    y = box[1] + 14
+    _spaced(draw, (box[0] + 18, box[1] + 20), "STATS", f.label, DIM)
+    draw.line((box[0] + 18, box[1] + 34, box[0] + 54, box[1] + 34), fill=accent + (255,), width=2)
+    top = box[1] + 44
+    row_h = min(50, (box[3] - top - 12 - footer_h - (10 if footer_h else 0)) / max(len(stats), 1))
+    bands = Image.new("RGBA", card.size, (0, 0, 0, 0))
+    bd = ImageDraw.Draw(bands)
+    y = top
     for i, s in enumerate(stats):
-        room = STATS_W - 40 - draw.textlength(s.value, font=f.stat_b)
-        font = f.stat if draw.textlength(_name(s), font=f.stat) <= room else f.stat_s  # long names step down a size
-        label = _fit_text(draw, _name(s), font, room)
-        mid = y + row_h / 2
-        draw.text((box[0] + 18, mid), label, font=font, fill=TEXT, anchor="lm")
-        draw.text((box[2] - 18, mid), s.value, font=f.stat_b, fill=TEXT, anchor="rm")
-        if i < len(stats) - 1:
-            draw.line((box[0] + 18, y + row_h, box[2] - 18, y + row_h), fill=LINE, width=1)
+        if i % 2 == 0:
+            bd.rounded_rectangle((box[0] + 8, y + 1, box[2] - 8, y + row_h - 1), 8, fill=(255, 255, 255, 10))
         y += row_h
-    y = box[3] - 14 - footer_h
+    card.alpha_composite(bands)
+    draw = ImageDraw.Draw(card)
+    y = top
+    for s in stats:
+        mid = y + row_h / 2
+        name = _name(s)
+        dmg_color = ELEMENT_COLORS.get(name.split(" ")[0])
+        orb = (dmg_color >> 16 & 255, dmg_color >> 8 & 255, dmg_color & 255) if dmg_color else accent
+        card.alpha_composite(stat_icons.icon(name, 20, light, orb), (box[0] + 16, round(mid - 10)))
+        room = box[2] - 18 - (box[0] + 46) - 10 - draw.textlength(s.value, font=f.stat_b)
+        font = f.stat if draw.textlength(name, font=f.stat) <= room else f.stat_s  # long names step down a size
+        draw.text((box[0] + 46, mid), _fit_text(draw, name, font, room), font=font, fill=TEXT, anchor="lm")
+        draw.text((box[2] - 18, mid), s.value, font=f.stat_b, fill=TEXT, anchor="rm")
+        y += row_h
+    y = box[3] - 12 - footer_h
     if cv is not None:
-        draw.text((box[0] + 18, y + 18), "Crit Value", font=f.small, fill=DIM, anchor="lm")
-        draw.text((box[2] - 18, y + 18), f"{cv:.1f}", font=f.stat_b, fill=GOLD, anchor="rm")
-        y += 44
+        badge = (box[0] + 10, y, box[2] - 10, y + 46)
+        _panel(card, badge, 10, (255, 209, 102, 22))
+        draw = ImageDraw.Draw(card)
+        draw.rounded_rectangle(badge, 10, outline=GOLD + (110,), width=1)
+        _spaced(draw, (badge[0] + 14, y + 23), "CRIT VALUE", f.label, GOLD, anchor="lm")
+        draw.text((badge[2] - 14, y + 23), f"{cv:.1f}", font=f.stat_b, fill=GOLD, anchor="rm")
+        y += 58
     for count, lines in set_lines:
-        draw.text((box[0] + 18, y + 11), count, font=f.small_b, fill=light, anchor="lm")
+        chip_w = draw.textlength(count, font=f.small_b) + 14
+        draw.rounded_rectangle((box[0] + 14, y + 1, box[0] + 14 + chip_w, y + 21), 6, fill=accent + (255,))
+        draw.text((box[0] + 14 + chip_w / 2, y + 11), count, font=f.small_b, fill=(16, 14, 26) if sum(accent) > 450 else TEXT, anchor="mm")
         for line in lines:
-            draw.text((box[0] + 58, y + 11), line, font=f.small, fill=TEXT, anchor="lm")
+            draw.text((box[0] + 22 + chip_w + 6, y + 11), line, font=f.small, fill=TEXT, anchor="lm")
             y += 22
-        y += 8
+        y += 10
 
     # Gear, two per row.
     gear = build.gear[:6]
