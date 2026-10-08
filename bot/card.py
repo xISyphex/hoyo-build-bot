@@ -37,7 +37,8 @@ PANEL = (255, 255, 255, 14)
 LINE = (255, 255, 255, 22)
 ART_MAX = 1100  # art is kept at most this tall
 ICON_MAX = 192
-ART_DROP = 110  # tall art starts this far down, so the head sits below the name
+ART_DROP = 110  # ZZZ art starts this far down, so the head sits below the name
+HEAD_X = 230  # and its head lines up here
 
 
 FONT_FILES = {"Regular": "Rajdhani-Medium.ttf", "SemiBold": "Rajdhani-SemiBold.ttf", "Bold": "Rajdhani-Bold.ttf"}
@@ -127,19 +128,30 @@ def _star(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, fill) -> No
     draw.polygon(points, fill=fill)
 
 
-def _paste_art(card: Image.Image, art: Image.Image | None) -> None:
-    """Character art across the left column, fading out to the right."""
+def _paste_art(card: Image.Image, art: Image.Image | None, full_body: bool = False) -> None:
+    """Character art across the left column, fading out to the right.
+
+    full_body (ZZZ): every agent is scaled to the same height, starts below the name, and is
+    lined up on its head, so tall, wide (wings) and off-centre art all sit the same way.
+    """
     if art is None:
         return
     art = art.convert("RGBA")
     width = ART_W + 140
-    if art.height > art.width * 1.2:
-        # Tall full-body art (ZZZ): show the whole top of the figure, starting below the name,
-        # instead of zooming in until it fills the width and the face hides behind the header.
+    if full_body:
+        solid = art.getchannel("A").point(lambda a: 255 if a > 100 else 0).getbbox()
+        if solid:  # trim empty space above the head, so every agent starts at the same height
+            art = art.crop((0, solid[1], art.width, art.height))
         scale = (H + 60) / art.height
         art = art.resize((round(art.width * scale), round(art.height * scale)), Image.LANCZOS)
+        # Where the head is: the middle of the visible pixels in the figure's top fifth.
+        weights = list(art.crop((0, 0, art.width, art.height // 5)).getchannel("A").resize((art.width, 1), Image.BOX).getdata())
+        total = sum(weights)
+        head_x = sum(i * w for i, w in enumerate(weights)) / total if total else art.width / 2
+        left = round(head_x - HEAD_X)  # source x that lands on the card's left edge
         canvas = Image.new("RGBA", (width, H), (0, 0, 0, 0))
-        canvas.alpha_composite(art.crop((0, 0, art.width, min(art.height, H - ART_DROP))), (max((width - art.width) // 2 - 30, 0), ART_DROP))
+        src = art.crop((max(left, 0), 0, min(left + width, art.width), min(art.height, H - ART_DROP)))
+        canvas.alpha_composite(src, (max(-left, 0), ART_DROP))
         art = canvas
     else:
         scale = (H + 60) / art.height
@@ -221,7 +233,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     labels = GAME_LABELS[build.game]
 
     card = _background(accent)
-    _paste_art(card, images.get(build.art_url or "") or images.get(build.icon_url or ""))
+    _paste_art(card, images.get(build.art_url or "") or images.get(build.icon_url or ""), full_body=build.game == "zzz")
     _shade(card, (0, 0, W, 210), 215, 0)
     _shade(card, (0, H - 280, W, H), 0, 225)
     draw = ImageDraw.Draw(card)
