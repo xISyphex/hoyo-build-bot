@@ -29,7 +29,7 @@ ELEMENT_COLORS = {
     "Anemo": 0x74C2A8, "Wind": 0x61CF93,
     "Geo": 0xFAB632, "Dendro": 0xA5C83B,
     "Physical": 0xB8B8B8, "Quantum": 0x6F6BD8, "Imaginary": 0xF3D84C,
-    "Ether": 0xE84B9C, "Auric Ink": 0xD4AF37,
+    "Ether": 0xE84B9C, "Auric Ink": 0xD4AF37, "Lumen": 0xF58BC4,
 }
 # Long stat names wrap in the narrow columns, so they get their common short forms.
 SHORT_NAMES = {

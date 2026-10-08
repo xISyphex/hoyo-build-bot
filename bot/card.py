@@ -248,12 +248,12 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     pill = build.element
     pw = draw.textlength(pill, font=f.meta) + 24
     draw.rounded_rectangle((PAD + 4, y, PAD + 4 + pw, y + 34), 17, fill=accent + (255,))
-    draw.text((PAD + 16, y + 4), pill, font=f.meta, fill=(16, 14, 26) if sum(accent) > 450 else TEXT)
+    draw.text((PAD + 4 + pw / 2, y + 17), pill, font=f.meta, fill=(16, 14, 26) if sum(accent) > 450 else TEXT, anchor="mm")
     meta = f"Lv. {build.level}"
-    draw.text((PAD + 16 + pw, y + 4), meta, font=f.meta, fill=TEXT)
+    draw.text((PAD + 16 + pw, y + 17), meta, font=f.meta, fill=TEXT, anchor="lm")
     x = PAD + 28 + pw + draw.textlength(meta, font=f.meta)
     if build.game == "zzz":
-        draw.text((x, y + 4), f"{ZZZ_RARITY.get(build.rarity, '?')}-Rank", font=f.meta, fill=GOLD)
+        draw.text((x, y + 17), f"{ZZZ_RARITY.get(build.rarity, '?')}-Rank", font=f.meta, fill=GOLD, anchor="lm")
     else:
         for i in range(build.rarity):
             _star(draw, x + 10 + i * 22, y + 17, 10, GOLD)
@@ -455,36 +455,23 @@ def _hsr_marks(img: Image.Image, n: int, accent, light) -> None:
 
 
 def _zzz_marks(img: Image.Image, n: int, accent, light) -> None:
-    """A stack of six little CRT TVs, like the wall of screens in the HDD room: lit ones glow, the rest are off."""
+    """Mindscape Cinema: six film reels down the side, the owned ones loaded with film in the element colour."""
     w, h = img.size
-    th = h / 6
     draw = ImageDraw.Draw(img)
-    th = (h - 10 * SS) / 6
-    ax, ay = w * 0.55, 10 * SS  # rabbit-ear antenna on the top set
-    draw.line((ax, ay, ax - 12 * SS, 0), fill=(255, 255, 255, 120), width=2 * SS)
-    draw.line((ax, ay, ax + 12 * SS, 0), fill=(255, 255, 255, 120), width=2 * SS)
+    th = h / 6
     for i in range(6):
-        y0, y1 = 10 * SS + i * th + 2 * SS, 10 * SS + (i + 1) * th - 2 * SS
-        x0, x1 = w * (0.08 if i % 2 else 0.18), w * (0.82 if i % 2 else 0.92)  # stacked a bit unevenly
         lit = i < n
-        draw.rounded_rectangle((x0, y0, x1, y1), 8 * SS, fill=(30, 28, 36, 245) if lit else (30, 28, 36, 170),
-                               outline=(255, 255, 255, 70 if lit else 35), width=SS)
-        sx0, sy0, sx1, sy1 = x0 + 6 * SS, y0 + 6 * SS, x1 - 16 * SS, y1 - 6 * SS
+        cx, cy, r = w * 0.48, i * th + th / 2, th * 0.44
+        rim = light + (255,) if lit else (255, 255, 255, 70)
+        draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=(18, 16, 26, 230), outline=rim, width=SS * 2)
         if lit:
-            screen = Image.new("RGBA", (int(sx1 - sx0), int(sy1 - sy0)))
-            sd = ImageDraw.Draw(screen)
-            for row in range(screen.height):
-                c = _mix(light, accent, row / screen.height)
-                sd.line((0, row, screen.width, row), fill=c + ((255,) if (row // SS) % 3 else (200,)))  # scanlines
-            mask = Image.new("L", screen.size, 0)
-            ImageDraw.Draw(mask).rounded_rectangle((0, 0, screen.width - 1, screen.height - 1), 6 * SS, fill=255)
-            screen.putalpha(ImageChops.multiply(screen.getchannel("A"), mask))
-            img.alpha_composite(screen, (int(sx0), int(sy0)))
-        else:
-            draw.rounded_rectangle((sx0, sy0, sx1, sy1), 6 * SS, fill=(8, 8, 12, 200))
-        kx = x1 - 9 * SS
-        for ky in (y0 + 12 * SS, y0 + 22 * SS):  # knobs
-            draw.ellipse((kx - 3 * SS, ky - 3 * SS, kx + 3 * SS, ky + 3 * SS), fill=light + (255,) if lit else (255, 255, 255, 50))
+            draw.ellipse((cx - r * 0.86, cy - r * 0.86, cx + r * 0.86, cy + r * 0.86), fill=_mix(accent, (16, 14, 26), 0.35) + (255,))
+        for k in range(5):  # the holes in the reel, turned a little differently on each one
+            a = -math.pi / 2 + k * 2 * math.pi / 5 + i * 0.4
+            hx, hy, hr = cx + r * 0.52 * math.cos(a), cy + r * 0.52 * math.sin(a), r * 0.2
+            draw.ellipse((hx - hr, hy - hr, hx + hr, hy + hr), fill=(10, 10, 14, 255) if lit else (40, 40, 50, 200),
+                         outline=rim, width=SS)
+        draw.ellipse((cx - r * 0.14, cy - r * 0.14, cx + r * 0.14, cy + r * 0.14), fill=rim)
 
 
 def _cons_marks(card: Image.Image, build: CharacterBuild, accent, light) -> None:
