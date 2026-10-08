@@ -524,7 +524,8 @@ class ShortStatNameTest(unittest.TestCase):
         from bot.models import Stat
 
         for long, short in [
-            ("Energy Regen Rate", "ER"), ("Energy Recharge", "ER"), ("Break Effect", "BE"),
+            ("Energy Regen Rate", "Energy Reg."), ("Energy Recharge", "Energy Reg."), ("ER", "Energy Reg."),
+            ("ER%", "Energy Reg.%"), ("Break Effect", "Break Eff."),
             ("Effect Hit Rate", "EHR"), ("Anomaly Proficiency", "AP"), ("Elemental Mastery", "EM"),
             ("Quantum DMG Boost", "Quantum DMG"), ("Physical DMG Bonus", "Physical DMG"),
             ("Outgoing Healing", "Healing"), ("CRIT Rate", "CRIT Rate"),

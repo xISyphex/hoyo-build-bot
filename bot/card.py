@@ -51,6 +51,7 @@ class Fonts:
         self.meta = _font("SemiBold", 22)
         self.stat = _font("Regular", 24)
         self.stat_b = _font("Bold", 24)
+        self.stat_s = _font("Regular", 20)
         self.small = _font("Regular", 18)
         self.small_b = _font("Bold", 18)
         self.slot = _font("Regular", 17)
@@ -243,9 +244,11 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image]) -> bytes:
     row_h = min(44, (box[3] - box[1] - 24 - footer_h - (16 if footer_h else 0)) / max(len(stats), 1))
     y = box[1] + 14
     for i, s in enumerate(stats):
-        label = _fit_text(draw, _name(s), f.stat, STATS_W - 40 - draw.textlength(s.value, font=f.stat_b))
+        room = STATS_W - 40 - draw.textlength(s.value, font=f.stat_b)
+        font = f.stat if draw.textlength(_name(s), font=f.stat) <= room else f.stat_s  # long names step down a size
+        label = _fit_text(draw, _name(s), font, room)
         mid = y + row_h / 2
-        draw.text((box[0] + 18, mid), label, font=f.stat, fill=TEXT, anchor="lm")
+        draw.text((box[0] + 18, mid), label, font=font, fill=TEXT, anchor="lm")
         draw.text((box[2] - 18, mid), s.value, font=f.stat_b, fill=TEXT, anchor="rm")
         if i < len(stats) - 1:
             draw.line((box[0] + 18, y + row_h, box[2] - 18, y + row_h), fill=LINE, width=1)
