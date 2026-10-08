@@ -36,7 +36,7 @@ PANEL = (255, 255, 255, 14)
 LINE = (255, 255, 255, 22)
 ART_MAX = 1100  # art is kept at most this tall
 ICON_MAX = 192
-FOOT = 22  # room under the gear for the server and UID
+FOOT = 34  # room under the gear for the server and UID
 ART_DROP = 110  # tall art starts this far down, so the head sits below the name
 
 
@@ -307,7 +307,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     if uid:
         server = server_name(build.game, uid)
         foot = f"{server} · UID {uid}" if server else f"UID {uid}"
-        ImageDraw.Draw(card).text((W - PAD - 4, H - PAD + 2), foot, font=f.small, fill=TEXT, anchor="rd")
+        ImageDraw.Draw(card).text((W - PAD - 4, H - PAD), foot, font=f.small, fill=TEXT, anchor="rd")  # lines up with the bottom of the other panels
 
     out = io.BytesIO()
     card.convert("RGB").save(out, "PNG", optimize=True)
