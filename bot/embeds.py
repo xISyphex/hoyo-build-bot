@@ -33,8 +33,9 @@ ELEMENT_COLORS = {
 }
 # Long stat names wrap in the narrow columns, so they get their common short forms.
 SHORT_NAMES = {
-    "Energy Regen Rate": "ER", "Energy Regen": "ER", "Energy Recharge": "ER",
-    "Break Effect": "BE", "Effect Hit Rate": "EHR", "Elemental Mastery": "EM",
+    "Energy Regen Rate": "Energy Reg.", "Energy Regen": "Energy Reg.", "Energy Recharge": "Energy Reg.",
+    "ER": "Energy Reg.", "ER%": "Energy Reg.%",  # the parsers' own short gear names
+    "Break Effect": "Break Eff.", "Effect Hit Rate": "EHR", "Elemental Mastery": "EM",
     "Anomaly Proficiency": "AP", "Anomaly Mastery": "AM",
     "Outgoing Healing": "Healing", "Healing Bonus": "Healing",
 }
@@ -67,7 +68,7 @@ def _is_zero(value: str) -> bool:
 
 
 def _name(stat: Stat) -> str:
-    """Short stat name: "Quantum DMG Boost" -> "Quantum DMG", "Energy Regen Rate" -> "ER"."""
+    """Short stat name: "Quantum DMG Boost" -> "Quantum DMG", "Energy Regen Rate" -> "Energy Reg."."""
     name = SHORT_NAMES.get(stat.name, stat.name)
     return re.sub(r" DMG (Boost|Bonus)$", " DMG", name)
 
