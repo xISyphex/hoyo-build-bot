@@ -129,22 +129,6 @@ def _star(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, fill) -> No
     draw.polygon(points, fill=fill)
 
 
-INFO_STYLE = "ribbon"
-
-
-def _frost(card: Image.Image, box, radius: int, tint, alpha: int, outline=None) -> None:
-    """A frosted panel: the picture behind is blurred and darkened inside a rounded box."""
-    x0, y0, x1, y1 = (round(v) for v in box)
-    region = card.crop((x0, y0, x1, y1)).filter(ImageFilter.GaussianBlur(8))
-    shade = Image.new("RGBA", region.size, tuple(tint) + (alpha,))
-    region.alpha_composite(shade)
-    mask = Image.new("L", region.size, 0)
-    ImageDraw.Draw(mask).rounded_rectangle((0, 0, region.width - 1, region.height - 1), radius, fill=255)
-    card.paste(region, (x0, y0), mask)
-    if outline:
-        ImageDraw.Draw(card).rounded_rectangle((x0, y0, x1, y1), radius, outline=outline, width=1)
-
-
 def _rarity_width(draw, build: CharacterBuild, f) -> float:
     if build.game == "zzz":
         return draw.textlength(f"{ZZZ_RARITY.get(build.rarity, '?')}-Rank", font=f.meta)
@@ -162,7 +146,7 @@ def _draw_rarity(draw, build: CharacterBuild, f, x: float, cy: float) -> None:
 def _info_row(card: Image.Image, build: CharacterBuild, f, accent, light, y: int) -> None:
     """Element, level and rarity under the name, on a see-through backing so they read on any art."""
     draw = ImageDraw.Draw(card)
-    el = build.element
+    el = build.element.upper()
     lv = f"Lv. {build.level}"
     ew = draw.textlength(el, font=f.meta)
     lw = draw.textlength(lv, font=f.meta)
@@ -170,51 +154,25 @@ def _info_row(card: Image.Image, build: CharacterBuild, f, accent, light, y: int
     x0, h = PAD + 4, 38
     cy = y + h / 2
     dark = (12, 10, 20)
-    on_accent = (16, 14, 26) if sum(accent) > 450 else TEXT
-    if INFO_STYLE == "glass":  # one frosted bar, element chip inside, thin dividers
-        total = 6 + ew + 24 + 14 + lw + 14 + rw + 14
-        _frost(card, (x0, y, x0 + total, y + h), h // 2, dark, 150, outline=light + (120,))
-        draw = ImageDraw.Draw(card)
-        draw.rounded_rectangle((x0 + 4, y + 4, x0 + 4 + ew + 24, y + h - 4), (h - 8) // 2, fill=accent + (255,))
-        draw.text((x0 + 4 + (ew + 24) / 2, cy), el, font=f.meta, fill=on_accent, anchor="mm")
-        x = x0 + 4 + ew + 24 + 14
-        draw.text((x, cy), lv, font=f.meta, fill=TEXT, anchor="lm")
-        x += lw + 7
-        draw.line((x, y + 10, x, y + h - 10), fill=(255, 255, 255, 80), width=1)
-        _draw_rarity(draw, build, f, x + 7, cy)
-    elif INFO_STYLE == "chips":  # three separate dark chips, element marked by a coloured dot and text
-        x = x0
-        for kind, w in (("el", ew + 36), ("lv", lw + 22), ("ra", rw + 22)):
-            _frost(card, (x, y, x + w, y + h), 9, dark, 165, outline=(accent + (200,)) if kind == "el" else (255, 255, 255, 50))
-            draw = ImageDraw.Draw(card)
-            if kind == "el":
-                draw.ellipse((x + 12, cy - 6, x + 24, cy + 6), fill=accent + (255,))
-                draw.text((x + 30, cy), el, font=f.meta, fill=light, anchor="lm")
-            elif kind == "lv":
-                draw.text((x + 11, cy), lv, font=f.meta, fill=TEXT, anchor="lm")
-            else:
-                _draw_rarity(draw, build, f, x + 11, cy)
-            x += w + 6
-    else:  # "ribbon": a slanted dark band with an element-coloured edge
-        total = 18 + ew + 22 + lw + 22 + rw + 30
-        band = Image.new("RGBA", card.size, (0, 0, 0, 0))
-        bd = ImageDraw.Draw(band)
-        sl = 14
-        bd.polygon([(x0 - 8, y), (x0 + total + sl, y), (x0 + total, y + h), (x0 - 8, y + h)], fill=dark + (175,))
-        bd.polygon([(x0 - 8, y), (x0 + 2, y), (x0 + 2, y + h), (x0 - 8, y + h)], fill=accent + (255,))
-        bd.line((x0 - 8, y + h, x0 + total, y + h), fill=accent + (255,), width=2)
-        card.alpha_composite(band)
-        draw = ImageDraw.Draw(card)
-        x = x0 + 16
-        draw.text((x, cy), el.upper(), font=f.meta, fill=light, anchor="lm")
-        x += draw.textlength(el.upper(), font=f.meta) + 11
-        _sparkle(draw, x, cy, 5, accent + (255,), 0.3)
-        x += 11
-        draw.text((x, cy), lv, font=f.meta, fill=TEXT, anchor="lm")
-        x += lw + 11
-        _sparkle(draw, x, cy, 5, accent + (255,), 0.3)
-        _draw_rarity(draw, build, f, x + 11, cy)
-
+    # a slanted dark band with an element-coloured edge
+    total = 18 + ew + 22 + lw + 22 + rw + 30
+    band = Image.new("RGBA", card.size, (0, 0, 0, 0))
+    bd = ImageDraw.Draw(band)
+    sl = 14
+    bd.polygon([(x0 - 8, y), (x0 + total + sl, y), (x0 + total, y + h), (x0 - 8, y + h)], fill=dark + (175,))
+    bd.polygon([(x0 - 8, y), (x0 + 2, y), (x0 + 2, y + h), (x0 - 8, y + h)], fill=accent + (255,))
+    bd.line((x0 - 8, y + h, x0 + total, y + h), fill=accent + (255,), width=2)
+    card.alpha_composite(band)
+    draw = ImageDraw.Draw(card)
+    x = x0 + 16
+    draw.text((x, cy), el, font=f.meta, fill=light, anchor="lm")
+    x += ew + 11
+    _sparkle(draw, x, cy, 5, accent + (255,), 0.3)
+    x += 11
+    draw.text((x, cy), lv, font=f.meta, fill=TEXT, anchor="lm")
+    x += lw + 11
+    _sparkle(draw, x, cy, 5, accent + (255,), 0.3)
+    _draw_rarity(draw, build, f, x + 11, cy)
 
 
 def _paste_art(card: Image.Image, art: Image.Image | None, full_body: bool = False) -> None:
@@ -516,57 +474,47 @@ def _badge_number(img: Image.Image, cx: float, cy: float, n: int, light) -> None
     img.alpha_composite(text.transform(img.size, Image.AFFINE, slant, Image.BICUBIC))
 
 
-BADGE_BG = "gloss"
-
-
 def _badge_core(img: Image.Image, cx: float, cy: float, r: float, n: int, accent, game: str) -> None:
     """The disc behind the number."""
     rc = r * 0.78
     draw = ImageDraw.Draw(img)
-    if BADGE_BG == "flat":
-        draw.ellipse((cx - rc, cy - rc, cx + rc, cy + rc), fill=_mix((14, 12, 24), accent, 0.1 * max(0, n - 2)) + (235,), outline=(255, 255, 255, 40), width=SS)
-        return
     deep = _mix((14, 12, 24), accent, 0.2 + 0.02 * n)
-    if BADGE_BG == "frost":  # see-through: _cons_marks blurs the art underneath first
-        draw.ellipse((cx - rc, cy - rc, cx + rc, cy + rc), fill=_mix((14, 12, 24), accent, 0.25) + (120,), outline=(255, 255, 255, 90), width=SS)
-        draw.arc((cx - rc * 0.82, cy - rc * 0.82, cx + rc * 0.82, cy + rc * 0.82), 200, 290, fill=(255, 255, 255, 110), width=SS * 2)
-        return
     edge = _mix(deep, accent, 0.5)
     steps = 30
     for k in range(steps):  # radial gradient, deep in the middle, element colour at the rim
         t = k / (steps - 1)
         rr = rc * (1 - t * 0.98)
         draw.ellipse((cx - rr, cy - rr, cx + rr, cy + rr), fill=_mix(edge, deep, t ** 0.7) + (245,))
-    if BADGE_BG == "themed":
-        rnd = random.Random(12)
-        layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
-        ld = ImageDraw.Draw(layer)
-        if game == "genshin":  # a starry night sky
-            for _ in range(26):
-                a, d = rnd.uniform(0, 2 * math.pi), rc * math.sqrt(rnd.uniform(0, 0.9))
-                x, y, s = cx + math.cos(a) * d, cy + math.sin(a) * d, rnd.choice((1, 1, 1.6)) * SS
-                ld.ellipse((x - s, y - s, x + s, y + s), fill=(255, 255, 255, rnd.randint(90, 200)))
-        elif game == "hsr":  # a nebula swirl with stars
-            for k in range(3):
-                rr = rc * (0.35 + 0.2 * k)
-                ld.arc((cx - rr, cy - rr * 0.6, cx + rr, cy + rr * 0.6), 20 + 60 * k, 200 + 60 * k, fill=_mix(accent, (255, 255, 255), 0.3) + (90,), width=SS * 3)
-            for _ in range(16):
-                a, d = rnd.uniform(0, 2 * math.pi), rc * math.sqrt(rnd.uniform(0, 0.9))
-                x, y, s = cx + math.cos(a) * d, cy + math.sin(a) * d, rnd.choice((1, 1.4)) * SS
-                ld.ellipse((x - s, y - s, x + s, y + s), fill=(255, 255, 255, rnd.randint(90, 200)))
-        else:  # ZZZ: halftone dots and CRT scanlines
-            step = 5 * SS
-            for gy in range(int(cy - rc), int(cy + rc), step):
-                for gx in range(int(cx - rc), int(cx + rc), step):
-                    d = math.hypot(gx - cx, gy - cy)
-                    if d < rc * 0.95:
-                        s = (d / rc) * step * 0.32
-                        ld.ellipse((gx - s, gy - s, gx + s, gy + s), fill=accent + (110,))
-            for yy in range(int(cy - rc), int(cy + rc), 3 * SS):
-                ld.line((cx - rc, yy, cx + rc, yy), fill=(0, 0, 0, 60), width=SS)
-        mask = Image.new("L", img.size, 0)
-        ImageDraw.Draw(mask).ellipse((cx - rc, cy - rc, cx + rc, cy + rc), fill=255)
-        img.paste(layer, (0, 0), ImageChops.multiply(mask, layer.getchannel("A")))
+    # a small motif per game
+    rnd = random.Random(12)
+    layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    ld = ImageDraw.Draw(layer)
+    if game == "genshin":  # a starry night sky
+        for _ in range(26):
+            a, d = rnd.uniform(0, 2 * math.pi), rc * math.sqrt(rnd.uniform(0, 0.9))
+            x, y, s = cx + math.cos(a) * d, cy + math.sin(a) * d, rnd.choice((1, 1, 1.6)) * SS
+            ld.ellipse((x - s, y - s, x + s, y + s), fill=(255, 255, 255, rnd.randint(90, 200)))
+    elif game == "hsr":  # a nebula swirl with stars
+        for k in range(3):
+            rr = rc * (0.35 + 0.2 * k)
+            ld.arc((cx - rr, cy - rr * 0.6, cx + rr, cy + rr * 0.6), 20 + 60 * k, 200 + 60 * k, fill=_mix(accent, (255, 255, 255), 0.3) + (90,), width=SS * 3)
+        for _ in range(16):
+            a, d = rnd.uniform(0, 2 * math.pi), rc * math.sqrt(rnd.uniform(0, 0.9))
+            x, y, s = cx + math.cos(a) * d, cy + math.sin(a) * d, rnd.choice((1, 1.4)) * SS
+            ld.ellipse((x - s, y - s, x + s, y + s), fill=(255, 255, 255, rnd.randint(90, 200)))
+    else:  # ZZZ: halftone dots and CRT scanlines
+        step = 5 * SS
+        for gy in range(int(cy - rc), int(cy + rc), step):
+            for gx in range(int(cx - rc), int(cx + rc), step):
+                d = math.hypot(gx - cx, gy - cy)
+                if d < rc * 0.95:
+                    s = (d / rc) * step * 0.32
+                    ld.ellipse((gx - s, gy - s, gx + s, gy + s), fill=accent + (110,))
+        for yy in range(int(cy - rc), int(cy + rc), 3 * SS):
+            ld.line((cx - rc, yy, cx + rc, yy), fill=(0, 0, 0, 60), width=SS)
+    mask = Image.new("L", img.size, 0)
+    ImageDraw.Draw(mask).ellipse((cx - rc, cy - rc, cx + rc, cy + rc), fill=255)
+    img.paste(layer, (0, 0), ImageChops.multiply(mask, layer.getchannel("A")))
     # glossy highlight on top and a thin rim
     gl = Image.new("RGBA", img.size, (0, 0, 0, 0))
     ImageDraw.Draw(gl).ellipse((cx - rc * 0.7, cy - rc * 0.92, cx + rc * 0.7, cy - rc * 0.1), fill=(255, 255, 255, 34))
@@ -765,13 +713,6 @@ def _cons_marks(card: Image.Image, build: CharacterBuild, accent, light) -> None
     else:
         _zzz_marks(img, n, accent, light)
     img = img.resize((img.width // SS, img.height // SS), Image.LANCZOS)
-    if BADGE_BG == "frost":
-        bx, by, rc = PAD - 10 + CONS_W / 2, CONS_TOP + CONS_W / 2 + 6, CONS_W * 0.36 * 0.78
-        box = (round(bx - rc), round(by - rc), round(bx + rc), round(by + rc))
-        region = card.crop(box).filter(ImageFilter.GaussianBlur(5))
-        mask = Image.new("L", region.size, 0)
-        ImageDraw.Draw(mask).ellipse((0, 0, region.width - 1, region.height - 1), fill=255)
-        card.paste(region, box[:2], mask)
     card.alpha_composite(img, (PAD - 10 - (img.width - CONS_W) // 2, CONS_TOP - (img.height - (CONS_BOTTOM - CONS_TOP)) // 2))
 
 
