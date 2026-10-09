@@ -129,7 +129,7 @@ def _star(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, fill) -> No
     draw.polygon(points, fill=fill)
 
 
-INFO_STYLE = "glass"
+INFO_STYLE = "ribbon"
 
 
 def _frost(card: Image.Image, box, radius: int, tint, alpha: int, outline=None) -> None:
@@ -516,10 +516,62 @@ def _badge_number(img: Image.Image, cx: float, cy: float, n: int, light) -> None
     img.alpha_composite(text.transform(img.size, Image.AFFINE, slant, Image.BICUBIC))
 
 
-def _badge_core(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, n: int, accent) -> None:
-    """The dark disc inside a badge, tinted by the element as it charges."""
-    draw.ellipse((cx - r * 0.78, cy - r * 0.78, cx + r * 0.78, cy + r * 0.78),
-                 fill=_mix((14, 12, 24), accent, 0.1 * max(0, n - 2)) + (235,), outline=(255, 255, 255, 40), width=SS)
+BADGE_BG = "gloss"
+
+
+def _badge_core(img: Image.Image, cx: float, cy: float, r: float, n: int, accent, game: str) -> None:
+    """The disc behind the number."""
+    rc = r * 0.78
+    draw = ImageDraw.Draw(img)
+    if BADGE_BG == "flat":
+        draw.ellipse((cx - rc, cy - rc, cx + rc, cy + rc), fill=_mix((14, 12, 24), accent, 0.1 * max(0, n - 2)) + (235,), outline=(255, 255, 255, 40), width=SS)
+        return
+    deep = _mix((14, 12, 24), accent, 0.2 + 0.02 * n)
+    if BADGE_BG == "frost":  # see-through: _cons_marks blurs the art underneath first
+        draw.ellipse((cx - rc, cy - rc, cx + rc, cy + rc), fill=_mix((14, 12, 24), accent, 0.25) + (120,), outline=(255, 255, 255, 90), width=SS)
+        draw.arc((cx - rc * 0.82, cy - rc * 0.82, cx + rc * 0.82, cy + rc * 0.82), 200, 290, fill=(255, 255, 255, 110), width=SS * 2)
+        return
+    edge = _mix(deep, accent, 0.5)
+    steps = 30
+    for k in range(steps):  # radial gradient, deep in the middle, element colour at the rim
+        t = k / (steps - 1)
+        rr = rc * (1 - t * 0.98)
+        draw.ellipse((cx - rr, cy - rr, cx + rr, cy + rr), fill=_mix(edge, deep, t ** 0.7) + (245,))
+    if BADGE_BG == "themed":
+        rnd = random.Random(12)
+        layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        ld = ImageDraw.Draw(layer)
+        if game == "genshin":  # a starry night sky
+            for _ in range(26):
+                a, d = rnd.uniform(0, 2 * math.pi), rc * math.sqrt(rnd.uniform(0, 0.9))
+                x, y, s = cx + math.cos(a) * d, cy + math.sin(a) * d, rnd.choice((1, 1, 1.6)) * SS
+                ld.ellipse((x - s, y - s, x + s, y + s), fill=(255, 255, 255, rnd.randint(90, 200)))
+        elif game == "hsr":  # a nebula swirl with stars
+            for k in range(3):
+                rr = rc * (0.35 + 0.2 * k)
+                ld.arc((cx - rr, cy - rr * 0.6, cx + rr, cy + rr * 0.6), 20 + 60 * k, 200 + 60 * k, fill=_mix(accent, (255, 255, 255), 0.3) + (90,), width=SS * 3)
+            for _ in range(16):
+                a, d = rnd.uniform(0, 2 * math.pi), rc * math.sqrt(rnd.uniform(0, 0.9))
+                x, y, s = cx + math.cos(a) * d, cy + math.sin(a) * d, rnd.choice((1, 1.4)) * SS
+                ld.ellipse((x - s, y - s, x + s, y + s), fill=(255, 255, 255, rnd.randint(90, 200)))
+        else:  # ZZZ: halftone dots and CRT scanlines
+            step = 5 * SS
+            for gy in range(int(cy - rc), int(cy + rc), step):
+                for gx in range(int(cx - rc), int(cx + rc), step):
+                    d = math.hypot(gx - cx, gy - cy)
+                    if d < rc * 0.95:
+                        s = (d / rc) * step * 0.32
+                        ld.ellipse((gx - s, gy - s, gx + s, gy + s), fill=accent + (110,))
+            for yy in range(int(cy - rc), int(cy + rc), 3 * SS):
+                ld.line((cx - rc, yy, cx + rc, yy), fill=(0, 0, 0, 60), width=SS)
+        mask = Image.new("L", img.size, 0)
+        ImageDraw.Draw(mask).ellipse((cx - rc, cy - rc, cx + rc, cy + rc), fill=255)
+        img.paste(layer, (0, 0), ImageChops.multiply(mask, layer.getchannel("A")))
+    # glossy highlight on top and a thin rim
+    gl = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    ImageDraw.Draw(gl).ellipse((cx - rc * 0.7, cy - rc * 0.92, cx + rc * 0.7, cy - rc * 0.1), fill=(255, 255, 255, 34))
+    img.alpha_composite(gl)
+    ImageDraw.Draw(img).ellipse((cx - rc, cy - rc, cx + rc, cy + rc), outline=_mix(accent, (255, 255, 255), 0.5) + (150,), width=SS)
 
 
 def _rays(d: ImageDraw.ImageDraw, cx: float, cy: float, r: float, color, count: int = 12, width: int = 2) -> None:
@@ -564,7 +616,8 @@ def _genshin_marks(img: Image.Image, n: int, accent, light) -> None:
             a = math.radians(20 + k * 360 / (n - 2))
             px, py = cx + math.cos(a) * ro, cy + math.sin(a) * ro
             draw.ellipse((px - 2 * SS, py - 2 * SS, px + 2 * SS, py + 2 * SS), fill=light + (255,))
-    _badge_core(draw, cx, cy, r, n, accent)
+    _badge_core(img, cx, cy, r, n, accent, "genshin")
+    draw = ImageDraw.Draw(img)
     draw.ellipse((cx - r, cy - r, cx + r, cy + r), outline=(255, 255, 255, 60), width=SS)
     for k in range(n - 1):  # constellation lines along the ring
         draw.arc((cx - r, cy - r, cx + r, cy + r), -90 + k * 60, -30 + k * 60, fill=light + (255,), width=SS * 3)
@@ -617,7 +670,8 @@ def _hsr_marks(img: Image.Image, n: int, accent, light) -> None:
         draw.ellipse((hx - 3 * SS, hy - 3 * SS, hx + 3 * SS, hy + 3 * SS), fill=(255, 255, 255, 255))
     for a0, rr, ln in streaks:
         draw.arc((cx - rr, cy - rr, cx + rr, cy + rr), a0, a0 + ln, fill=(255, 255, 255, 220), width=SS)
-    _badge_core(draw, cx, cy, r, n, accent)
+    _badge_core(img, cx, cy, r, n, accent, "hsr")
+    draw = ImageDraw.Draw(img)
     for rr in (r * 0.93, r * 1.07):  # the two rails
         draw.ellipse((cx - rr, cy - rr, cx + rr, cy + rr), outline=(255, 255, 255, 110), width=SS)
     for k in range(36):  # sleepers
@@ -686,8 +740,8 @@ def _zzz_marks(img: Image.Image, n: int, accent, light) -> None:
         for k in range(ticks):
             a0 = k * 360 / ticks
             draw.arc((cx - ro, cy - ro, cx + ro, cy + ro), a0, a0 + 360 / ticks * 0.5, fill=light + (210,), width=SS * 2)
-    draw.ellipse((cx - r * 0.78, cy - r * 0.78, cx + r * 0.78, cy + r * 0.78),
-                 fill=_mix((14, 12, 24), accent, 0.1 * max(0, n - 2)) + (235,), outline=(255, 255, 255, 40), width=SS)
+    _badge_core(img, cx, cy, r, n, accent, "zzz")
+    draw = ImageDraw.Draw(img)
     for k, (a0, a1) in enumerate(segs):
         draw.arc((cx - r, cy - r, cx + r, cy + r), a0, a1, fill=light + (255,) if k < n else (255, 255, 255, 50), width=SS * 7)
         if k < n and n >= 6:
@@ -711,6 +765,13 @@ def _cons_marks(card: Image.Image, build: CharacterBuild, accent, light) -> None
     else:
         _zzz_marks(img, n, accent, light)
     img = img.resize((img.width // SS, img.height // SS), Image.LANCZOS)
+    if BADGE_BG == "frost":
+        bx, by, rc = PAD - 10 + CONS_W / 2, CONS_TOP + CONS_W / 2 + 6, CONS_W * 0.36 * 0.78
+        box = (round(bx - rc), round(by - rc), round(bx + rc), round(by + rc))
+        region = card.crop(box).filter(ImageFilter.GaussianBlur(5))
+        mask = Image.new("L", region.size, 0)
+        ImageDraw.Draw(mask).ellipse((0, 0, region.width - 1, region.height - 1), fill=255)
+        card.paste(region, box[:2], mask)
     card.alpha_composite(img, (PAD - 10 - (img.width - CONS_W) // 2, CONS_TOP - (img.height - (CONS_BOTTOM - CONS_TOP)) // 2))
 
 
