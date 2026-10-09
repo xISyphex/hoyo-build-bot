@@ -430,6 +430,7 @@ def _gear(card: Image.Image, piece: Gear, icon: Image.Image | None, box, light, 
 
 
 CONS_W, CONS_TOP, CONS_BOTTOM = 84, 160, H - PAD - 176  # the strip of six marks left of the art
+BADGE_SCALE = 1.3  # the badge is drawn in a CONS_W-wide strip, then shown this much bigger
 SS = 4  # marks are drawn this many times bigger and shrunk, for smooth edges
 
 
@@ -712,8 +713,8 @@ def _cons_marks(card: Image.Image, build: CharacterBuild, accent, light) -> None
         _hsr_marks(img, n, accent, light)
     else:
         _zzz_marks(img, n, accent, light)
-    img = img.resize((img.width // SS, img.height // SS), Image.LANCZOS)
-    card.alpha_composite(img, (PAD - 10 - (img.width - CONS_W) // 2, CONS_TOP - (img.height - (CONS_BOTTOM - CONS_TOP)) // 2))
+    img = img.resize((round(img.width / SS * BADGE_SCALE), round(img.height / SS * BADGE_SCALE)), Image.LANCZOS)
+    card.alpha_composite(img, (PAD - 14, CONS_TOP - 8))
 
 
 class CardMaker:
