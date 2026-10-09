@@ -13,6 +13,7 @@ import io
 import logging
 import math
 import os
+import random
 from pathlib import Path
 
 import aiohttp
@@ -454,24 +455,83 @@ def _hsr_marks(img: Image.Image, n: int, accent, light) -> None:
             draw.ellipse((x - r, y - r, x + r, y + r), fill=(14, 12, 24, 170), outline=(255, 255, 255, 80), width=4 * SS)
 
 
+def _neon_glow(img: Image.Image, draw_fn, radius: float) -> None:
+    """Draw shapes on a layer, blur it and lay it over img twice: a neon halo under the sharp shapes drawn next."""
+    layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    draw_fn(ImageDraw.Draw(layer))
+    small = layer.resize((img.width // SS, img.height // SS), Image.BILINEAR).filter(ImageFilter.GaussianBlur(radius))
+    halo = small.resize(img.size, Image.BICUBIC)
+    img.alpha_composite(halo)
+    img.alpha_composite(halo)
+
+
 def _zzz_marks(img: Image.Image, n: int, accent, light) -> None:
-    """Mindscape Cinema: six film reels down the side, the owned ones loaded with film in the element colour."""
+    """A mindscape ring badge that charges up with every mindscape: brighter glow, then sparks, an outer ring, lightning, and a burst at M6."""
     w, h = img.size
+    cx, cy, r = w / 2, w / 2 + 6 * SS, w * 0.36
+    segs = [(-90 + k * 60 + 4, -90 + (k + 1) * 60 - 4) for k in range(6)]
+    rnd = random.Random(7)
+    sparks = []
+    for _ in range(3 * max(0, n - 1)):
+        a = rnd.uniform(0, 2 * math.pi)
+        d0 = r * rnd.uniform(1.12, 1.3)
+        sparks.append((cx + math.cos(a) * d0, cy + math.sin(a) * d0, rnd.choice((1, 1.5, 2)) * SS))
+    bolts = []
+    for k in range({5: 2, 6: 4}.get(n, 0)):
+        a = math.radians(-60 + k * (360 / max(1, {5: 2, 6: 4}[n])) + rnd.uniform(-20, 20))
+        pts = [(cx + math.cos(a) * r, cy + math.sin(a) * r)]
+        for j in range(1, 4):
+            aa = a + (0.18 if j % 2 else -0.12)
+            rad = r * (1 + 0.1 * j)
+            pts.append((cx + math.cos(aa) * rad, cy + math.sin(aa) * rad))
+        bolts.append(pts)
+
+    def neon(d):
+        if n >= 6:
+            for k in range(12):
+                a = math.radians(k * 30 + 15)
+                d.line((cx + math.cos(a) * r * 1.0, cy + math.sin(a) * r * 1.0,
+                        cx + math.cos(a) * r * 1.3, cy + math.sin(a) * r * 1.3), fill=light + (255,), width=SS * 2)
+        for k in range(n):
+            d.arc((cx - r, cy - r, cx + r, cy + r), *segs[k], fill=accent + (255,), width=SS * (6 + 2 * n))
+        if n >= 3:
+            ri = r * 0.78
+            d.ellipse((cx - ri, cy - ri, cx + ri, cy + ri), outline=accent + (255,), width=SS * (n - 1))
+        for x, y, s in sparks:
+            d.ellipse((x - s * 2, y - s * 2, x + s * 2, y + s * 2), fill=light + (255,))
+        for pts in bolts:
+            d.line(pts, fill=light + (255,), width=SS * 4)
+    if n:
+        _neon_glow(img, neon, min(7, 2 + n))
+        if n >= 5:
+            _neon_glow(img, neon, 2)
     draw = ImageDraw.Draw(img)
-    th = h / 6
-    for i in range(6):
-        lit = i < n
-        cx, cy, r = w * 0.48, i * th + th / 2, th * 0.44
-        rim = light + (255,) if lit else (255, 255, 255, 70)
-        draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=(18, 16, 26, 230), outline=rim, width=SS * 2)
-        if lit:
-            draw.ellipse((cx - r * 0.86, cy - r * 0.86, cx + r * 0.86, cy + r * 0.86), fill=_mix(accent, (16, 14, 26), 0.35) + (255,))
-        for k in range(5):  # the holes in the reel, turned a little differently on each one
-            a = -math.pi / 2 + k * 2 * math.pi / 5 + i * 0.4
-            hx, hy, hr = cx + r * 0.52 * math.cos(a), cy + r * 0.52 * math.sin(a), r * 0.2
-            draw.ellipse((hx - hr, hy - hr, hx + hr, hy + hr), fill=(10, 10, 14, 255) if lit else (40, 40, 50, 200),
-                         outline=rim, width=SS)
-        draw.ellipse((cx - r * 0.14, cy - r * 0.14, cx + r * 0.14, cy + r * 0.14), fill=rim)
+    if n >= 4:  # outer dashed ring
+        ro = r * 1.2
+        ticks = 12 + 6 * (n - 4)
+        for k in range(ticks):
+            a0 = k * 360 / ticks
+            draw.arc((cx - ro, cy - ro, cx + ro, cy + ro), a0, a0 + 360 / ticks * 0.5, fill=light + (210,), width=SS * 2)
+    draw.ellipse((cx - r * 0.78, cy - r * 0.78, cx + r * 0.78, cy + r * 0.78),
+                 fill=_mix((14, 12, 24), accent, 0.1 * max(0, n - 2)) + (235,), outline=(255, 255, 255, 40), width=SS)
+    for k, (a0, a1) in enumerate(segs):
+        draw.arc((cx - r, cy - r, cx + r, cy + r), a0, a1, fill=light + (255,) if k < n else (255, 255, 255, 50), width=SS * 7)
+        if k < n and n >= 6:
+            draw.arc((cx - r, cy - r, cx + r, cy + r), a0 + 3, a1 - 3, fill=(255, 255, 255, 255), width=SS * 2)
+    for x, y, s in sparks:
+        draw.ellipse((x - s, y - s, x + s, y + s), fill=(255, 255, 255, 255))
+    for pts in bolts:
+        draw.line(pts, fill=(255, 255, 255, 255), width=SS)
+    num_font = _font("Bold", 32 * SS)
+    if n >= 3:
+        glow = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        ImageDraw.Draw(glow).text((cx, cy - r * 0.08), str(n), font=num_font, fill=light + (255,), anchor="mm")
+        small = glow.resize((w // SS, h // SS), Image.BILINEAR).filter(ImageFilter.GaussianBlur(n - 2))
+        for _ in range(1 + (n >= 5)):
+            img.alpha_composite(small.resize(img.size, Image.BICUBIC))
+        draw = ImageDraw.Draw(img)
+    draw.text((cx, cy - r * 0.08), str(n), font=num_font, fill=(255, 255, 255, 255) if n else (255, 255, 255, 110), anchor="mm")
+    draw.text((cx, cy + r * 0.44), "MINDSCAPE", font=_font("Bold", 6 * SS), fill=light + (255,), anchor="mm")
 
 
 def _cons_marks(card: Image.Image, build: CharacterBuild, accent, light) -> None:
