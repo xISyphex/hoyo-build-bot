@@ -501,15 +501,19 @@ def _badge_geo(img: Image.Image) -> tuple[float, float, float]:
 
 
 def _badge_number(img: Image.Image, cx: float, cy: float, n: int, light) -> None:
-    """The count in the middle of a badge, glowing from 3 up."""
+    """The count in the middle of a badge, slanted like italics and glowing from 3 up."""
     font = _font("Bold", 34 * SS)
+    slant = (1, 0.22, -0.22 * cy, 0, 1, 0)  # shear around the badge centre
+    text = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    ImageDraw.Draw(text).text((cx, cy), str(n), font=font, fill=(255, 255, 255, 255) if n else (255, 255, 255, 110), anchor="mm")
     if n >= 3:
         glow = Image.new("RGBA", img.size, (0, 0, 0, 0))
         ImageDraw.Draw(glow).text((cx, cy), str(n), font=font, fill=light + (255,), anchor="mm")
+        glow = glow.transform(img.size, Image.AFFINE, slant, Image.BICUBIC)
         small = glow.resize((img.width // SS, img.height // SS), Image.BILINEAR).filter(ImageFilter.GaussianBlur(n - 2))
         for _ in range(1 + (n >= 5)):
             img.alpha_composite(small.resize(img.size, Image.BICUBIC))
-    ImageDraw.Draw(img).text((cx, cy), str(n), font=font, fill=(255, 255, 255, 255) if n else (255, 255, 255, 110), anchor="mm")
+    img.alpha_composite(text.transform(img.size, Image.AFFINE, slant, Image.BICUBIC))
 
 
 def _badge_core(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, n: int, accent) -> None:
