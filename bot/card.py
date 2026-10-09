@@ -129,6 +129,94 @@ def _star(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, fill) -> No
     draw.polygon(points, fill=fill)
 
 
+INFO_STYLE = "glass"
+
+
+def _frost(card: Image.Image, box, radius: int, tint, alpha: int, outline=None) -> None:
+    """A frosted panel: the picture behind is blurred and darkened inside a rounded box."""
+    x0, y0, x1, y1 = (round(v) for v in box)
+    region = card.crop((x0, y0, x1, y1)).filter(ImageFilter.GaussianBlur(8))
+    shade = Image.new("RGBA", region.size, tuple(tint) + (alpha,))
+    region.alpha_composite(shade)
+    mask = Image.new("L", region.size, 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, region.width - 1, region.height - 1), radius, fill=255)
+    card.paste(region, (x0, y0), mask)
+    if outline:
+        ImageDraw.Draw(card).rounded_rectangle((x0, y0, x1, y1), radius, outline=outline, width=1)
+
+
+def _rarity_width(draw, build: CharacterBuild, f) -> float:
+    if build.game == "zzz":
+        return draw.textlength(f"{ZZZ_RARITY.get(build.rarity, '?')}-Rank", font=f.meta)
+    return build.rarity * 22 - 2
+
+
+def _draw_rarity(draw, build: CharacterBuild, f, x: float, cy: float) -> None:
+    if build.game == "zzz":
+        draw.text((x, cy), f"{ZZZ_RARITY.get(build.rarity, '?')}-Rank", font=f.meta, fill=GOLD, anchor="lm")
+    else:
+        for i in range(build.rarity):
+            _star(draw, x + 10 + i * 22, cy, 10, GOLD)
+
+
+def _info_row(card: Image.Image, build: CharacterBuild, f, accent, light, y: int) -> None:
+    """Element, level and rarity under the name, on a see-through backing so they read on any art."""
+    draw = ImageDraw.Draw(card)
+    el = build.element
+    lv = f"Lv. {build.level}"
+    ew = draw.textlength(el, font=f.meta)
+    lw = draw.textlength(lv, font=f.meta)
+    rw = _rarity_width(draw, build, f)
+    x0, h = PAD + 4, 38
+    cy = y + h / 2
+    dark = (12, 10, 20)
+    on_accent = (16, 14, 26) if sum(accent) > 450 else TEXT
+    if INFO_STYLE == "glass":  # one frosted bar, element chip inside, thin dividers
+        total = 6 + ew + 24 + 14 + lw + 14 + rw + 14
+        _frost(card, (x0, y, x0 + total, y + h), h // 2, dark, 150, outline=light + (120,))
+        draw = ImageDraw.Draw(card)
+        draw.rounded_rectangle((x0 + 4, y + 4, x0 + 4 + ew + 24, y + h - 4), (h - 8) // 2, fill=accent + (255,))
+        draw.text((x0 + 4 + (ew + 24) / 2, cy), el, font=f.meta, fill=on_accent, anchor="mm")
+        x = x0 + 4 + ew + 24 + 14
+        draw.text((x, cy), lv, font=f.meta, fill=TEXT, anchor="lm")
+        x += lw + 7
+        draw.line((x, y + 10, x, y + h - 10), fill=(255, 255, 255, 80), width=1)
+        _draw_rarity(draw, build, f, x + 7, cy)
+    elif INFO_STYLE == "chips":  # three separate dark chips, element marked by a coloured dot and text
+        x = x0
+        for kind, w in (("el", ew + 36), ("lv", lw + 22), ("ra", rw + 22)):
+            _frost(card, (x, y, x + w, y + h), 9, dark, 165, outline=(accent + (200,)) if kind == "el" else (255, 255, 255, 50))
+            draw = ImageDraw.Draw(card)
+            if kind == "el":
+                draw.ellipse((x + 12, cy - 6, x + 24, cy + 6), fill=accent + (255,))
+                draw.text((x + 30, cy), el, font=f.meta, fill=light, anchor="lm")
+            elif kind == "lv":
+                draw.text((x + 11, cy), lv, font=f.meta, fill=TEXT, anchor="lm")
+            else:
+                _draw_rarity(draw, build, f, x + 11, cy)
+            x += w + 6
+    else:  # "ribbon": a slanted dark band with an element-coloured edge
+        total = 18 + ew + 22 + lw + 22 + rw + 30
+        band = Image.new("RGBA", card.size, (0, 0, 0, 0))
+        bd = ImageDraw.Draw(band)
+        sl = 14
+        bd.polygon([(x0 - 8, y), (x0 + total + sl, y), (x0 + total, y + h), (x0 - 8, y + h)], fill=dark + (175,))
+        bd.polygon([(x0 - 8, y), (x0 + 2, y), (x0 + 2, y + h), (x0 - 8, y + h)], fill=accent + (255,))
+        bd.line((x0 - 8, y + h, x0 + total, y + h), fill=accent + (255,), width=2)
+        card.alpha_composite(band)
+        draw = ImageDraw.Draw(card)
+        x = x0 + 16
+        draw.text((x, cy), el.upper(), font=f.meta, fill=light, anchor="lm")
+        x += draw.textlength(el.upper(), font=f.meta) + 11
+        _sparkle(draw, x, cy, 5, accent + (255,), 0.3)
+        x += 11
+        draw.text((x, cy), lv, font=f.meta, fill=TEXT, anchor="lm")
+        x += lw + 11
+        _sparkle(draw, x, cy, 5, accent + (255,), 0.3)
+        _draw_rarity(draw, build, f, x + 11, cy)
+
+
+
 def _paste_art(card: Image.Image, art: Image.Image | None, full_body: bool = False) -> None:
     """Character art across the left column, fading out to the right.
 
@@ -246,18 +334,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     name = _fit_text(draw, build.name, font, ART_W - PAD)
     draw.text((PAD + 4, 28), name, font=font, fill=TEXT)
     y = 28 + font.size + 16
-    pill = build.element
-    pw = draw.textlength(pill, font=f.meta) + 24
-    draw.rounded_rectangle((PAD + 4, y, PAD + 4 + pw, y + 34), 17, fill=accent + (255,))
-    draw.text((PAD + 4 + pw / 2, y + 17), pill, font=f.meta, fill=(16, 14, 26) if sum(accent) > 450 else TEXT, anchor="mm")
-    meta = f"Lv. {build.level}"
-    draw.text((PAD + 16 + pw, y + 17), meta, font=f.meta, fill=TEXT, anchor="lm")
-    x = PAD + 28 + pw + draw.textlength(meta, font=f.meta)
-    if build.game == "zzz":
-        draw.text((x, y + 17), f"{ZZZ_RARITY.get(build.rarity, '?')}-Rank", font=f.meta, fill=GOLD, anchor="lm")
-    else:
-        for i in range(build.rarity):
-            _star(draw, x + 10 + i * 22, y + 17, 10, GOLD)
+    _info_row(card, build, f, accent, light, y)
 
     _cons_marks(card, build, accent, light)
 
