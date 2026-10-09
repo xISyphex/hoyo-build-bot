@@ -68,6 +68,37 @@ show German labels; the names below are the English ones.
   `sudo systemctl restart hoyo-build-bot`.
 - **Stop:** `sudo systemctl disable --now hoyo-build-bot`, or delete the VM.
 
+## Moving to another Linux server
+
+The setup script works on any Linux server with systemd and sudo: Debian 12 or newer,
+Ubuntu 22.04 or newer, Fedora, Rocky/Alma/RHEL 9, openSUSE and Arch. The bot only
+makes outgoing connections, so the server needs internet access but no open ports.
+
+Run the bot on one server at a time: two copies with the same token answer every
+command twice. Claims and the access list live in `/opt/hoyo-build-bot/data`
+(`claims.json`, `access.json`) and move with you as one line of text.
+
+1. **On the old server**, stop the bot and print its data as one long line:
+
+   ```bash
+   sudo systemctl disable --now hoyo-build-bot
+   cd /opt/hoyo-build-bot/data && sudo tar -cz $(ls claims.json access.json 2>/dev/null) | base64 -w0; echo
+   ```
+
+   Copy that line somewhere private (a text file on your PC).
+2. **On the new server**, log in over SSH with an account that can use `sudo`, then run
+   the setup line from step 5 above and paste the bot token when asked.
+3. Still on the new server, restore the data. Replace `PASTE` with the line from step 1,
+   keeping the quotes:
+
+   ```bash
+   echo 'PASTE' | base64 -d | sudo tar -C /opt/hoyo-build-bot/data -xz && sudo chown -R hoyobot: /opt/hoyo-build-bot/data && sudo systemctl restart hoyo-build-bot
+   ```
+
+4. Try a command in Discord, and `/hsr` with no UID to check a claim came across.
+5. Delete the old server. On Google Cloud: **Compute Engine → VM instances**, tick the
+   VM, **Delete**. Its disk is deleted with it, so nothing keeps costing money.
+
 ## Option B: Railway, $5 per month
 
 Railway deploys straight from this GitHub repository and redeploys on every merge
