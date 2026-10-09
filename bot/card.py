@@ -13,6 +13,7 @@ import io
 import logging
 import math
 import os
+import random
 from pathlib import Path
 
 import aiohttp
@@ -406,72 +407,215 @@ def _sparkle(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, fill, wa
     draw.polygon(pts, fill=fill)
 
 
-def _glow(size, points, radius: float, color) -> Image.Image:
-    """Soft colored light around the given points."""
-    small = Image.new("RGBA", (size[0] // SS, size[1] // SS), (0, 0, 0, 0))
-    d = ImageDraw.Draw(small)
-    r = radius / SS
-    for x, y in points:
-        d.ellipse((x / SS - r, y / SS - r, x / SS + r, y / SS + r), fill=color)
-    return small.filter(ImageFilter.GaussianBlur(r / 2)).resize(size, Image.BICUBIC)
+def _neon_glow(img: Image.Image, draw_fn, radius: float) -> None:
+    """Draw shapes on a layer, blur it and lay it over img twice: a neon halo under the sharp shapes drawn next."""
+    layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    draw_fn(ImageDraw.Draw(layer))
+    small = layer.resize((img.width // SS, img.height // SS), Image.BILINEAR).filter(ImageFilter.GaussianBlur(radius))
+    halo = small.resize(img.size, Image.BICUBIC)
+    img.alpha_composite(halo)
+    img.alpha_composite(halo)
+
+
+def _badge_geo(img: Image.Image) -> tuple[float, float, float]:
+    """Centre and ring radius of the round badge at the top of the strip."""
+    w = img.width
+    return w / 2, w / 2 + 6 * SS, w * 0.36
+
+
+def _badge_number(img: Image.Image, cx: float, cy: float, n: int, light) -> None:
+    """The count in the middle of a badge, glowing from 3 up."""
+    font = _font("Bold", 34 * SS)
+    if n >= 3:
+        glow = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        ImageDraw.Draw(glow).text((cx, cy), str(n), font=font, fill=light + (255,), anchor="mm")
+        small = glow.resize((img.width // SS, img.height // SS), Image.BILINEAR).filter(ImageFilter.GaussianBlur(n - 2))
+        for _ in range(1 + (n >= 5)):
+            img.alpha_composite(small.resize(img.size, Image.BICUBIC))
+    ImageDraw.Draw(img).text((cx, cy), str(n), font=font, fill=(255, 255, 255, 255) if n else (255, 255, 255, 110), anchor="mm")
+
+
+def _badge_core(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, n: int, accent) -> None:
+    """The dark disc inside a badge, tinted by the element as it charges."""
+    draw.ellipse((cx - r * 0.78, cy - r * 0.78, cx + r * 0.78, cy + r * 0.78),
+                 fill=_mix((14, 12, 24), accent, 0.1 * max(0, n - 2)) + (235,), outline=(255, 255, 255, 40), width=SS)
+
+
+def _rays(d: ImageDraw.ImageDraw, cx: float, cy: float, r: float, color, count: int = 12, width: int = 2) -> None:
+    for k in range(count):
+        a = math.radians(k * 360 / count + 180 / count)
+        d.line((cx + math.cos(a) * r, cy + math.sin(a) * r, cx + math.cos(a) * r * 1.3, cy + math.sin(a) * r * 1.3),
+               fill=color + (255,), width=SS * width)
 
 
 def _genshin_marks(img: Image.Image, n: int, accent, light) -> None:
-    """A constellation: six stars zig-zagging down, joined by lines that light up as they're unlocked."""
-    w, h = img.size
-    pts = [(w * (0.36 if i % 2 == 0 else 0.64), h * (0.07 + i * 0.172)) for i in range(6)]
-    img.alpha_composite(_glow(img.size, pts[:n], 20 * SS, accent + (200,)))
+    """A constellation ring: six stars around the badge, joined along the ring as they're unlocked; star dust from C2,
+    an inner glow from C3, an outer orbit from C4, twinkles from C5 and a starburst at C6."""
+    cx, cy, r = _badge_geo(img)
+    stars = [(cx + math.cos(math.radians(-90 + k * 60)) * r, cy + math.sin(math.radians(-90 + k * 60)) * r) for k in range(6)]
+    rnd = random.Random(3)
+    dust = []
+    for _ in range(5 * max(0, n - 1)):
+        a, d = rnd.uniform(0, 2 * math.pi), r * rnd.uniform(1.12, 1.35)
+        dust.append((cx + math.cos(a) * d, cy + math.sin(a) * d, rnd.choice((1, 1, 1.5)) * SS))
+    twinkles = [(cx + math.cos(math.radians(a)) * r * 1.3, cy + math.sin(math.radians(a)) * r * 1.3)
+                for a in (-30, 150, 30, 210)[: {5: 2, 6: 4}.get(n, 0)]]
+
+    def neon(d):
+        if n >= 6:
+            _rays(d, cx, cy, r, light, 8, 3)
+        for k in range(n - 1):
+            d.arc((cx - r, cy - r, cx + r, cy + r), -90 + k * 60, -30 + k * 60, fill=accent + (255,), width=SS * (4 + 2 * n))
+        for x, y in stars[:n]:
+            d.ellipse((x - 9 * SS, y - 9 * SS, x + 9 * SS, y + 9 * SS), fill=accent + (255,))
+        if n >= 3:
+            ri = r * 0.78
+            d.ellipse((cx - ri, cy - ri, cx + ri, cy + ri), outline=accent + (255,), width=SS * (n - 1))
+        for x, y, s in dust:
+            d.ellipse((x - s * 2, y - s * 2, x + s * 2, y + s * 2), fill=light + (255,))
+    if n:
+        _neon_glow(img, neon, min(7, 2 + n))
     draw = ImageDraw.Draw(img)
-    for i in range(5):
-        lit = i + 1 < n
-        draw.line((pts[i], pts[i + 1]), fill=light + (240,) if lit else (255, 255, 255, 90), width=(3 if lit else 2) * SS)
-    for i, (x, y) in enumerate(pts):
+    if n >= 4:  # outer orbit with little planets
+        ro = r * 1.2
+        draw.ellipse((cx - ro, cy - ro, cx + ro, cy + ro), outline=light + (150,), width=SS)
+        for k in range(n - 2):
+            a = math.radians(20 + k * 360 / (n - 2))
+            px, py = cx + math.cos(a) * ro, cy + math.sin(a) * ro
+            draw.ellipse((px - 2 * SS, py - 2 * SS, px + 2 * SS, py + 2 * SS), fill=light + (255,))
+    _badge_core(draw, cx, cy, r, n, accent)
+    draw.ellipse((cx - r, cy - r, cx + r, cy + r), outline=(255, 255, 255, 60), width=SS)
+    for k in range(n - 1):  # constellation lines along the ring
+        draw.arc((cx - r, cy - r, cx + r, cy + r), -90 + k * 60, -30 + k * 60, fill=light + (255,), width=SS * 3)
+    for i, (x, y) in enumerate(stars):
         if i < n:
-            draw.ellipse((x - 17 * SS, y - 17 * SS, x + 17 * SS, y + 17 * SS), outline=light + (150,), width=SS)
-            _sparkle(draw, x, y, 22 * SS, light + (255,))
-            _sparkle(draw, x, y, 10 * SS, (255, 255, 255, 255), 0.3)
+            _sparkle(draw, x, y, 12 * SS, light + (255,))
+            _sparkle(draw, x, y, 6 * SS, (255, 255, 255, 255), 0.3)
         else:
-            _sparkle(draw, x, y, 14 * SS, (255, 255, 255, 120))
+            draw.ellipse((x - 4 * SS, y - 4 * SS, x + 4 * SS, y + 4 * SS), fill=(40, 38, 50, 255), outline=(255, 255, 255, 110), width=SS)
+    for x, y, s in dust:
+        draw.ellipse((x - s, y - s, x + s, y + s), fill=(255, 255, 255, 230))
+    for x, y in twinkles:
+        _sparkle(draw, x, y, 7 * SS, (255, 255, 255, 255), 0.25)
+    _badge_number(img, cx, cy, n, light)
 
 
 def _hsr_marks(img: Image.Image, n: int, accent, light) -> None:
-    """A Trailblaze route map: six stations on one line, travelled up to the last eidolon unlocked."""
-    w, h = img.size
-    x = w * 0.42
-    ys = [h * (0.07 + i * 0.172) for i in range(6)]
+    """A Trailblaze rail ring: six stations around the badge, the track lit up to the last eidolon; light-speed streaks
+    from E2, an inner glow from E3, an outer orbit from E4, comets from E5 and a burst at E6."""
+    cx, cy, r = _badge_geo(img)
+    ang = [-90 + k * 60 for k in range(6)]
+    rnd = random.Random(8)
+    streaks = [(rnd.uniform(0, 360), r * rnd.uniform(1.12, 1.32), rnd.uniform(10, 22)) for _ in range(3 * max(0, n - 1))]
+    comets = [-40, 140][: {5: 1, 6: 2}.get(n, 0)]
+
+    def neon(d):
+        if n >= 6:
+            _rays(d, cx, cy, r, light, 12, 2)
+        if n > 1:
+            d.arc((cx - r, cy - r, cx + r, cy + r), -90, -90 + 60 * (n - 1), fill=accent + (255,), width=SS * (4 + 2 * n))
+        for a in ang[:n]:
+            x, y = cx + math.cos(math.radians(a)) * r, cy + math.sin(math.radians(a)) * r
+            d.ellipse((x - 9 * SS, y - 9 * SS, x + 9 * SS, y + 9 * SS), fill=accent + (255,))
+        if n >= 3:
+            ri = r * 0.78
+            d.ellipse((cx - ri, cy - ri, cx + ri, cy + ri), outline=accent + (255,), width=SS * (n - 1))
+        for a0, rr, ln in streaks:
+            d.arc((cx - rr, cy - rr, cx + rr, cy + rr), a0, a0 + ln, fill=light + (255,), width=SS * 2)
     if n:
-        img.alpha_composite(_glow(img.size, [(x, y) for y in ys[:n]], 20 * SS, accent + (170,)))
+        _neon_glow(img, neon, min(7, 2 + n))
     draw = ImageDraw.Draw(img)
-    draw.line((x, ys[0], x, ys[-1]), fill=(255, 255, 255, 55), width=6 * SS)
+    ro = r * 1.22
+    if n >= 4:  # outer dashed orbit
+        for k in range(24):
+            draw.arc((cx - ro, cy - ro, cx + ro, cy + ro), k * 15, k * 15 + 7, fill=light + (170,), width=SS)
+    for a in comets:
+        for j in range(8):  # tail fading behind the head
+            draw.arc((cx - ro, cy - ro, cx + ro, cy + ro), a - 6 * (j + 1), a - 6 * j, fill=light + (255 - 30 * j,), width=SS * max(1, 3 - j // 3))
+        hx, hy = cx + math.cos(math.radians(a)) * ro, cy + math.sin(math.radians(a)) * ro
+        draw.ellipse((hx - 3 * SS, hy - 3 * SS, hx + 3 * SS, hy + 3 * SS), fill=(255, 255, 255, 255))
+    for a0, rr, ln in streaks:
+        draw.arc((cx - rr, cy - rr, cx + rr, cy + rr), a0, a0 + ln, fill=(255, 255, 255, 220), width=SS)
+    _badge_core(draw, cx, cy, r, n, accent)
+    for rr in (r * 0.93, r * 1.07):  # the two rails
+        draw.ellipse((cx - rr, cy - rr, cx + rr, cy + rr), outline=(255, 255, 255, 110), width=SS)
+    for k in range(36):  # sleepers
+        a = math.radians(k * 10)
+        draw.line((cx + math.cos(a) * r * 0.9, cy + math.sin(a) * r * 0.9, cx + math.cos(a) * r * 1.1, cy + math.sin(a) * r * 1.1),
+                  fill=(255, 255, 255, 50), width=SS)
     if n > 1:
-        draw.line((x, ys[0], x, ys[n - 1]), fill=light + (255,), width=8 * SS)
-    for i, y in enumerate(ys):
-        r = 15 * SS
+        for rr in (r * 0.93, r * 1.07):
+            draw.arc((cx - rr, cy - rr, cx + rr, cy + rr), -90, -90 + 60 * (n - 1), fill=light + (255,), width=SS * 2)
+    for i, a in enumerate(ang):  # stations
+        x, y = cx + math.cos(math.radians(a)) * r, cy + math.sin(math.radians(a)) * r
+        s = 8 * SS
+        pts = [(x, y - s), (x + s, y), (x, y + s), (x - s, y)]
         if i < n:
-            draw.ellipse((x - r, y - r, x + r, y + r), fill=(255, 255, 255, 255), outline=light + (255,), width=6 * SS)
-            draw.ellipse((x - 5 * SS, y - 5 * SS, x + 5 * SS, y + 5 * SS), fill=accent + (255,))
+            draw.polygon(pts, fill=(255, 255, 255, 255), outline=light + (255,), width=SS * 2)
+            draw.ellipse((x - 2.5 * SS, y - 2.5 * SS, x + 2.5 * SS, y + 2.5 * SS), fill=accent + (255,))
         else:
-            draw.ellipse((x - r, y - r, x + r, y + r), fill=(14, 12, 24, 170), outline=(255, 255, 255, 80), width=4 * SS)
+            s = 6 * SS
+            draw.polygon([(x, y - s), (x + s, y), (x, y + s), (x - s, y)], fill=(70, 68, 86, 230), outline=(255, 255, 255, 150), width=SS)
+    _badge_number(img, cx, cy, n, light)
 
 
 def _zzz_marks(img: Image.Image, n: int, accent, light) -> None:
-    """Mindscape Cinema: six film reels down the side, the owned ones loaded with film in the element colour."""
-    w, h = img.size
+    """A ring badge that charges up with every mindscape: brighter glow, then sparks, an outer ring, lightning, and a burst at M6."""
+    cx, cy, r = _badge_geo(img)
+    segs = [(-90 + k * 60 + 4, -90 + (k + 1) * 60 - 4) for k in range(6)]
+    rnd = random.Random(7)
+    sparks = []
+    for _ in range(3 * max(0, n - 1)):
+        a = rnd.uniform(0, 2 * math.pi)
+        d0 = r * rnd.uniform(1.12, 1.3)
+        sparks.append((cx + math.cos(a) * d0, cy + math.sin(a) * d0, rnd.choice((1, 1.5, 2)) * SS))
+    bolts = []
+    for k in range({5: 2, 6: 4}.get(n, 0)):
+        a = math.radians(-60 + k * (360 / max(1, {5: 2, 6: 4}[n])) + rnd.uniform(-20, 20))
+        pts = [(cx + math.cos(a) * r, cy + math.sin(a) * r)]
+        for j in range(1, 4):
+            aa = a + (0.18 if j % 2 else -0.12)
+            rad = r * (1 + 0.1 * j)
+            pts.append((cx + math.cos(aa) * rad, cy + math.sin(aa) * rad))
+        bolts.append(pts)
+
+    def neon(d):
+        if n >= 6:
+            for k in range(12):
+                a = math.radians(k * 30 + 15)
+                d.line((cx + math.cos(a) * r * 1.0, cy + math.sin(a) * r * 1.0,
+                        cx + math.cos(a) * r * 1.3, cy + math.sin(a) * r * 1.3), fill=light + (255,), width=SS * 2)
+        for k in range(n):
+            d.arc((cx - r, cy - r, cx + r, cy + r), *segs[k], fill=accent + (255,), width=SS * (6 + 2 * n))
+        if n >= 3:
+            ri = r * 0.78
+            d.ellipse((cx - ri, cy - ri, cx + ri, cy + ri), outline=accent + (255,), width=SS * (n - 1))
+        for x, y, s in sparks:
+            d.ellipse((x - s * 2, y - s * 2, x + s * 2, y + s * 2), fill=light + (255,))
+        for pts in bolts:
+            d.line(pts, fill=light + (255,), width=SS * 4)
+    if n:
+        _neon_glow(img, neon, min(7, 2 + n))
+        if n >= 5:
+            _neon_glow(img, neon, 2)
     draw = ImageDraw.Draw(img)
-    th = h / 6
-    for i in range(6):
-        lit = i < n
-        cx, cy, r = w * 0.48, i * th + th / 2, th * 0.44
-        rim = light + (255,) if lit else (255, 255, 255, 70)
-        draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=(18, 16, 26, 230), outline=rim, width=SS * 2)
-        if lit:
-            draw.ellipse((cx - r * 0.86, cy - r * 0.86, cx + r * 0.86, cy + r * 0.86), fill=_mix(accent, (16, 14, 26), 0.35) + (255,))
-        for k in range(5):  # the holes in the reel, turned a little differently on each one
-            a = -math.pi / 2 + k * 2 * math.pi / 5 + i * 0.4
-            hx, hy, hr = cx + r * 0.52 * math.cos(a), cy + r * 0.52 * math.sin(a), r * 0.2
-            draw.ellipse((hx - hr, hy - hr, hx + hr, hy + hr), fill=(10, 10, 14, 255) if lit else (40, 40, 50, 200),
-                         outline=rim, width=SS)
-        draw.ellipse((cx - r * 0.14, cy - r * 0.14, cx + r * 0.14, cy + r * 0.14), fill=rim)
+    if n >= 4:  # outer dashed ring
+        ro = r * 1.2
+        ticks = 12 + 6 * (n - 4)
+        for k in range(ticks):
+            a0 = k * 360 / ticks
+            draw.arc((cx - ro, cy - ro, cx + ro, cy + ro), a0, a0 + 360 / ticks * 0.5, fill=light + (210,), width=SS * 2)
+    draw.ellipse((cx - r * 0.78, cy - r * 0.78, cx + r * 0.78, cy + r * 0.78),
+                 fill=_mix((14, 12, 24), accent, 0.1 * max(0, n - 2)) + (235,), outline=(255, 255, 255, 40), width=SS)
+    for k, (a0, a1) in enumerate(segs):
+        draw.arc((cx - r, cy - r, cx + r, cy + r), a0, a1, fill=light + (255,) if k < n else (255, 255, 255, 50), width=SS * 7)
+        if k < n and n >= 6:
+            draw.arc((cx - r, cy - r, cx + r, cy + r), a0 + 3, a1 - 3, fill=(255, 255, 255, 255), width=SS * 2)
+    for x, y, s in sparks:
+        draw.ellipse((x - s, y - s, x + s, y + s), fill=(255, 255, 255, 255))
+    for pts in bolts:
+        draw.line(pts, fill=(255, 255, 255, 255), width=SS)
+    _badge_number(img, cx, cy, n, light)
 
 
 def _cons_marks(card: Image.Image, build: CharacterBuild, accent, light) -> None:
