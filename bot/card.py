@@ -837,7 +837,7 @@ def _zzz_marks(img: Image.Image, n: int, accent, light, icon: Image.Image | None
     _badge_number(img, cx, cy, n, accent, light, symbol)
 
 
-BADGE_FILL = "face"  # behind the badge number: "face", "weapon", "symbol" (element), "stars" or "plain"
+BADGE_FILL = "stars"  # behind the badge number: "face", "weapon", "symbol" (element), "stars" or "plain"
 
 
 def _cons_marks(card: Image.Image, build: CharacterBuild, accent, light, images: dict[str, Image.Image]) -> None:
