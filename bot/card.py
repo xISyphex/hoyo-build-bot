@@ -145,7 +145,7 @@ def _draw_rarity(draw, build: CharacterBuild, f, x: float, cy: float) -> None:
 
 # Each game's name style: genshin "cinzel" / "marcellus" / "cormorant" / "uncial",
 # hsr "orbitron" / "michroma" / "audiowide" / "syncopate", zzz "sticker" / "bebas" / "arcade" / "neon" / "vhs"
-NAME_STYLES = {"genshin": "cinzel", "hsr": "orbitron", "zzz": "sticker"}
+NAME_STYLES = {"genshin": "marcellus", "hsr": "orbitron", "zzz": "vhs"}
 NAME_TOP, NAME_H = 28, 58  # the name is fitted into this band at the top left
 
 
