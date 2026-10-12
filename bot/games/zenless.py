@@ -87,6 +87,9 @@ def _element(types: list[str]) -> str:
     return types[0] if types else ""
 
 
+SPECIALTIES = {"Attack", "Stun", "Anomaly", "Support", "Defense", "Rupture"}  # have an icon on Enka
+
+
 def parse_character(assets: Assets, info: dict) -> CharacterBuild:
     avatar_id = str(info["Id"])
     meta = assets.data["zzz_avatars"].get(avatar_id, {})
@@ -235,6 +238,7 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
         set_bonuses=set_bonuses,
         notes=["W-Engine and disc main stats use Enka's approximate formulas and may be off by 1."],
         art_url=f"https://enka.network{meta['Image']}" if meta.get("Image") else None,
+        path_icon=f"https://enka.network/ui/zzz/Icon{spec}.png" if (spec := meta.get("ProfessionType")) in SPECIALTIES else None,
     )
 
 

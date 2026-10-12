@@ -52,6 +52,7 @@ class CharacterBuild:
     set_bonuses: list[str]
     notes: list[str] = field(default_factory=list)
     art_url: str | None = None  # large character art for the build card
+    path_icon: str | None = None  # path / specialty / element symbol, shown behind the badge number
 
 
 @dataclass

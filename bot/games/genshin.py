@@ -125,6 +125,9 @@ def _set_name(assets: Assets, flat: dict) -> str | None:
     return assets.gi_text(store.get("Name")) or assets.gi_text(flat.get("setNameTextMapHash"))
 
 
+ELEMENT_ICONS = {"Fire", "Water", "Wind", "Electric", "Grass", "Rock"}  # element symbols Enka hosts
+
+
 def parse_character(assets: Assets, info: dict) -> CharacterBuild:
     key = _avatar_key(assets, info)
     meta = assets.data["gi_avatars"].get(key, {})
@@ -226,6 +229,8 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
         gear=gear,
         set_bonuses=set_bonuses,
         art_url=art,
+        # Enka has no Cryo icon under this name; the card draws a snowflake instead
+        path_icon=f"https://enka.network/ui/UI_Buff_Element_{element}.png" if element in ELEMENT_ICONS else None,
     )
 
 

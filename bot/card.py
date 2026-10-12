@@ -294,7 +294,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     y = 28 + font.size + 16
     _info_row(card, build, f, accent, light, y)
 
-    _cons_marks(card, build, accent, light)
+    _cons_marks(card, build, accent, light, images.get(build.path_icon or ""))
 
     # Weapon, bottom left.
     if build.weapon:
@@ -459,8 +459,9 @@ def _badge_geo(img: Image.Image) -> tuple[float, float, float]:
     return w / 2, w / 2 + 6 * SS, w * 0.36
 
 
-def _badge_number(img: Image.Image, cx: float, cy: float, n: int, light) -> None:
-    """The count in the middle of a badge, slanted like italics and glowing from 3 up."""
+def _badge_number(img: Image.Image, cx: float, cy: float, n: int, light, symbol: Image.Image | None = None) -> None:
+    """The count in the middle of a badge, slanted like italics and glowing from 3 up; the symbol goes between the
+    glow and the number, so the glow doesn't wash it out."""
     font = _font("Bold", 34 * SS)
     slant = (1, 0.22, -0.22 * cy, 0, 1, 0)  # shear around the badge centre
     text = Image.new("RGBA", img.size, (0, 0, 0, 0))
@@ -472,11 +473,14 @@ def _badge_number(img: Image.Image, cx: float, cy: float, n: int, light) -> None
         small = glow.resize((img.width // SS, img.height // SS), Image.BILINEAR).filter(ImageFilter.GaussianBlur(n - 2))
         for _ in range(1 + (n >= 5)):
             img.alpha_composite(small.resize(img.size, Image.BICUBIC))
+    if symbol is not None:
+        img.alpha_composite(symbol)
     img.alpha_composite(text.transform(img.size, Image.AFFINE, slant, Image.BICUBIC))
 
 
-def _badge_core(img: Image.Image, cx: float, cy: float, r: float, n: int, accent, game: str) -> None:
-    """The disc behind the number."""
+def _badge_core(img: Image.Image, cx: float, cy: float, r: float, n: int, accent, game: str, icon: Image.Image | None = None) -> Image.Image | None:
+    """The disc behind the number. With an icon, returns the path / specialty / element symbol on its own layer for
+    _badge_number to lay under the number; without one, the disc gets a small motif per game instead."""
     rc = r * 0.78
     draw = ImageDraw.Draw(img)
     deep = _mix((14, 12, 24), accent, 0.2 + 0.02 * n)
@@ -486,11 +490,15 @@ def _badge_core(img: Image.Image, cx: float, cy: float, r: float, n: int, accent
         t = k / (steps - 1)
         rr = rc * (1 - t * 0.98)
         draw.ellipse((cx - rr, cy - rr, cx + rr, cy + rr), fill=_mix(edge, deep, t ** 0.7) + (245,))
-    # a small motif per game
+    # the symbol, or a small motif per game
     rnd = random.Random(12)
     layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
     ld = ImageDraw.Draw(layer)
-    if game == "genshin":  # a starry night sky
+    symbol = None
+    if icon is not None:
+        symbol = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        _badge_symbol(symbol, icon, cx, cy, rc, n, accent)
+    elif game == "genshin":  # a starry night sky
         for _ in range(26):
             a, d = rnd.uniform(0, 2 * math.pi), rc * math.sqrt(rnd.uniform(0, 0.9))
             x, y, s = cx + math.cos(a) * d, cy + math.sin(a) * d, rnd.choice((1, 1, 1.6)) * SS
@@ -516,11 +524,72 @@ def _badge_core(img: Image.Image, cx: float, cy: float, r: float, n: int, accent
     mask = Image.new("L", img.size, 0)
     ImageDraw.Draw(mask).ellipse((cx - rc, cy - rc, cx + rc, cy + rc), fill=255)
     img.paste(layer, (0, 0), ImageChops.multiply(mask, layer.getchannel("A")))
+    if symbol is not None:
+        symbol.putalpha(ImageChops.multiply(mask, symbol.getchannel("A")))
     # glossy highlight on top and a thin rim
     gl = Image.new("RGBA", img.size, (0, 0, 0, 0))
     ImageDraw.Draw(gl).ellipse((cx - rc * 0.7, cy - rc * 0.92, cx + rc * 0.7, cy - rc * 0.1), fill=(255, 255, 255, 34))
     img.alpha_composite(gl)
     ImageDraw.Draw(img).ellipse((cx - rc, cy - rc, cx + rc, cy + rc), outline=_mix(accent, (255, 255, 255), 0.5) + (150,), width=SS)
+    return symbol
+
+
+def _badge_symbol(layer: Image.Image, icon: Image.Image, cx: float, cy: float, rc: float, n: int, accent) -> None:
+    """The symbol's shape, tinted toward the element colour and faint enough that the number stays easy to read."""
+    shape = icon.convert("RGBA").getchannel("A")
+    box = shape.getbbox()
+    if not box:
+        return
+    shape = shape.crop(box)
+    side = rc * 1.7
+    scale = side / max(shape.size)
+    shape = shape.resize((max(1, round(shape.width * scale)), max(1, round(shape.height * scale))), Image.LANCZOS)
+    # a light outline with a dark fill, like it's engraved in the disc: it shows on light and dark colours alike,
+    # and the white number reads well over the dark part
+    edge = shape.filter(ImageFilter.MaxFilter(2 * (SS // 2) + 3)).point(lambda v: v * (0.55 + 0.05 * n))
+    glow = Image.new("RGBA", shape.size, _mix(accent, (255, 255, 255), 0.6) + (255,))
+    glow.putalpha(edge)
+    fill = Image.new("RGBA", shape.size, _mix(accent, (8, 6, 16), 0.72) + (255,))
+    fill.putalpha(shape.point(lambda v: v * 0.8))
+    pos = (round(cx - shape.width / 2), round(cy - shape.height / 2))
+    layer.alpha_composite(glow, pos)
+    layer.alpha_composite(fill, pos)
+
+
+def _snowflake(size: int = 256) -> Image.Image:
+    """A white six-armed snowflake, for Cryo (Enka has no Cryo icon to download)."""
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    c, w = size / 2, size // 14
+    for k in range(6):
+        a = math.radians(-90 + k * 60)
+        ex, ey = c + math.cos(a) * c * 0.92, c + math.sin(a) * c * 0.92
+        d.line((c, c, ex, ey), fill=(255, 255, 255, 255), width=w)
+        for t, ln in ((0.5, 0.26), (0.72, 0.18)):  # the little branches
+            bx, by = c + math.cos(a) * c * t, c + math.sin(a) * c * t
+            for side in (-1, 1):
+                b = a + side * math.radians(50)
+                d.line((bx, by, bx + math.cos(b) * c * ln, by + math.sin(b) * c * ln), fill=(255, 255, 255, 255), width=w)
+    d.ellipse((c - w * 1.6, c - w * 1.6, c + w * 1.6, c + w * 1.6), fill=(255, 255, 255, 255))
+    return img
+
+
+def _shard(draw: ImageDraw.ImageDraw, x: float, y: float, a: float, length: float, width: float, lit: bool, accent, light) -> None:
+    """An eidolon crystal shard at (x, y), pointing out from the badge along angle a (radians)."""
+    ux, uy = math.cos(a), math.sin(a)
+    vx, vy = -uy, ux
+
+    def at(u, v):
+        return (x + ux * u * length + vx * v * width, y + uy * u * length + vy * v * width)
+    outline = [at(0.58, 0), at(0.16, 0.5), at(-0.22, 0.42), at(-0.46, 0.04), at(-0.18, -0.46), at(0.2, -0.5)]
+    left = [at(0.58, 0), at(0.16, 0.5), at(-0.22, 0.42), at(-0.46, 0.04), at(0.04, 0.02)]  # the lit facet
+    if lit:
+        draw.polygon(outline, fill=_mix(light, (255, 255, 255), 0.35) + (240,), outline=(255, 255, 255, 255), width=SS)
+        draw.polygon(left, fill=(255, 255, 255, 235))
+        draw.line([at(0.58, 0), at(0.04, 0.02), at(-0.46, 0.04)], fill=_mix(accent, (255, 255, 255), 0.3) + (255,), width=SS)
+    else:
+        draw.polygon(outline, fill=(70, 74, 104, 200), outline=(255, 255, 255, 190), width=SS)
+        draw.polygon(left, fill=(255, 255, 255, 60))
 
 
 def _rays(d: ImageDraw.ImageDraw, cx: float, cy: float, r: float, color, count: int = 12, width: int = 2) -> None:
@@ -530,7 +599,7 @@ def _rays(d: ImageDraw.ImageDraw, cx: float, cy: float, r: float, color, count: 
                fill=color + (255,), width=SS * width)
 
 
-def _genshin_marks(img: Image.Image, n: int, accent, light) -> None:
+def _genshin_marks(img: Image.Image, n: int, accent, light, icon: Image.Image | None = None) -> None:
     """A constellation ring: six stars around the badge, joined along the ring as they're unlocked; star dust from C2,
     an inner glow from C3, an outer orbit from C4, twinkles from C5 and a starburst at C6."""
     cx, cy, r = _badge_geo(img)
@@ -565,7 +634,7 @@ def _genshin_marks(img: Image.Image, n: int, accent, light) -> None:
             a = math.radians(20 + k * 360 / (n - 2))
             px, py = cx + math.cos(a) * ro, cy + math.sin(a) * ro
             draw.ellipse((px - 2 * SS, py - 2 * SS, px + 2 * SS, py + 2 * SS), fill=light + (255,))
-    _badge_core(img, cx, cy, r, n, accent, "genshin")
+    symbol = _badge_core(img, cx, cy, r, n, accent, "genshin", icon)
     draw = ImageDraw.Draw(img)
     draw.ellipse((cx - r, cy - r, cx + r, cy + r), outline=(255, 255, 255, 60), width=SS)
     for k in range(n - 1):  # constellation lines along the ring
@@ -580,10 +649,10 @@ def _genshin_marks(img: Image.Image, n: int, accent, light) -> None:
         draw.ellipse((x - s, y - s, x + s, y + s), fill=(255, 255, 255, 230))
     for x, y in twinkles:
         _sparkle(draw, x, y, 7 * SS, (255, 255, 255, 255), 0.25)
-    _badge_number(img, cx, cy, n, light)
+    _badge_number(img, cx, cy, n, light, symbol)
 
 
-def _hsr_marks(img: Image.Image, n: int, accent, light) -> None:
+def _hsr_marks(img: Image.Image, n: int, accent, light, icon: Image.Image | None = None) -> None:
     """A Trailblaze rail ring: six stations around the badge, the track lit up to the last eidolon; light-speed streaks
     from E2, an inner glow from E3, an outer orbit from E4, comets from E5 and a burst at E6."""
     cx, cy, r = _badge_geo(img)
@@ -619,7 +688,7 @@ def _hsr_marks(img: Image.Image, n: int, accent, light) -> None:
         draw.ellipse((hx - 3 * SS, hy - 3 * SS, hx + 3 * SS, hy + 3 * SS), fill=(255, 255, 255, 255))
     for a0, rr, ln in streaks:
         draw.arc((cx - rr, cy - rr, cx + rr, cy + rr), a0, a0 + ln, fill=(255, 255, 255, 220), width=SS)
-    _badge_core(img, cx, cy, r, n, accent, "hsr")
+    symbol = _badge_core(img, cx, cy, r, n, accent, "hsr", icon)
     draw = ImageDraw.Draw(img)
     for rr in (r * 0.93, r * 1.07):  # the two rails
         draw.ellipse((cx - rr, cy - rr, cx + rr, cy + rr), outline=(255, 255, 255, 110), width=SS)
@@ -630,20 +699,15 @@ def _hsr_marks(img: Image.Image, n: int, accent, light) -> None:
     if n > 1:
         for rr in (r * 0.93, r * 1.07):
             draw.arc((cx - rr, cy - rr, cx + rr, cy + rr), -90, -90 + 60 * (n - 1), fill=light + (255,), width=SS * 2)
-    for i, a in enumerate(ang):  # stations
+    tilt = (8, -12, 6, -6, 12, -8)  # so the shards look broken off, not stamped
+    for i, a in enumerate(ang):  # the eidolon shards
         x, y = cx + math.cos(math.radians(a)) * r, cy + math.sin(math.radians(a)) * r
-        s = 8 * SS
-        pts = [(x, y - s), (x + s, y), (x, y + s), (x - s, y)]
-        if i < n:
-            draw.polygon(pts, fill=(255, 255, 255, 255), outline=light + (255,), width=SS * 2)
-            draw.ellipse((x - 2.5 * SS, y - 2.5 * SS, x + 2.5 * SS, y + 2.5 * SS), fill=accent + (255,))
-        else:
-            s = 6 * SS
-            draw.polygon([(x, y - s), (x + s, y), (x, y + s), (x - s, y)], fill=(70, 68, 86, 230), outline=(255, 255, 255, 150), width=SS)
-    _badge_number(img, cx, cy, n, light)
+        size = 1 if i < n else 0.8
+        _shard(draw, x, y, math.radians(a + tilt[i]), 26 * SS * size, 13 * SS * size, i < n, accent, light)
+    _badge_number(img, cx, cy, n, light, symbol)
 
 
-def _zzz_marks(img: Image.Image, n: int, accent, light) -> None:
+def _zzz_marks(img: Image.Image, n: int, accent, light, icon: Image.Image | None = None) -> None:
     """A ring badge that charges up with every mindscape: brighter glow, then sparks, an outer ring, lightning, and a burst at M6."""
     cx, cy, r = _badge_geo(img)
     segs = [(-90 + k * 60 + 4, -90 + (k + 1) * 60 - 4) for k in range(6)]
@@ -689,7 +753,7 @@ def _zzz_marks(img: Image.Image, n: int, accent, light) -> None:
         for k in range(ticks):
             a0 = k * 360 / ticks
             draw.arc((cx - ro, cy - ro, cx + ro, cy + ro), a0, a0 + 360 / ticks * 0.5, fill=light + (210,), width=SS * 2)
-    _badge_core(img, cx, cy, r, n, accent, "zzz")
+    symbol = _badge_core(img, cx, cy, r, n, accent, "zzz", icon)
     draw = ImageDraw.Draw(img)
     for k, (a0, a1) in enumerate(segs):
         draw.arc((cx - r, cy - r, cx + r, cy + r), a0, a1, fill=light + (255,) if k < n else (255, 255, 255, 50), width=SS * 7)
@@ -699,20 +763,22 @@ def _zzz_marks(img: Image.Image, n: int, accent, light) -> None:
         draw.ellipse((x - s, y - s, x + s, y + s), fill=(255, 255, 255, 255))
     for pts in bolts:
         draw.line(pts, fill=(255, 255, 255, 255), width=SS)
-    _badge_number(img, cx, cy, n, light)
+    _badge_number(img, cx, cy, n, light, symbol)
 
 
-def _cons_marks(card: Image.Image, build: CharacterBuild, accent, light) -> None:
-    """Six marks down the left edge of the art, lit for each constellation the character has."""
+def _cons_marks(card: Image.Image, build: CharacterBuild, accent, light, icon: Image.Image | None = None) -> None:
+    """The constellation badge at the top left of the art, with the path / specialty / element symbol in its disc."""
+    if icon is None and build.game == "genshin" and build.element == "Cryo":
+        icon = _snowflake()
     size = (CONS_W * SS, (CONS_BOTTOM - CONS_TOP) * SS)
     img = Image.new("RGBA", size, (0, 0, 0, 0))
     n = max(0, min(build.constellation, 6))
     if build.game == "genshin":
-        _genshin_marks(img, n, accent, light)
+        _genshin_marks(img, n, accent, light, icon)
     elif build.game == "hsr":
-        _hsr_marks(img, n, accent, light)
+        _hsr_marks(img, n, accent, light, icon)
     else:
-        _zzz_marks(img, n, accent, light)
+        _zzz_marks(img, n, accent, light, icon)
     img = img.resize((round(img.width / SS * BADGE_SCALE), round(img.height / SS * BADGE_SCALE)), Image.LANCZOS)
     card.alpha_composite(img, (PAD - 14, CONS_TOP - 8))
 
@@ -730,7 +796,7 @@ class CardMaker:
         key = hashlib.sha1(repr((profile.uid, build)).encode()).hexdigest()
         if key in self.cards:
             return self.cards[key]
-        urls = {build.art_url, build.icon_url, build.weapon.icon_url if build.weapon else None}
+        urls = {build.art_url, build.icon_url, build.path_icon, build.weapon.icon_url if build.weapon else None}
         urls |= {p.piece_icon for p in build.gear}
         urls.discard(None)
         loaded = await asyncio.gather(*(self._image(u, big=u == build.art_url) for u in urls))
