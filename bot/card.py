@@ -17,7 +17,7 @@ import random
 from pathlib import Path
 
 import aiohttp
-from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageFont
 
 from .embeds import ELEMENT_COLORS, GAME_LABELS, ZZZ_RARITY, _is_zero, _name
 from . import stat_icons
@@ -143,23 +143,25 @@ def _draw_rarity(draw, build: CharacterBuild, f, x: float, cy: float) -> None:
             _star(draw, x + 10 + i * 22, cy, 10, GOLD)
 
 
-def _info_row(card: Image.Image, build: CharacterBuild, f, accent, light, y: int, icon: Image.Image | None = None) -> None:
-    """Path / specialty / element symbol, level and rarity under the name, on a see-through backing so they read on any art."""
+def _info_row(card: Image.Image, build: CharacterBuild, f, accent, light, y: int,
+              element: Image.Image | None = None, path: Image.Image | None = None) -> None:
+    """Element and path / specialty / weapon type symbols, level and rarity under the name, on a see-through
+    backing so they read on any art. Without an element symbol the element's name is written instead."""
     draw = ImageDraw.Draw(card)
-    if icon is None and build.game == "genshin" and build.element == "Cryo":
-        icon = _tinted(_snowflake(), light)
+    if element is None and build.game == "genshin" and build.element == "Cryo":
+        element = _tinted(_snowflake(), light)
     h = 38
-    symbol = None
-    if icon is not None:  # the symbol, in its own colours
-        symbol = icon.convert("RGBA")
-        symbol = symbol.crop(symbol.getchannel("A").getbbox() or (0, 0, symbol.width, symbol.height))
-        side = h - 8
-        scale = side / max(symbol.size)
-        symbol = symbol.resize((max(1, round(symbol.width * scale)), max(1, round(symbol.height * scale))), Image.LANCZOS)
-        ew = symbol.width
-    else:
-        el = build.element.upper()
-        ew = draw.textlength(el, font=f.meta)
+    symbols = []
+    for icon, is_path in ((element, False), (path, True)):
+        if icon is not None:  # in its own colours, the grey weapon type icons a little brighter
+            icon = icon.convert("RGBA")
+            if is_path and build.game == "genshin":
+                icon = Image.merge("RGBA", (*ImageEnhance.Brightness(icon.convert("RGB")).enhance(1.5).split(), icon.getchannel("A")))
+            icon = icon.crop(icon.getchannel("A").getbbox() or (0, 0, icon.width, icon.height))
+            scale = (h - 8) / max(icon.size)
+            symbols.append(icon.resize((max(1, round(icon.width * scale)), max(1, round(icon.height * scale))), Image.LANCZOS))
+    el = build.element.upper() if element is None else ""
+    ew = draw.textlength(el, font=f.meta) + sum(s.width for s in symbols) + 8 * (len(symbols) - (not el))
     lv = f"Lv. {build.level}"
     lw = draw.textlength(lv, font=f.meta)
     rw = _rarity_width(draw, build, f)
@@ -177,10 +179,13 @@ def _info_row(card: Image.Image, build: CharacterBuild, f, accent, light, y: int
     card.alpha_composite(band)
     draw = ImageDraw.Draw(card)
     x = x0 + 16
-    if symbol is not None:
-        card.alpha_composite(symbol, (round(x), round(cy - symbol.height / 2)))
-    else:
-        draw.text((x, cy), el, font=f.meta, fill=light, anchor="lm")
+    sx = x
+    if el:
+        draw.text((sx, cy), el, font=f.meta, fill=light, anchor="lm")
+        sx += draw.textlength(el, font=f.meta) + 8
+    for sym in symbols:
+        card.alpha_composite(sym, (round(sx), round(cy - sym.height / 2)))
+        sx += sym.width + 8
     x += ew
     x += 11
     _sparkle(draw, x, cy, 5, accent + (255,), 0.3)
@@ -309,7 +314,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     name = _fit_text(draw, build.name, font, ART_W - PAD)
     draw.text((PAD + 4, 28), name, font=font, fill=TEXT)
     y = 28 + font.size + 16
-    _info_row(card, build, f, accent, light, y, images.get(build.path_icon or ""))
+    _info_row(card, build, f, accent, light, y, images.get(build.element_icon or ""), images.get(build.path_icon or ""))
 
     _cons_marks(card, build, accent, light, images.get(build.element_icon or ""))
 
@@ -476,10 +481,11 @@ def _badge_geo(img: Image.Image) -> tuple[float, float, float]:
     return w / 2, w / 2 + 6 * SS, w * 0.36
 
 
-def _badge_number(img: Image.Image, cx: float, cy: float, n: int, light, label: str, symbol: Image.Image | None = None) -> None:
-    """The count in the middle of a badge ("C3", "E6", ...), slanted like italics and glowing from 3 up; the element
+def _badge_number(img: Image.Image, cx: float, cy: float, n: int, light, symbol: Image.Image | None = None) -> None:
+    """The count in the middle of a badge, slanted like italics and glowing from 3 up; the element
     symbol goes between the glow and the text, so the glow doesn't wash it out."""
-    font = _font("Bold", 28 * SS)
+    font = _font("Bold", 34 * SS)
+    label = str(n)
     slant = (1, 0.22, -0.22 * cy, 0, 1, 0)  # shear around the badge centre
     text = Image.new("RGBA", img.size, (0, 0, 0, 0))
     ImageDraw.Draw(text).text((cx, cy), label, font=font, fill=(255, 255, 255, 255) if n else (255, 255, 255, 110), anchor="mm")
@@ -607,7 +613,6 @@ def _rays(d: ImageDraw.ImageDraw, cx: float, cy: float, r: float, color, count: 
 def _genshin_marks(img: Image.Image, n: int, accent, light, icon: Image.Image | None = None) -> None:
     """A constellation ring: six stars around the badge, joined along the ring as they're unlocked; star dust from C2,
     an inner glow from C3, an outer orbit from C4, twinkles from C5 and a starburst at C6."""
-    label = GAME_LABELS["genshin"]["cons"]
     cx, cy, r = _badge_geo(img)
     stars = [(cx + math.cos(math.radians(-90 + k * 60)) * r, cy + math.sin(math.radians(-90 + k * 60)) * r) for k in range(6)]
     rnd = random.Random(3)
@@ -655,13 +660,12 @@ def _genshin_marks(img: Image.Image, n: int, accent, light, icon: Image.Image | 
         draw.ellipse((x - s, y - s, x + s, y + s), fill=(255, 255, 255, 230))
     for x, y in twinkles:
         _sparkle(draw, x, y, 7 * SS, (255, 255, 255, 255), 0.25)
-    _badge_number(img, cx, cy, n, light, f"{label}{n}", symbol)
+    _badge_number(img, cx, cy, n, light, symbol)
 
 
 def _hsr_marks(img: Image.Image, n: int, accent, light, icon: Image.Image | None = None) -> None:
     """A Trailblaze rail ring: six stations around the badge, the track lit up to the last eidolon; light-speed streaks
     from E2, an inner glow from E3, an outer orbit from E4, comets from E5 and a burst at E6."""
-    label = GAME_LABELS["hsr"]["cons"]
     cx, cy, r = _badge_geo(img)
     ang = [-90 + k * 60 for k in range(6)]
     rnd = random.Random(8)
@@ -716,12 +720,11 @@ def _hsr_marks(img: Image.Image, n: int, accent, light, icon: Image.Image | None
         else:
             s = 6 * SS
             draw.polygon([(x, y - s), (x + s, y), (x, y + s), (x - s, y)], fill=(70, 68, 86, 230), outline=(255, 255, 255, 150), width=SS)
-    _badge_number(img, cx, cy, n, light, f"{label}{n}", symbol)
+    _badge_number(img, cx, cy, n, light, symbol)
 
 
 def _zzz_marks(img: Image.Image, n: int, accent, light, icon: Image.Image | None = None) -> None:
     """A ring badge that charges up with every mindscape: brighter glow, then sparks, an outer ring, lightning, and a burst at M6."""
-    label = GAME_LABELS["zzz"]["cons"]
     cx, cy, r = _badge_geo(img)
     segs = [(-90 + k * 60 + 4, -90 + (k + 1) * 60 - 4) for k in range(6)]
     rnd = random.Random(7)
@@ -776,7 +779,7 @@ def _zzz_marks(img: Image.Image, n: int, accent, light, icon: Image.Image | None
         draw.ellipse((x - s, y - s, x + s, y + s), fill=(255, 255, 255, 255))
     for pts in bolts:
         draw.line(pts, fill=(255, 255, 255, 255), width=SS)
-    _badge_number(img, cx, cy, n, light, f"{label}{n}", symbol)
+    _badge_number(img, cx, cy, n, light, symbol)
 
 
 def _cons_marks(card: Image.Image, build: CharacterBuild, accent, light, icon: Image.Image | None = None) -> None:
