@@ -316,7 +316,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     y = 28 + font.size + 16
     _info_row(card, build, f, accent, light, y, images.get(build.element_icon or ""), images.get(build.path_icon or ""))
 
-    _cons_marks(card, build, accent, light, images.get(build.element_icon or ""))
+    _cons_marks(card, build, accent, light, images)
 
     # Weapon, bottom left.
     if build.weapon:
@@ -481,7 +481,7 @@ def _badge_geo(img: Image.Image) -> tuple[float, float, float]:
     return w / 2, w / 2 + 6 * SS, w * 0.36
 
 
-NUMBER_STYLE = "soft"  # the badge number: "soft", "outline", "gradient" or "slant" (bold italics with a glow)
+NUMBER_STYLE = "outline"  # the badge number: "soft", "outline", "gradient" or "slant" (bold italics with a glow)
 
 
 def _badge_number(img: Image.Image, cx: float, cy: float, n: int, accent, light, symbol: Image.Image | None = None) -> None:
@@ -551,18 +551,20 @@ def _badge_core(img: Image.Image, cx: float, cy: float, r: float, n: int, accent
     layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
     ld = ImageDraw.Draw(layer)
     symbol = None
-    if icon is not None:
+    if icon is not None and BADGE_FILL in ("face", "weapon"):
+        zoom = {"genshin": 0.62, "hsr": 0.85}.get(game, 1) if BADGE_FILL == "face" else 1
+        _badge_picture(layer, icon, cx, cy, rc, n, deep, zoom)
+    elif icon is not None:
         symbol = Image.new("RGBA", img.size, (0, 0, 0, 0))
         _badge_symbol(symbol, icon, cx, cy, rc, n, accent)
+    elif BADGE_FILL == "plain":
+        pass
     elif game == "genshin":  # a starry night sky
         for _ in range(26):
             a, d = rnd.uniform(0, 2 * math.pi), rc * math.sqrt(rnd.uniform(0, 0.9))
             x, y, s = cx + math.cos(a) * d, cy + math.sin(a) * d, rnd.choice((1, 1, 1.6)) * SS
             ld.ellipse((x - s, y - s, x + s, y + s), fill=(255, 255, 255, rnd.randint(90, 200)))
-    elif game == "hsr":  # a nebula swirl with stars
-        for k in range(3):
-            rr = rc * (0.35 + 0.2 * k)
-            ld.arc((cx - rr, cy - rr * 0.6, cx + rr, cy + rr * 0.6), 20 + 60 * k, 200 + 60 * k, fill=_mix(accent, (255, 255, 255), 0.3) + (90,), width=SS * 3)
+    elif game == "hsr":  # stars
         for _ in range(16):
             a, d = rnd.uniform(0, 2 * math.pi), rc * math.sqrt(rnd.uniform(0, 0.9))
             x, y, s = cx + math.cos(a) * d, cy + math.sin(a) * d, rnd.choice((1, 1.4)) * SS
@@ -588,6 +590,26 @@ def _badge_core(img: Image.Image, cx: float, cy: float, r: float, n: int, accent
     img.alpha_composite(gl)
     ImageDraw.Draw(img).ellipse((cx - rc, cy - rc, cx + rc, cy + rc), outline=_mix(accent, (255, 255, 255), 0.5) + (150,), width=SS)
     return symbol
+
+
+def _badge_picture(layer: Image.Image, pic: Image.Image, cx: float, cy: float, rc: float, n: int, deep, zoom: float = 1) -> None:
+    """A picture (the character's face, or their weapon) filling the disc, dimmed so the number stays readable."""
+    pic = pic.convert("RGBA")
+    box = pic.getchannel("A").getbbox() or (0, 0, pic.width, pic.height)
+    pic = pic.crop(box)
+    if zoom < 1:  # close in on the face, at the top middle
+        w = round(min(pic.size) * zoom)
+        x0, y0 = (pic.width - w) // 2, round(pic.height * 0.04)
+        pic = pic.crop((x0, y0, x0 + w, y0 + w))
+    side = round(rc * 2)
+    scale = side / min(pic.size)
+    pic = pic.resize((max(side, round(pic.width * scale)), max(side, round(pic.height * scale))), Image.LANCZOS)
+    left, top = (pic.width - side) // 2, min((pic.height - side) // 2, round(pic.height * 0.08))  # faces sit high
+    pic = pic.crop((left, top, left + side, top + side))
+    shade = Image.new("RGBA", pic.size, deep + (255,))
+    shade.putalpha(pic.getchannel("A"))
+    pic = Image.blend(pic, shade, 0.42 - 0.03 * n)
+    layer.alpha_composite(pic, (round(cx - side / 2), round(cy - side / 2)))
 
 
 def _badge_symbol(layer: Image.Image, icon: Image.Image, cx: float, cy: float, rc: float, n: int, accent) -> None:
@@ -815,10 +837,20 @@ def _zzz_marks(img: Image.Image, n: int, accent, light, icon: Image.Image | None
     _badge_number(img, cx, cy, n, accent, light, symbol)
 
 
-def _cons_marks(card: Image.Image, build: CharacterBuild, accent, light, icon: Image.Image | None = None) -> None:
-    """The constellation badge at the top left of the art, with the path / specialty / element symbol in its disc."""
-    if icon is None and build.game == "genshin" and build.element == "Cryo":
-        icon = _snowflake()
+BADGE_FILL = "face"  # behind the badge number: "face", "weapon", "symbol" (element), "stars" or "plain"
+
+
+def _cons_marks(card: Image.Image, build: CharacterBuild, accent, light, images: dict[str, Image.Image]) -> None:
+    """The constellation badge at the top left of the art; BADGE_FILL picks what's in its disc."""
+    icon = None
+    if BADGE_FILL == "face":
+        icon = images.get(build.icon_url or "")
+    elif BADGE_FILL == "weapon" and build.weapon:
+        icon = images.get(build.weapon.icon_url or "")
+    elif BADGE_FILL == "symbol":
+        icon = images.get(build.element_icon or "")
+        if icon is None and build.game == "genshin" and build.element == "Cryo":
+            icon = _snowflake()
     size = (CONS_W * SS, (CONS_BOTTOM - CONS_TOP) * SS)
     img = Image.new("RGBA", size, (0, 0, 0, 0))
     n = max(0, min(build.constellation, 6))
