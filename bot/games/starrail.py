@@ -38,6 +38,7 @@ RELIC_ICONS = "https://enka.network/ui/hsr/SpriteOutput/ItemIcon/RelicIcons/"
 # StarRailRes images: full character art and light cone cards.
 SRR_IMAGES = "https://raw.githubusercontent.com/Mar-7th/StarRailRes/master/image/"
 SRR_PATH_ICONS = "https://raw.githubusercontent.com/Mar-7th/StarRailRes/master/icon/path/"
+SRR_ELEMENT_ICONS = "https://raw.githubusercontent.com/Mar-7th/StarRailRes/master/icon/element/"
 # Path ids in the game data -> the name of the path icon in StarRailRes
 PATH_ICONS = {"Warrior": "Destruction", "Rogue": "Hunt", "Mage": "Erudition", "Shaman": "Harmony", "Warlock": "Nihility",
               "Knight": "Preservation", "Priest": "Abundance", "Memory": "Remembrance", "Elation": "Elation"}
@@ -280,6 +281,7 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
         notes=notes,
         art_url=f"{SRR_IMAGES}character_portrait/{avatar_id}.png",
         path_icon=f"{SRR_PATH_ICONS}{PATH_ICONS[path]}.png" if (path := char.get("AvatarBaseType")) in PATH_ICONS else None,
+        element_icon=f"{SRR_ELEMENT_ICONS}{element}.png" if element in ELEMENTS else None,
     )
 
 
