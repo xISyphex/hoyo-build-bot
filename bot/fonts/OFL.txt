@@ -91,3 +91,8 @@ INCLUDING ANY GENERAL, SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIAL
 DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
 OTHER DEALINGS IN THE FONT SOFTWARE.
+
+----
+Also in this folder, each under the SIL Open Font License 1.1 (from github.com/google/fonts):
+Cinzel (Natanael Gama), Marcellus SC (Astigmatic), Orbitron (Matt McInerney), Michroma (Vernon Adams),
+Bungee (David Jonathan Ross), Bebas Neue (Dharma Type).
