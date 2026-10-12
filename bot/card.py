@@ -143,7 +143,8 @@ def _draw_rarity(draw, build: CharacterBuild, f, x: float, cy: float) -> None:
             _star(draw, x + 10 + i * 22, cy, 10, GOLD)
 
 
-# Each game's name style: genshin "cinzel" / "marcellus", hsr "orbitron" / "michroma", zzz "sticker" / "bebas"
+# Each game's name style: genshin "cinzel" / "marcellus" / "cormorant" / "uncial",
+# hsr "orbitron" / "michroma" / "audiowide" / "syncopate", zzz "sticker" / "bebas" / "arcade" / "neon" / "vhs"
 NAME_STYLES = {"genshin": "cinzel", "hsr": "orbitron", "zzz": "sticker"}
 NAME_TOP, NAME_H = 28, 58  # the name is fitted into this band at the top left
 
@@ -201,9 +202,31 @@ def _draw_name(card: Image.Image, build: CharacterBuild, accent, light) -> int:
         for _ in range(times):
             layer.alpha_composite(g)
 
-    if style in ("cinzel", "marcellus"):  # Genshin: carved, classical capitals in warm gold
-        font = _name_font("Cinzel.ttf", big, 800) if style == "cinzel" else _name_font("MarcellusSC-Regular.ttf", big)
-        mask = _spaced_mask(size, base, build.name, font, big * (0.02 if style == "cinzel" else 0.06))
+    def scanlines(step=6):
+        lines = Image.new("RGBA", size, (0, 0, 0, 0))
+        d = ImageDraw.Draw(lines)
+        for yy in range(0, size[1], step):
+            d.line((0, yy, size[0], yy), fill=(0, 0, 0, 90), width=2)
+        a = ImageChops.multiply(layer.getchannel("A"), lines.getchannel("A"))
+        lines.putalpha(a)
+        layer.alpha_composite(lines)
+
+    if style in ("cinzel", "marcellus", "cormorant", "uncial"):  # Genshin: classical lettering in warm gold
+        font = {"cinzel": lambda: _name_font("Cinzel.ttf", big, 800),
+                "marcellus": lambda: _name_font("MarcellusSC-Regular.ttf", big),
+                "cormorant": lambda: _name_font("CormorantGaramond-Italic.ttf", round(big * 1.2), 700),
+                "uncial": lambda: _name_font("UncialAntiqua-Regular.ttf", big)}[style]()
+        mask = _spaced_mask(size, base, build.name, font, big * {"marcellus": 0.06, "cormorant": 0.01}.get(style, 0.02))
+        if style == "cormorant":  # a flourish under the name: a line fading out both ways, a diamond in the middle
+            box = mask.getbbox() or (0, 0, 1, 1)
+            fl = Image.new("L", size, 0)
+            fd = ImageDraw.Draw(fl)
+            ly, mid = box[3] + 16, (box[0] + box[2]) / 2
+            for k in range(40):
+                t = k / 39
+                fd.line((mid - (box[2] - box[0]) * 0.5 * t, ly, mid + (box[2] - box[0]) * 0.5 * t, ly), fill=round(255 * (1 - t) ** 0.5), width=4)
+            fd.polygon([(mid, ly - 12), (mid + 12, ly), (mid, ly + 12), (mid - 12, ly)], fill=255)
+            mask = ImageChops.lighter(mask, fl)
         shadow(mask, (0, 6), 8, 0.7)
         glow(mask, _mix(GOLD, light, 0.4), 14)
         layer.alpha_composite(_vertical_gradient(mask, (255, 250, 235), _mix(GOLD, light, 0.25)))
@@ -211,9 +234,21 @@ def _draw_name(card: Image.Image, build: CharacterBuild, accent, light) -> int:
         rim = Image.new("RGBA", size, _mix(GOLD, dark, 0.55) + (255,))
         rim.putalpha(ImageChops.subtract(edge, mask))
         layer.alpha_composite(rim)
-    elif style in ("orbitron", "michroma"):  # Star Rail: wide, clean sci-fi lettering with a light-trail underline
-        font = _name_font("Orbitron.ttf", big, 800) if style == "orbitron" else _name_font("Michroma-Regular.ttf", round(big * 0.8))
-        mask = _spaced_mask(size, base, build.name.upper() if style == "michroma" else build.name, font, big * (0.03 if style == "orbitron" else 0.1))
+    elif style in ("orbitron", "michroma", "audiowide", "syncopate"):  # Star Rail: wide sci-fi lettering, light-trail underline
+        font = {"orbitron": lambda: _name_font("Orbitron.ttf", big, 800),
+                "michroma": lambda: _name_font("Michroma-Regular.ttf", round(big * 0.8)),
+                "audiowide": lambda: _name_font("Audiowide-Regular.ttf", big),
+                "syncopate": lambda: _name_font("Syncopate-Bold.ttf", round(big * 0.85))}[style]()
+        upper = style in ("michroma", "syncopate")
+        mask = _spaced_mask(size, base, build.name.upper() if upper else build.name, font,
+                            big * {"orbitron": 0.03, "audiowide": 0.02}.get(style, 0.1))
+        if style == "syncopate":  # little stars at both ends
+            box = mask.getbbox() or (0, 0, 1, 1)
+            stars = Image.new("RGBA", size, (0, 0, 0, 0))
+            sd = ImageDraw.Draw(stars)
+            for x, y, r in ((box[0] - 34, box[1] + 10, 22), (box[2] + 34, box[3] - 14, 26), (box[2] + 70, box[1] + 6, 12)):
+                _sparkle(sd, x, y, r, (255, 255, 255, 255), 0.2)
+            mask = ImageChops.lighter(mask, stars.getchannel("A"))
         box = mask.getbbox() or (0, 0, 1, 1)
         line = Image.new("L", size, 0)
         ld = ImageDraw.Draw(line)
@@ -226,6 +261,48 @@ def _draw_name(card: Image.Image, build: CharacterBuild, accent, light) -> int:
         lc = Image.new("RGBA", size, light + (255,))
         lc.putalpha(line)
         layer.alpha_composite(lc)
+    elif style == "arcade":  # ZZZ: an 8-bit arcade title, hard pixel edges, banded colours and a CRT finish
+        font = _name_font("PressStart2P-Regular.ttf", round(big * 0.75))
+        mask = _spaced_mask(size, base, build.name.upper(), font, big * 0.04).point(lambda v: 255 if v > 110 else 0)
+        box = mask.getbbox() or (0, 0, 1, 1)
+        outline = mask.filter(ImageFilter.MaxFilter(13))
+        drop = Image.new("RGBA", size, _mix(accent, dark, 0.55) + (255,))
+        drop.putalpha(ImageChops.offset(outline, 10, 10))
+        layer.alpha_composite(drop)
+        ol = Image.new("RGBA", size, dark + (255,))
+        ol.putalpha(outline)
+        layer.alpha_composite(ol)
+        bands = Image.new("RGBA", size, (0, 0, 0, 0))
+        bd = ImageDraw.Draw(bands)
+        colors = [(255, 255, 255), _mix(light, (255, 255, 255), 0.5), light, accent]
+        step = max(1, (box[3] - box[1]) / len(colors))
+        for k, c in enumerate(colors):  # hard colour bands, like an old arcade logo
+            bd.rectangle((box[0], box[1] + k * step, box[2], box[1] + (k + 1) * step + 1), fill=c + (255,))
+        bands.putalpha(mask)
+        layer.alpha_composite(bands)
+        scanlines(8)
+    elif style == "neon":  # ZZZ: a neon tube sign glowing in the element colour
+        font = _name_font("Monoton-Regular.ttf", big)
+        mask = _spaced_mask(size, base, build.name.upper(), font, big * 0.03)
+        thick = mask.filter(ImageFilter.MaxFilter(5))
+        glow(thick, accent, 12, 3)
+        glow(thick, light, 5, 1)
+        tube = Image.new("RGBA", size, _mix(light, (255, 255, 255), 0.8) + (255,))
+        tube.putalpha(thick)
+        layer.alpha_composite(tube)
+    elif style == "vhs":  # ZZZ: a VHS title, red / cyan split edges and scanlines
+        font = _name_font("VT323-Regular.ttf", round(big * 1.45))
+        mask = _spaced_mask(size, base, build.name.upper(), font, big * 0.03)
+        shadow(mask, (0, 8), 10, 0.7)
+        for color, dx in (((255, 40, 90), -9), ((40, 230, 255), 9)):
+            split = Image.new("RGBA", size, color + (255,))
+            split.putalpha(ImageChops.offset(mask, dx, 0).point(lambda v: v * 0.85))
+            layer.alpha_composite(split)
+        fill = Image.new("RGBA", size, (255, 255, 255, 255))
+        fill.putalpha(mask)
+        layer.alpha_composite(fill)
+        scanlines(7)
+        layer = layer.transform(size, Image.AFFINE, (1, 0.1, -0.1 * base[1], 0, 1, 0), Image.BICUBIC)
     else:  # ZZZ: a slanted street sticker, thick black outline and a block shadow in the element colour
         font = _name_font("Bungee-Regular.ttf", big) if style == "sticker" else _name_font("BebasNeue-Regular.ttf", round(big * 1.3))
         mask = _spaced_mask(size, base, build.name.upper(), font, big * 0.02)
