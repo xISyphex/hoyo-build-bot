@@ -481,24 +481,57 @@ def _badge_geo(img: Image.Image) -> tuple[float, float, float]:
     return w / 2, w / 2 + 6 * SS, w * 0.36
 
 
-def _badge_number(img: Image.Image, cx: float, cy: float, n: int, light, symbol: Image.Image | None = None) -> None:
-    """The count in the middle of a badge, slanted like italics and glowing from 3 up; the element
-    symbol goes between the glow and the text, so the glow doesn't wash it out."""
-    font = _font("Bold", 34 * SS)
+NUMBER_STYLE = "soft"  # the badge number: "soft", "outline", "gradient" or "slant" (bold italics with a glow)
+
+
+def _badge_number(img: Image.Image, cx: float, cy: float, n: int, accent, light, symbol: Image.Image | None = None) -> None:
+    """The count in the middle of a badge; the element symbol goes under it (and over any glow, so the glow doesn't
+    wash it out)."""
     label = str(n)
-    slant = (1, 0.22, -0.22 * cy, 0, 1, 0)  # shear around the badge centre
-    text = Image.new("RGBA", img.size, (0, 0, 0, 0))
-    ImageDraw.Draw(text).text((cx, cy), label, font=font, fill=(255, 255, 255, 255) if n else (255, 255, 255, 110), anchor="mm")
-    if n >= 3:
-        glow = Image.new("RGBA", img.size, (0, 0, 0, 0))
-        ImageDraw.Draw(glow).text((cx, cy), label, font=font, fill=light + (255,), anchor="mm")
-        glow = glow.transform(img.size, Image.AFFINE, slant, Image.BICUBIC)
-        small = glow.resize((img.width // SS, img.height // SS), Image.BILINEAR).filter(ImageFilter.GaussianBlur(n - 2))
-        for _ in range(1 + (n >= 5)):
-            img.alpha_composite(small.resize(img.size, Image.BICUBIC))
+    dim = 1 if n else 0.45
+    if NUMBER_STYLE == "slant":
+        font = _font("Bold", 34 * SS)
+        slant = (1, 0.22, -0.22 * cy, 0, 1, 0)  # shear around the badge centre
+        text = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        ImageDraw.Draw(text).text((cx, cy), label, font=font, fill=(255, 255, 255, round(255 * dim)), anchor="mm")
+        if n >= 3:
+            glow = Image.new("RGBA", img.size, (0, 0, 0, 0))
+            ImageDraw.Draw(glow).text((cx, cy), label, font=font, fill=light + (255,), anchor="mm")
+            glow = glow.transform(img.size, Image.AFFINE, slant, Image.BICUBIC)
+            small = glow.resize((img.width // SS, img.height // SS), Image.BILINEAR).filter(ImageFilter.GaussianBlur(n - 2))
+            for _ in range(1 + (n >= 5)):
+                img.alpha_composite(small.resize(img.size, Image.BICUBIC))
+        if symbol is not None:
+            img.alpha_composite(symbol)
+        img.alpha_composite(text.transform(img.size, Image.AFFINE, slant, Image.BICUBIC))
+        return
     if symbol is not None:
         img.alpha_composite(symbol)
-    img.alpha_composite(text.transform(img.size, Image.AFFINE, slant, Image.BICUBIC))
+    text = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    td = ImageDraw.Draw(text)
+    if NUMBER_STYLE == "outline":  # dark element-tinted figure with a light rim, like the engraved symbol
+        font = _font("Bold", 32 * SS)
+        td.text((cx, cy), label, font=font, fill=_mix(accent, (10, 8, 18), 0.6) + (round(240 * dim),), anchor="mm",
+                stroke_width=2 * SS, stroke_fill=_mix(light, (255, 255, 255), 0.5) + (round(255 * dim),))
+    elif NUMBER_STYLE == "gradient":  # white at the top fading into the element colour, with a thin dark edge
+        font = _font("SemiBold", 32 * SS)
+        mask = Image.new("L", img.size, 0)
+        ImageDraw.Draw(mask).text((cx, cy), label, font=font, fill=round(255 * dim), anchor="mm")
+        box = mask.getbbox() or (0, 0, 1, 1)
+        grad = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        gd = ImageDraw.Draw(grad)
+        for yy in range(box[1], box[3] + 1):
+            t = (yy - box[1]) / max(1, box[3] - box[1])
+            gd.line((box[0], yy, box[2], yy), fill=_mix((255, 255, 255), light, t * 0.9) + (255,))
+        td.text((cx, cy), label, font=font, fill=(0, 0, 0, 0), anchor="mm", stroke_width=SS, stroke_fill=(10, 8, 18, round(200 * dim)))
+        grad.putalpha(mask)
+        text.alpha_composite(grad)
+    else:  # soft: an upright, slightly tinted off-white with a soft shadow
+        font = _font("SemiBold", 32 * SS)
+        td.text((cx, cy + SS), label, font=font, fill=(0, 0, 0, round(150 * dim)), anchor="mm")
+        text = text.filter(ImageFilter.GaussianBlur(2 * SS))
+        ImageDraw.Draw(text).text((cx, cy), label, font=font, fill=_mix(light, (255, 255, 255), 0.6) + (round(250 * dim),), anchor="mm")
+    img.alpha_composite(text)
 
 
 def _badge_core(img: Image.Image, cx: float, cy: float, r: float, n: int, accent, game: str, icon: Image.Image | None = None) -> Image.Image | None:
@@ -660,7 +693,7 @@ def _genshin_marks(img: Image.Image, n: int, accent, light, icon: Image.Image | 
         draw.ellipse((x - s, y - s, x + s, y + s), fill=(255, 255, 255, 230))
     for x, y in twinkles:
         _sparkle(draw, x, y, 7 * SS, (255, 255, 255, 255), 0.25)
-    _badge_number(img, cx, cy, n, light, symbol)
+    _badge_number(img, cx, cy, n, accent, light, symbol)
 
 
 def _hsr_marks(img: Image.Image, n: int, accent, light, icon: Image.Image | None = None) -> None:
@@ -720,7 +753,7 @@ def _hsr_marks(img: Image.Image, n: int, accent, light, icon: Image.Image | None
         else:
             s = 6 * SS
             draw.polygon([(x, y - s), (x + s, y), (x, y + s), (x - s, y)], fill=(70, 68, 86, 230), outline=(255, 255, 255, 150), width=SS)
-    _badge_number(img, cx, cy, n, light, symbol)
+    _badge_number(img, cx, cy, n, accent, light, symbol)
 
 
 def _zzz_marks(img: Image.Image, n: int, accent, light, icon: Image.Image | None = None) -> None:
@@ -779,7 +812,7 @@ def _zzz_marks(img: Image.Image, n: int, accent, light, icon: Image.Image | None
         draw.ellipse((x - s, y - s, x + s, y + s), fill=(255, 255, 255, 255))
     for pts in bolts:
         draw.line(pts, fill=(255, 255, 255, 255), width=SS)
-    _badge_number(img, cx, cy, n, light, symbol)
+    _badge_number(img, cx, cy, n, accent, light, symbol)
 
 
 def _cons_marks(card: Image.Image, build: CharacterBuild, accent, light, icon: Image.Image | None = None) -> None:
