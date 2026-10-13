@@ -32,11 +32,13 @@ def install_link(app_id: int) -> str:
 
 
 def guide_message(bot_name: str, per_hour: int, app_id: int | None = None, welcome: bool = True,
-                  owner: bool = False) -> tuple[list[discord.Embed], list[discord.File]]:
-    """The guide as four embeds (Fairy with her guide book, two pages of rules, Fairy's goodbye picture with the artist
-    credits underneath) plus the two pictures.
-    The files are new each call, since Discord uses them up when they're sent. Missing pictures are left out."""
-    files = [discord.File(ART / name, filename=name) for name in (OPENING, CLOSING) if (ART / name).exists()]
+                  owner: bool = False, page: int = 0) -> tuple[list[discord.Embed], list[discord.File], discord.ui.View]:
+    """One page of the guide book, with a button to flip to the other page.
+    Page 1 is Fairy with her guide book and the first rules; page 2 is the other rules and Fairy's goodbye picture
+    with the artist credits underneath. The picture file is new each call, since Discord uses it up when it's sent.
+    A missing picture is left out."""
+    name = OPENING if page == 0 else CLOSING
+    files = [discord.File(ART / name, filename=name)] if (ART / name).exists() else []
     have = {f.filename for f in files}
 
     intro = discord.Embed(
@@ -107,7 +109,34 @@ def guide_message(bot_name: str, per_hour: int, app_id: int | None = None, welco
     goodbye = discord.Embed(description=f"**{GOODBYE}**", color=COLOR)
     if CLOSING in have:
         goodbye.set_image(url=f"attachment://{CLOSING}")
-    pages[0].set_footer(text="Page 1 / 2")
+    pages[0].set_footer(text="Page 1 / 2  ·  Press Next page to keep reading.")
     pages[1].set_footer(text="Page 2 / 2  ·  Run /help any time to see this guide again.")
     goodbye.set_footer(text="   ·   ".join(_italic(f"{what} by @{who}") for what, who in CREDITS))
-    return [intro, *pages, goodbye], files
+    view = discord.ui.View(timeout=None)
+    view.add_item(PageButton(1 - page, welcome))
+    return ([intro, pages[0]] if page == 0 else [pages[1], goodbye]), files, view
+
+
+class PageButton(discord.ui.DynamicItem[discord.ui.Button], template=r"guide:(?P<page>[01]):(?P<kind>[wh])"):
+    """Flips the guide to the other page. The page and the kind of guide are in the button's ID, so it keeps working
+    after the bot restarts, even on a welcome DM from weeks ago."""
+
+    def __init__(self, page: int, welcome: bool) -> None:
+        self.page, self.welcome = page, welcome
+        super().__init__(discord.ui.Button(
+            label="Next page ▶" if page == 1 else "◀ Previous page",
+            style=discord.ButtonStyle.primary if page == 1 else discord.ButtonStyle.secondary,
+            custom_id=f"guide:{page}:{'w' if welcome else 'h'}",
+        ))
+
+    @classmethod
+    async def from_custom_id(cls, interaction: discord.Interaction, item: discord.ui.Button, match) -> "PageButton":
+        return cls(int(match["page"]), match["kind"] == "w")
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        bot = interaction.client
+        embeds, files, view = guide_message(
+            bot.user.name if bot.user else "the bot", bot.lookups.per_hour, bot.application_id, self.welcome,
+            bot.access.is_owner(interaction.user.id), self.page,
+        )
+        await interaction.response.edit_message(embeds=embeds, attachments=files, view=view)
