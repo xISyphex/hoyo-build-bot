@@ -148,3 +148,37 @@ class PageButton(discord.ui.DynamicItem[discord.ui.Button], template=r"guide:(?P
             bot.access.is_owner(interaction.user.id), self.page,
         )
         await interaction.response.edit_message(embeds=embeds, attachments=files, view=view)
+
+
+def open_guide_view(user_id: int) -> discord.ui.View:
+    """The button under a channel message that tags someone whose DMs are closed."""
+    view = discord.ui.View(timeout=None)
+    view.add_item(OpenGuideButton(user_id))
+    return view
+
+
+class OpenGuideButton(discord.ui.DynamicItem[discord.ui.Button], template=r"guide:open:(?P<user>\d+)"):
+    """Shows the welcome guide privately to the person it was posted for. Like PageButton, it works after restarts."""
+
+    def __init__(self, user_id: int) -> None:
+        self.user_id = user_id
+        super().__init__(discord.ui.Button(
+            label="Open Fairy's guide", emoji="📖", style=discord.ButtonStyle.primary, custom_id=f"guide:open:{user_id}",
+        ))
+
+    @classmethod
+    async def from_custom_id(cls, interaction: discord.Interaction, item: discord.ui.Button, match) -> "OpenGuideButton":
+        return cls(int(match["user"]))
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message(
+                f"This guide is for <@{self.user_id}>. If you have access, `/help` shows you your own.", ephemeral=True,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            return
+        bot = interaction.client
+        embeds, files, view = guide_message(
+            bot.user.name if bot.user else "the bot", bot.lookups.per_hour, bot.application_id,
+        )
+        await interaction.response.send_message(embeds=embeds, files=files, view=view, ephemeral=True)
