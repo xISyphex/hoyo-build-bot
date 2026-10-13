@@ -10,7 +10,8 @@ from types import SimpleNamespace
 
 from PIL import Image
 
-from bot.card import H, W, CardMaker, crit_value, draw_card, server_name
+from bot.card import H, W, CardMaker, crit_value, draw_card, gear_value, server_name
+from bot.effective import EffectiveStats, hsr_names, piece_count, zzz_names
 from bot.games import genshin, starrail, zenless
 from test_parsers import fixture, load_assets
 
@@ -75,6 +76,36 @@ class CardTest(unittest.TestCase):
     def test_crit_value_counts_main_stats_and_substats(self):
         castorice = next(c for c in self.profiles[1].characters if c.name == "Castorice")
         self.assertAlmostEqual(crit_value(castorice), 153.7 + 64.8, places=1)  # subs + CRIT DMG body
+
+    def test_effective_substats(self):
+        castorice = next(c for c in self.profiles[1].characters if c.name == "Castorice")
+        wanted = set(hsr_names(["CriticalChanceBase", "CriticalDamageBase", "HPAddedRatio"]))
+        self.assertEqual(wanted, {"CRIT Rate", "CRIT DMG", "HP%"})
+        self.assertEqual(zzz_names([20103, 21103, 12102, 31203]), ["CRIT Rate", "CRIT DMG", "ATK%", "AP"])
+        body = castorice.gear[2]
+        expected = sum(max(s.rolls, 1) for s in body.subs if s.name in wanted)
+        self.assertEqual(piece_count(body, wanted), expected)  # base rolls included
+        png = draw_card(castorice, {}, wanted=wanted)
+        self.assertEqual(Image.open(io.BytesIO(png)).size, (W, H))
+
+    def test_supports_show_speed_value_instead_of_crit_value(self):
+        sparkle = next(c for c in self.profiles[1].characters if c.name == "Sparkle")
+        speed = sum(float(s.value) for p in sparkle.gear for s in [p.main, *p.subs] if s.name == "SPD")
+        self.assertEqual(gear_value(sparkle, {"CRIT DMG", "SPD", "Effect RES"}), ("SPEED VALUE", f"{speed:.1f}"))
+        self.assertEqual(gear_value(sparkle, {"CRIT Rate", "CRIT DMG", "SPD"})[0], "CRIT VALUE")
+        self.assertEqual(gear_value(sparkle, None)[0], "CRIT VALUE")  # nothing known yet: as before
+
+    def test_genshin_recommendations_come_from_hoyolab_details(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = EffectiveStats(tmp)
+            raw = {"list": [{"base": {"id": 10000089}, "recommend_relic_property": {
+                "recommend_properties": {"sub_property_list": [20, 22, 3, 23]},
+                "custom_properties": {"sub_property_list": [28]}}}]}
+            store.learn_genshin(raw)
+            build = SimpleNamespace(game="genshin", character_id="10000089")
+            self.assertEqual(store.wanted(build), {"CRIT Rate", "CRIT DMG", "HP%", "ER"})
+            self.assertEqual(EffectiveStats(tmp).wanted(build), {"CRIT Rate", "CRIT DMG", "HP%", "ER"})  # saved
+            self.assertIsNone(store.wanted(SimpleNamespace(game="hsr", character_id="1001")))
 
     def test_server_from_uid(self):
         cases = [("genshin", "618285856", "America"), ("genshin", "700000001", "Europe"), ("hsr", "800069903", "Asia"),

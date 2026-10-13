@@ -20,6 +20,7 @@ import genshin
 import pydantic
 
 from .assets import Assets
+from .effective import EffectiveStats
 from .games import genshin as gi
 from .games import starrail as sr
 from .games import zenless as zz
@@ -277,9 +278,11 @@ class HoyolabClient:
     """Reads HoYoLAB with the login of whoever linked the UID (/hoyolab link), else with the server's own
     (HOYOLAB_COOKIES), if there is one."""
 
-    def __init__(self, cookies: str | None, assets: Assets, links: LinkStore | None = None):
+    def __init__(self, cookies: str | None, assets: Assets, links: LinkStore | None = None,
+                 effective: EffectiveStats | None = None):
         self.client = genshin.Client(cookies, lang="en-us") if cookies else None
         self.links = links
+        self.effective = effective  # Genshin's substat recommendations are picked up from the details read here
         self._clients: dict[str, genshin.Client] = {}  # one per linked login
         self.assets = assets
         self._cache: dict[tuple[str, str], tuple[float, list[CharacterBuild]]] = {}
@@ -353,7 +356,7 @@ class HoyolabClient:
     async def _fetch(self, client: genshin.Client, game: str, uid: int) -> list[CharacterBuild]:
         builds = []
         if game == "genshin":
-            data = await client.get_genshin_detailed_characters(uid)
+            data = await self._genshin_details(client, uid)
             raw = data.characters
             convert = genshin_build
         elif game == "hsr":
@@ -376,3 +379,22 @@ class HoyolabClient:
                 log.exception("Could not read a HoYoLAB %s character (%s)", game, getattr(item, "id", "?"))
         builds.sort(key=lambda b: (-b.rarity, -b.level, b.name))
         return builds
+
+    async def _genshin_details(self, client: genshin.Client, uid: int) -> genshin.models.GenshinDetailCharacters:
+        raw = await client.get_genshin_detailed_characters(uid, return_raw_data=True)
+        if self.effective:
+            self.effective.learn_genshin(raw)
+        return genshin.models.GenshinDetailCharacters(**raw)
+
+    async def learn_own(self) -> None:
+        """Reads the Genshin substat recommendations of every character on the server's own HoYoLAB account (they
+        only come with a player's character details). Done once a day; failures are only logged."""
+        if not (self.client and self.effective):
+            return
+        try:
+            accounts = await self.client.get_game_accounts()
+            for account in accounts:
+                if str(account.game_biz).startswith("hk4e"):
+                    await self._genshin_details(self.client, int(account.uid))
+        except Exception as exc:
+            log.warning("Could not read Genshin substat recommendations from HoYoLAB: %s", exc)

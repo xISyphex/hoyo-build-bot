@@ -17,8 +17,17 @@ into the lookup still wins over the claimed one. Claims are saved to
 
 The reply is just the build card image: the character art, constellations /
 eidolons / mindscapes, final stats, every artifact / relic / drive disc with its
-substats (a dot per upgrade), the weapon / light cone / W-Engine, set bonuses,
-the Crit Value (CRIT DMG + CRIT Rate × 2 over all gear) and the server and UID.
+substats (a dot per upgrade), the weapon / light cone / W-Engine, the Crit Value
+(CRIT DMG + CRIT Rate × 2 over all gear) and the server and UID.
+
+Substats the character wants are highlighted, with their rolls (first roll
+included) added up per piece and in total ("Effective subs"). Characters that
+don't want both crit stats show the gear total of their main stat instead of
+Crit Value, e.g. Speed Value. Star Rail's and ZZZ's lists are the game's own
+recommendations, read daily from Hakushin (static.nanoka.cc); Genshin's come
+from HoYoLAB and are picked up when the bot reads HoYoLAB character details
+(daily for the HOYOLAB_COOKIES account), so Genshin characters nobody's
+HoYoLAB has shown yet get no count. Saved in `effective_stats.json`.
 A dropdown under it switches to the player's other showcased characters, next to
 a link to the profile on Enka.Network.
 
