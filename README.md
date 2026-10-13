@@ -81,6 +81,21 @@ hour to appear the first time.
 | `CACHE_DIR` | no | Where game data is cached (default `data`). |
 | `ENKA_USER_AGENT` | no | User-Agent sent to Enka.Network. |
 | `CLAIMS_FILE` | no | Where claimed UIDs are saved (default `claims.json` in `CACHE_DIR`). |
+| `HOYOLAB_COOKIES` | no | `ltuid_v2=...; ltoken_v2=...` from a HoYoLAB login. Turns on characters that aren't on the showcase (see below). Keep it out of git. |
+
+## Characters off the showcase (HoYoLAB)
+
+Enka only sees the 8 (Genshin) or 4 (Star Rail, ZZZ) characters on a player's
+in-game showcase. With `HOYOLAB_COOKIES` set, a character that isn't there is
+looked up in the player's HoYoLAB Battle Chronicle instead. This works only for
+players whose Battle Chronicle is public, and one HoYoLAB account can look up
+at most 30 different UIDs a day, so HoYoLAB is asked only when the showcase
+doesn't have the character (results are kept for half an hour). Such cards say
+"via HoYoLAB" in the corner. HoYoLAB may hide Star Rail relic stats from other
+players; those cards show the light cone, relic sets and levels only.
+
+`python -m bot.hoyolab_check genshin|hsr|zzz UID` prints what HoYoLAB sends
+for one player (no names or cookies), to check the setup on the server.
 
 ## How stats are computed
 
