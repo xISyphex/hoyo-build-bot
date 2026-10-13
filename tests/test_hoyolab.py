@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import stat
+import tempfile
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 
 import genshin
 
 from bot.assets import Assets
 from bot.card import draw_card
 from bot.hoyolab import NOTE, HoyolabClient, HoyolabError, genshin_build, starrail_build, zzz_build
+from bot.hoyolab_links import LinkStore, cookie_string, games_of
 from bot.main import pick, with_hoyolab
 from bot.models import PlayerProfile
 
@@ -286,6 +292,45 @@ class HoyolabClientTest(unittest.TestCase):
         self.client.client.get_starrail_characters = self._answer(limit)
         with self.assertRaisesRegex(HoyolabError, "30 players"):
             asyncio.run(self.client.fetch("hsr", "800069903"))
+
+
+class LinkTest(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.path = Path(self.dir.name) / "hoyolab_links.json"
+        self.links = LinkStore(self.path)
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def test_game_accounts_become_uids_per_game(self):
+        accounts = [SimpleNamespace(game_biz="hk4e_global", uid=700000001), SimpleNamespace(game_biz="hkrpg_global", uid=714485603),
+                    SimpleNamespace(game_biz="bh3_global", uid=1), SimpleNamespace(game_biz="nap_global", uid=1500000001)]
+        self.assertEqual(games_of(accounts), {"genshin": ["700000001"], "hsr": ["714485603"], "zzz": ["1500000001"]})
+        self.assertEqual(cookie_string(" 1 ", "v2_x", "m"), "ltuid_v2=1; ltoken_v2=v2_x; ltmid_v2=m")
+
+    def test_links_are_private_and_survive_a_restart(self):
+        self.links.link(42, "ltuid_v2=1; ltoken_v2=v2_x; ltmid_v2=m", {"hsr": ["714485603"]})
+        self.assertEqual(stat.S_IMODE(os.stat(self.path).st_mode), 0o600)  # only the bot's own user can read it
+        again = LinkStore(self.path)
+        self.assertEqual(again.cookies_for("hsr", "714485603"), "ltuid_v2=1; ltoken_v2=v2_x; ltmid_v2=m")
+        self.assertIsNone(again.cookies_for("genshin", "714485603"))
+        self.assertEqual(again.unlink(42), {"hsr": ["714485603"]})
+        self.assertIsNone(LinkStore(self.path).cookies_for("hsr", "714485603"))
+        self.assertIsNone(again.unlink(42))
+
+    def test_a_linked_uid_uses_its_owners_login(self):
+        client = HoyolabClient(None, Assets("data"), self.links)
+        self.assertFalse(client.available("hsr", "714485603"))  # no server login and nobody linked it
+        self.links.link(42, "ltuid_v2=1; ltoken_v2=v2_x; ltmid_v2=m", {"hsr": ["714485603"]})
+        self.assertTrue(client.available("hsr", "714485603"))
+        linked, own = client._client_for("hsr", "714485603")
+        self.assertTrue(own)
+        self.assertEqual(dict(linked.cookie_manager.cookies)["ltuid_v2"], "1")
+        self.assertFalse(client.available("hsr", "800069903"))
+        self.links.unlink(42)
+        client.forget({"hsr": ["714485603"]})
+        self.assertFalse(client.available("hsr", "714485603"))
 
 
 if __name__ == "__main__":
