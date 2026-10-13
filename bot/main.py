@@ -279,16 +279,14 @@ def make_command(game: str) -> app_commands.Command:
             profile = bot.enka.cached(game, uid)
             if profile:
                 names = [c.name for c in profile.characters]
-                if bot.hoyolab.available(game, uid):  # everything else they own, if HoYoLAB was asked already; else every character
-                    known = bot.hoyolab.cached(game, uid)
-                    others = [b.name for b in known] if known is not None else bot.assets.character_names(game)
-                    names += [n for n in others if n not in names]
+                known = bot.hoyolab.cached(game, uid) if bot.hoyolab.available(game, uid) else None
+                names += [b.name for b in known or []]
             else:
-                # Warm the cache so the next keystroke can suggest their showcase.
+                # Warm the cache so the next keystroke can put their showcase first.
                 task = asyncio.create_task(bot.enka.fetch(game, uid))
                 task.add_done_callback(lambda t: t.cancelled() or t.exception())
-        if not names:
-            names = bot.assets.character_names(game)
+        # Every character in the game is suggested; the player's own come first when nothing is typed yet.
+        names = list(dict.fromkeys(names + bot.assets.character_names(game)))
         return [app_commands.Choice(name=n, value=n) for n in matching.suggest(current, names)]
 
     return command
