@@ -22,6 +22,7 @@ from .assets import Assets
 from .claims import ClaimStore
 from .card import CardMaker
 from .embeds import build_embed
+from .effective import EffectiveStats
 from .enka import ERRORS, EnkaClient, EnkaError
 from .guide import OpenGuideButton, PageButton, guide_message, open_guide_view
 from .hoyolab import HoyolabClient, HoyolabError
@@ -75,7 +76,9 @@ class HoyoBot(discord.Client):
         key = load_key(os.environ.get("HOYOLAB_KEY_FILE", ".hoyolab.key"), os.environ.get("HOYOLAB_LINKS_KEY"))
         self.links = LinkStore(os.environ.get("HOYOLAB_LINKS_FILE", os.path.join(cache_dir, "hoyolab_links.json")), key)
         cookies = os.environ.get("HOYOLAB_COOKIES", "").strip()
-        self.hoyolab = HoyolabClient(cookies or None, self.assets, self.links)
+        # Which substats each character wants, for the effective substat count on the card.
+        self.effective = EffectiveStats(cache_dir)
+        self.hoyolab = HoyolabClient(cookies or None, self.assets, self.links, self.effective)
         self.set_emojis: SetEmojis | None = None
         self.cards: CardMaker | None = None
 
@@ -83,7 +86,7 @@ class HoyoBot(discord.Client):
         self.session = aiohttp.ClientSession(headers={"User-Agent": USER_AGENT}, trust_env=True)
         self.enka = EnkaClient(self.session, self.assets)
         self.set_emojis = SetEmojis(self, self.session)
-        self.cards = CardMaker(self.session, self.assets.cache_dir)
+        self.cards = CardMaker(self.session, self.assets.cache_dir, self.effective)
         if self.assets.is_stale():
             log.info("Downloading game data from Enka.Network")
             await self.assets.refresh(self.session)
@@ -115,6 +118,9 @@ class HoyoBot(discord.Client):
     async def refresh_assets(self) -> None:
         if self.assets.is_stale():
             await self.assets.refresh(self.session)
+        if self.effective.is_stale():
+            await self.effective.refresh(self.session)
+            await self.hoyolab.learn_own()
 
     @refresh_assets.before_loop
     async def _wait_ready(self) -> None:

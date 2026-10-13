@@ -19,6 +19,7 @@ from pathlib import Path
 import aiohttp
 from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageFont
 
+from .effective import EffectiveStats, piece_count
 from .embeds import ELEMENT_COLORS, GAME_LABELS, ZZZ_RARITY, _is_zero, _name
 from . import stat_icons
 from .models import CharacterBuild, Gear, PlayerProfile
@@ -34,6 +35,7 @@ FONT_DIR = Path(__file__).parent / "fonts"
 TEXT = (238, 236, 246)
 DIM = (176, 172, 196)
 GOLD = (255, 209, 102)
+EFFECTIVE = (94, 234, 212)  # the effective substat count, and the substats it counts
 PANEL = (255, 255, 255, 14)
 LINE = (255, 255, 255, 22)
 ART_MAX = 1100  # art is kept at most this tall
@@ -64,6 +66,7 @@ class Fonts:
         self.small_b = _font("Bold", 18)
         self.slot = _font("Regular", 17)
         self.slot_b = _font("Bold", 14)
+        self.count = _font("Bold", 16)
         self.main = _font("Bold", 24)
         self.sub = _font("Regular", 18)
         self.sub_b = _font("SemiBold", 18)
@@ -282,6 +285,36 @@ def crit_value(build: CharacterBuild) -> float | None:
     return total if seen else None
 
 
+# For characters that want no crit: the stat whose gear total stands in for Crit Value, best first.
+VALUE_STATS = ("SPD", "ER", "Energy Regen", "Break Effect", "Effect Hit Rate", "Effect RES", "EM", "AP", "HP%",
+               "ATK%", "DEF%")
+VALUE_LABELS = {"SPD": "SPEED VALUE", "ER": "ENERGY VALUE", "Energy Regen": "ENERGY VALUE", "EM": "EM VALUE",
+                "AP": "AP VALUE", "Break Effect": "BREAK VALUE", "Effect Hit Rate": "EHR VALUE",
+                "Effect RES": "RES VALUE"}
+
+
+def gear_value(build: CharacterBuild, wanted: set[str] | None) -> tuple[str, str] | None:
+    """The badge above the effective substat count: Crit Value, or for characters that want no crit (like most
+    supports, or ones like Sparkle that only want CRIT DMG), the gear total of the stat they want most, e.g. Speed
+    Value."""
+    if not wanted or {"CRIT Rate", "CRIT DMG"} <= wanted:
+        cv = crit_value(build)
+        return ("CRIT VALUE", f"{cv:.1f}") if cv is not None else None
+    stat = next((n for n in VALUE_STATS if n in wanted), None)
+    if stat is None:
+        return None
+    total, pct = 0.0, False
+    for piece in build.gear:
+        for s in [piece.main, *piece.subs]:
+            if s.name == stat:
+                pct = s.value.endswith("%")
+                total += float(s.value.rstrip("%").replace(",", ""))
+    if not total:
+        return None
+    label = VALUE_LABELS.get(stat, f"{stat.rstrip('%')} VALUE".upper())
+    return label, f"{total:.1f}%" if pct else (f"{total:.1f}" if total % 1 else f"{total:.0f}")
+
+
 def server_name(game: str, uid: str) -> str | None:
     """The game server a UID belongs to, read from its leading digits (None if unknown)."""
     if game == "zzz":
@@ -293,7 +326,9 @@ def server_name(game: str, uid: str) -> str | None:
     return None
 
 
-def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | None = None) -> bytes:
+def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | None = None,
+              wanted: set[str] | None = None) -> bytes:
+    """wanted: the substats this character wants; they're counted and highlighted (left out if unknown)."""
     global FONTS
     FONTS = FONTS or Fonts()
     f = FONTS
@@ -340,12 +375,14 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
             draw.text((tx, ty), _fit_text(draw, line, f.small_b, tw), font=f.small_b, fill=TEXT)
             ty += 22
 
-    # Stats column: a titled panel, one banded row per stat with its icon, then Crit Value and the sets.
+    # Stats column: a titled panel, one banded row per stat with its icon, then Crit Value and the effective
+    # substat count.
     stats = [s for s in build.stats if not _is_zero(s.value)]
-    sets = build.set_bonuses[:3]
-    cv = crit_value(build)
-    set_lines = [(c, _wrap(ImageDraw.Draw(card), n, f.small, STATS_W - 32 - 52, 2)) for c, _, n in (b.partition(" ") for b in sets)]
-    footer_h = sum(10 + 22 * len(lines) for _, lines in set_lines) + (58 if cv is not None else 0)
+    value = gear_value(build, wanted)
+    effective = sum(piece_count(p, wanted) for p in build.gear) if wanted and build.gear else None
+    badges = [b for b in ((*value, GOLD) if value else None,
+                          ("EFFECTIVE SUBS", str(effective), EFFECTIVE) if effective is not None else None) if b]
+    footer_h = 58 * len(badges) - (12 if badges else 0)
     box = (STATS_X, PAD, STATS_X + STATS_W, H - PAD)
     _panel(card, box)
     draw = ImageDraw.Draw(card)
@@ -375,22 +412,14 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
         draw.text((box[2] - 18, mid), s.value, font=f.stat_b, fill=TEXT, anchor="rm")
         y += row_h
     y = box[3] - 12 - footer_h
-    if cv is not None:
+    for label, value, color in badges:
         badge = (box[0] + 10, y, box[2] - 10, y + 46)
-        _panel(card, badge, 10, (255, 209, 102, 22))
+        _panel(card, badge, 10, color + (22,))
         draw = ImageDraw.Draw(card)
-        draw.rounded_rectangle(badge, 10, outline=GOLD + (110,), width=1)
-        _spaced(draw, (badge[0] + 14, y + 23), "CRIT VALUE", f.label, GOLD, anchor="lm")
-        draw.text((badge[2] - 14, y + 23), f"{cv:.1f}", font=f.stat_b, fill=GOLD, anchor="rm")
+        draw.rounded_rectangle(badge, 10, outline=color + (110,), width=1)
+        _spaced(draw, (badge[0] + 14, y + 23), label, f.label, color, anchor="lm")
+        draw.text((badge[2] - 14, y + 23), value, font=f.stat_b, fill=color, anchor="rm")
         y += 58
-    for count, lines in set_lines:
-        chip_w = draw.textlength(count, font=f.small_b) + 14
-        draw.rounded_rectangle((box[0] + 14, y + 1, box[0] + 14 + chip_w, y + 21), 6, fill=accent + (255,))
-        draw.text((box[0] + 14 + chip_w / 2, y + 11), count, font=f.small_b, fill=(16, 14, 26) if sum(accent) > 450 else TEXT, anchor="mm")
-        for line in lines:
-            draw.text((box[0] + 22 + chip_w + 6, y + 11), line, font=f.small, fill=TEXT, anchor="lm")
-            y += 22
-        y += 10
 
     # Gear, two per row.
     gear = build.gear[:6]
@@ -403,7 +432,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
             y0 = PAD + (i // cols) * (gh + 12)
             badge = piece.slot.rsplit(" ", 1)[-1] if build.game == "zzz" else None
             box = (round(x0), round(y0), round(x0 + gw), round(y0 + gh))
-            _gear(card, piece, images.get(piece.piece_icon or ""), box, light, labels["max_level"], badge)
+            _gear(card, piece, images.get(piece.piece_icon or ""), box, light, labels["max_level"], badge, wanted)
     else:
         draw.text((GEAR_X + 20, PAD + 20), f"No {labels['gear'].lower()} equipped.", font=f.stat, fill=DIM)
 
@@ -420,8 +449,10 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     return out.getvalue()
 
 
-def _gear(card: Image.Image, piece: Gear, icon: Image.Image | None, box, light, max_level: int, badge: str | None) -> None:
-    """One piece: its picture, main stat and value, then the substats with a dot per roll."""
+def _gear(card: Image.Image, piece: Gear, icon: Image.Image | None, box, light, max_level: int, badge: str | None,
+          wanted: set[str] | None = None) -> None:
+    """One piece: its picture, main stat and value, then the substats with a dot per roll. Substats the character
+    wants are drawn in the effective color, with their rolls added up underneath."""
     f = FONTS
     _panel(card, box, 14, (0, 0, 0, 70))
     x0, y0, x1, y1 = box
@@ -437,20 +468,25 @@ def _gear(card: Image.Image, piece: Gear, icon: Image.Image | None, box, light, 
         lx = tx + draw.textlength(piece.main.value, font=f.main) + 10
         draw.text((lx, y0 + 40), f"+{piece.level}", font=f.slot, fill=DIM)
     y = y0 + 76
-    step = min(27, (y1 - 10 - y) / max(len(piece.subs), 1))
+    count_h = 22 if wanted else 0
+    step = min(27, (y1 - 10 - count_h - y) / max(len(piece.subs), 1))
     for s in piece.subs:
         mid = y + step / 2
+        good = bool(wanted) and s.name in wanted
+        color = EFFECTIVE if good else TEXT
         value_w = draw.textlength(s.value, font=f.sub_b)
         upgrades = max(s.rolls - 1, 0)  # the first roll is the base value, not an upgrade
         dots_w = 8 * upgrades
         label = _fit_text(draw, _name(s), f.sub, x1 - x0 - 34 - value_w - dots_w)
-        draw.text((x0 + 14, mid), label, font=f.sub, fill=TEXT, anchor="lm")
-        draw.text((x1 - 12, mid), s.value, font=f.sub_b, fill=TEXT, anchor="rm")
+        draw.text((x0 + 14, mid), label, font=f.sub_b if good else f.sub, fill=color, anchor="lm")
+        draw.text((x1 - 12, mid), s.value, font=f.sub_b, fill=color, anchor="rm")
         dx = x1 - 20 - value_w
         for _ in range(upgrades):
-            draw.ellipse((dx - 6, mid - 3, dx, mid + 3), fill=light)
+            draw.ellipse((dx - 6, mid - 3, dx, mid + 3), fill=EFFECTIVE if good else light)
             dx -= 8
         y += step
+    if wanted and piece.subs:
+        draw.text((x0 + 14, y + 4), str(piece_count(piece, wanted)), font=f.count, fill=EFFECTIVE, anchor="lt")
 
 
 CONS_W, CONS_TOP, CONS_BOTTOM = 84, 160, H - PAD - 176  # the strip of six marks left of the art
@@ -869,14 +905,16 @@ def _cons_marks(card: Image.Image, build: CharacterBuild, accent, light, images:
 class CardMaker:
     """Downloads (once) the pictures a card needs and draws it off the event loop."""
 
-    def __init__(self, session: aiohttp.ClientSession, cache_dir: str):
+    def __init__(self, session: aiohttp.ClientSession, cache_dir: str, effective: EffectiveStats | None = None):
         self.session = session
+        self.effective = effective
         self.dir = Path(cache_dir) / "images"
         self.failed: set[str] = set()
         self.cards: dict[str, bytes] = {}  # recent cards, so flipping back and forth is instant
 
     async def render(self, profile: PlayerProfile, build: CharacterBuild) -> bytes:
-        key = hashlib.sha1(repr((profile.uid, build)).encode()).hexdigest()
+        wanted = self.effective.wanted(build) if self.effective else None
+        key = hashlib.sha1(repr((profile.uid, build, sorted(wanted or ()))).encode()).hexdigest()
         if key in self.cards:
             return self.cards[key]
         urls = {build.art_url, build.icon_url, build.path_icon, build.element_icon, build.weapon.icon_url if build.weapon else None}
@@ -884,7 +922,7 @@ class CardMaker:
         urls.discard(None)
         loaded = await asyncio.gather(*(self._image(u, big=u == build.art_url) for u in urls))
         images = {u: img for u, img in zip(urls, loaded) if img is not None}
-        png = await asyncio.to_thread(draw_card, build, images, profile.uid)
+        png = await asyncio.to_thread(draw_card, build, images, profile.uid, wanted)
         if len(self.cards) >= 40:
             self.cards.pop(next(iter(self.cards)))
         self.cards[key] = png

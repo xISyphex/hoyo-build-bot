@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import os
 import stat
 import tempfile
@@ -266,7 +267,7 @@ class HoyolabClientTest(unittest.TestCase):
         return call
 
     def test_characters_are_kept_for_a_while(self):
-        self.client.client.get_genshin_detailed_characters = self._answer(genshin.models.GenshinDetailCharacters(**GENSHIN))
+        self.client.client.get_genshin_detailed_characters = self._answer(copy.deepcopy(GENSHIN))  # raw data
         for _ in range(2):
             builds = asyncio.run(self.client.fetch("genshin", "618285856"))
         self.assertEqual([b.name for b in builds], ["Furina"])
