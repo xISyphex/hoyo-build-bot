@@ -67,7 +67,7 @@ class Fonts:
         self.small_b = _font("Bold", 18)
         self.slot = _font("Regular", 17)
         self.slot_b = _font("Bold", 14)
-        self.count = _font("Bold", 16)
+        self.count = _font("Bold", 14)
         self.main = _font("Bold", 24)
         self.sub = _font("Regular", 18)
         self.sub_b = _font("SemiBold", 18)
@@ -450,6 +450,15 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     return out.getvalue()
 
 
+def _slanted(card: Image.Image, xy, text: str, font, fill, slant: float = 0.22) -> None:
+    """Text leaning right like italics (the bundled font has no italic), centred on x with its bottom at y."""
+    w, h = round(font.getlength(text)) + 8, font.size + 8
+    layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    ImageDraw.Draw(layer).text((w / 2, h - 4), text, font=font, fill=fill, anchor="md")
+    layer = layer.transform(layer.size, Image.AFFINE, (1, slant, -slant * h / 2, 0, 1, 0), Image.BICUBIC)
+    card.alpha_composite(layer, (round(xy[0] - w / 2), round(xy[1] - h + 4)))
+
+
 def _gear(card: Image.Image, piece: Gear, icon: Image.Image | None, box, light, max_level: int, badge: str | None,
           wanted: set[str] | None = None) -> None:
     """One piece: its picture, main stat and value, then the substats with a dot per roll. Substats the character
@@ -487,7 +496,7 @@ def _gear(card: Image.Image, piece: Gear, icon: Image.Image | None, box, light, 
             dx -= 8
         y += step
     if wanted and piece.subs:
-        draw.text((x0 + 14, y + 4), str(piece_count(piece, wanted)), font=f.count, fill=EFFECTIVE, anchor="lt")
+        _slanted(card, ((x0 + x1) / 2, y1 - 8), str(piece_count(piece, wanted)), f.count, EFFECTIVE)
 
 
 CONS_W, CONS_TOP, CONS_BOTTOM = 84, 160, H - PAD - 176  # the strip of six marks left of the art
