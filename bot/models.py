@@ -54,6 +54,7 @@ class CharacterBuild:
     art_url: str | None = None  # large character art for the build card
     path_icon: str | None = None  # path / specialty / weapon type symbol, shown in the info row under the name
     element_icon: str | None = None  # element symbol, shown in the info row and behind the badge number
+    source: str = "enka"  # "hoyolab" for characters that aren't on the in-game showcase
 
 
 @dataclass

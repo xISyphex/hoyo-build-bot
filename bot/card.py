@@ -410,6 +410,8 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     if uid:
         server = server_name(build.game, uid)
         foot = f"{server} · UID {uid}" if server else f"UID {uid}"
+        if build.source == "hoyolab":
+            foot = f"via HoYoLAB · {foot}"
         # A small stamp in the image's own corner, outside the layout.
         ImageDraw.Draw(card).text((W - 8, H - 5), foot, font=f.stamp, fill=TEXT, anchor="rd")
 

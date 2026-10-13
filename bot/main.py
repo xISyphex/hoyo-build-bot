@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import io
 import logging
 import math
@@ -22,6 +23,7 @@ from .card import CardMaker
 from .embeds import build_embed
 from .enka import ERRORS, EnkaClient, EnkaError
 from .guide import PageButton, guide_message
+from .hoyolab import HoyolabClient, HoyolabError
 from .models import CharacterBuild, PlayerProfile
 from .ratelimit import LookupLimit
 from .set_emojis import SetEmojis
@@ -31,6 +33,8 @@ log = logging.getLogger("hoyo-bot")
 USER_AGENT = os.environ.get("ENKA_USER_AGENT", "HoyoBuildBot/1.0 (Discord bot)")
 UID_RE = re.compile(r"^\d{8,10}$")
 GAME_NAMES = {"genshin": "Genshin Impact", "hsr": "Honkai: Star Rail", "zzz": "Zenless Zone Zero"}
+PROFILE_URLS = {"genshin": "https://enka.network/u/{uid}/", "hsr": "https://enka.network/hsr/{uid}/",
+                "zzz": "https://enka.network/zzz/{uid}/"}
 
 
 class PrivateTree(app_commands.CommandTree):
@@ -63,6 +67,9 @@ class HoyoBot(discord.Client):
         self.lookups = LookupLimit(int(os.environ.get("LOOKUPS_PER_HOUR", "15")))
         self.session: aiohttp.ClientSession | None = None
         self.enka: EnkaClient | None = None
+        # Characters off the showcase, from HoYoLAB; only when the server has a HoYoLAB login (cookies).
+        cookies = os.environ.get("HOYOLAB_COOKIES", "").strip()
+        self.hoyolab: HoyolabClient | None = HoyolabClient(cookies, self.assets) if cookies else None
         self.set_emojis: SetEmojis | None = None
         self.cards: CardMaker | None = None
 
@@ -140,9 +147,16 @@ class CharacterSelect(discord.ui.Select):
     """Dropdown to flip between the other characters in the same showcase."""
 
     def __init__(self, profile: PlayerProfile, current: str):
+        shown = profile.characters[:25]
+        if all(c.name != current for c in shown):  # Discord allows 25 options; keep the one on screen
+            shown = [*shown[:24], *(c for c in profile.characters if c.name == current)]
         options = [
-            discord.SelectOption(label=c.name[:100], description=f"Lv. {c.level}", default=c.name == current)
-            for c in profile.characters[:25]
+            discord.SelectOption(
+                label=c.name[:100],
+                description=f"Lv. {c.level}" + (" · from HoYoLAB" if c.source == "hoyolab" else ""),
+                default=c.name == current,
+            )
+            for c in shown
         ]
         super().__init__(placeholder="Show another character", options=options)
         self.profile = profile
@@ -196,32 +210,53 @@ def make_command(game: str) -> app_commands.Command:
                 )
                 return
         await interaction.response.defer(thinking=True)
+        profile, problem = None, None
         try:
             profile = await bot.enka.fetch(game, uid)
         except EnkaError as exc:
-            await interaction.followup.send(str(exc))
-            return
+            # A UID that doesn't exist stays an error; with Enka down, HoYoLAB can still help.
+            if not bot.hoyolab or str(exc) in (ERRORS[400], ERRORS[404]):
+                await interaction.followup.send(str(exc))
+                return
+            problem = str(exc)
         except Exception:
             log.exception("Failed to load %s profile %s", game, uid)
-            await interaction.followup.send("Something went wrong reading that profile. Try again later.")
-            return
+            if not bot.hoyolab:
+                await interaction.followup.send("Something went wrong reading that profile. Try again later.")
+                return
+            problem = "Something went wrong reading that profile on Enka.Network."
+        if profile is None:
+            profile = PlayerProfile(game, uid, f"UID {uid}", 0, [], 60, PROFILE_URLS[game].format(uid=uid))
+        if bot.hoyolab and (known := bot.hoyolab.cached(game, uid)):
+            profile = with_hoyolab(profile, known)
 
-        if not profile.characters:
-            hint = (
-                "Their in-game character showcase is empty or has **Show Character Details** turned off. "
-                "They can turn it on in their in-game profile, then try again in a few minutes."
-            )
-            await interaction.followup.send(f"**{profile.nickname}** (UID {uid}) has no characters to show. {hint}")
-            return
-
-        names = [c.name for c in profile.characters]
-        match = matching.find(character, names)
+        match, hoyolab_problem = pick(bot, game, profile, character), None
+        if not match and bot.hoyolab and bot.hoyolab.cached(game, uid) is None:
+            # Not on the showcase: HoYoLAB has every character, if the player's Battle Chronicle is public.
+            try:
+                profile = with_hoyolab(profile, await bot.hoyolab.fetch(game, uid))
+            except HoyolabError as exc:
+                hoyolab_problem = str(exc)
+            match = pick(bot, game, profile, character)
         if not match:
-            await interaction.followup.send(
-                f"**{character}** isn't in {profile.nickname}'s showcase. "
-                f"Characters shown: {', '.join(names)}.\n"
-                "Only the characters on the in-game profile showcase can be looked up."
-            )
+            extra = f"\n{hoyolab_problem}" if hoyolab_problem else ""
+            if problem:
+                await interaction.followup.send(problem + extra)
+            elif not profile.characters:
+                hint = (
+                    "Their in-game character showcase is empty or has **Show Character Details** turned off. "
+                    "They can turn it on in their in-game profile, then try again in a few minutes."
+                )
+                await interaction.followup.send(f"**{profile.nickname}** (UID {uid}) has no characters to show. {hint}{extra}")
+            else:
+                names = [c.name for c in profile.characters]
+                where = "characters" if bot.hoyolab and hoyolab_problem is None else "showcase"
+                await interaction.followup.send(
+                    f"**{character}** isn't in {profile.nickname}'s {where}. "
+                    f"Characters shown: {', '.join(names[:40])}{' and more' if len(names) > 40 else ''}.\n"
+                    + ("Only the characters on the in-game profile showcase can be looked up." if where == "showcase" else "")
+                    + extra
+                )
             return
         build = next(c for c in profile.characters if c.name == match)
         await interaction.followup.send(**await render(bot, profile, build))
@@ -236,6 +271,10 @@ def make_command(game: str) -> app_commands.Command:
             profile = bot.enka.cached(game, uid)
             if profile:
                 names = [c.name for c in profile.characters]
+                if bot.hoyolab:  # everything else they own, if HoYoLAB was asked already; else every character
+                    known = bot.hoyolab.cached(game, uid)
+                    others = [b.name for b in known] if known is not None else bot.assets.character_names(game)
+                    names += [n for n in others if n not in names]
             else:
                 # Warm the cache so the next keystroke can suggest their showcase.
                 task = asyncio.create_task(bot.enka.fetch(game, uid))
@@ -245,6 +284,26 @@ def make_command(game: str) -> app_commands.Command:
         return [app_commands.Choice(name=n, value=n) for n in matching.suggest(current, names)]
 
     return command
+
+
+def pick(bot: HoyoBot, game: str, profile: PlayerProfile, query: str) -> str | None:
+    """The character the caller means, if it's in this profile.
+
+    The name is matched against every character in the game first, so a character missing from the showcase
+    isn't mistaken for a similar-looking one that is on it.
+    """
+    names = [c.name for c in profile.characters]
+    wanted = matching.find(query, list(dict.fromkeys(names + bot.assets.character_names(game))))
+    if wanted in names:
+        return wanted
+    return None if wanted else matching.find(query, names)
+
+
+def with_hoyolab(profile: PlayerProfile, builds: list[CharacterBuild]) -> PlayerProfile:
+    """The profile with HoYoLAB's characters added after the showcase ones (which are kept as they are)."""
+    have = {c.character_id for c in profile.characters} | {c.name for c in profile.characters}
+    extra = [b for b in builds if b.character_id not in have and b.name not in have]
+    return dataclasses.replace(profile, characters=[*profile.characters, *extra])
 
 
 def resolve_uid(claims: ClaimStore, user_id: int, game: str, typed: str | None) -> str | None:
