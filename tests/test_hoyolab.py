@@ -214,6 +214,8 @@ class HoyolabBuildTest(unittest.TestCase):
 
     def test_zzz(self):
         build = zzz_build(self.assets, genshin.models.ZZZFullAgent(**ZZZ))
+        # HoYoLAB gives only totals, so rolls come from the value: 7.2% CRIT Rate is 3 rolls of 2.4%.
+        self.assertEqual([(s.name, s.rolls) for s in build.gear[0].subs], [("CRIT Rate", 3), ("ATK%", 2), ("PEN", 1)])
         self.assertEqual(build.name, "Ellen")
         self.assertEqual((build.level, build.constellation), (60, 1))
         self.assertEqual({s.name: s.value for s in build.stats}["CRIT Rate"], "68.2%")

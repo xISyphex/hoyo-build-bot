@@ -229,6 +229,21 @@ def _zzz_line(prop) -> Stat:
     return zz._prop_stat(pid, value * 100 if _is_pct(prop.value) or kind == "pct" else value)
 
 
+# One roll of each disc substat on an S-rank disc (A-rank rolls are 2/3 of it, B-rank 1/3). HoYoLAB only gives the
+# total, so the rolls are worked out from it.
+ZZZ_ROLL = {11103: 112, 11102: 3.0, 12103: 19, 12102: 3.0, 13103: 15, 13102: 4.8, 20103: 2.4, 21103: 4.8,
+            31203: 9, 23203: 9}
+ZZZ_ROLL_SCALE = {"S": 1, "A": 2 / 3, "B": 1 / 3}
+
+
+def _zzz_sub(prop, rarity: str) -> Stat:
+    stat = _zzz_line(prop)
+    one = ZZZ_ROLL.get(int(prop.type), 0) * ZZZ_ROLL_SCALE.get(rarity, 1)
+    if one:
+        stat.rolls = max(1, round(_num(prop.value) / one))
+    return stat
+
+
 def zzz_build(assets: Assets, agent) -> CharacterBuild:
     """One genshin.py ZZZFullAgent as a build card."""
     skeleton = zz.parse_character(assets, {"Id": agent.id, "Level": agent.level, "TalentLevel": agent.rank})
@@ -254,7 +269,7 @@ def zzz_build(assets: Assets, agent) -> CharacterBuild:
         gear.append(Gear(
             slot=f"Disc {disc.position}", set_name=re.sub(r"\s*\[\d\]$", "", disc.name), level=disc.level,
             rarity=ZZZ_RARITY.get(disc.rarity, 0), main=_zzz_line(main) if main else Stat("?", "?"),
-            subs=[_zzz_line(p) for p in disc.properties], piece_icon=disc.icon or None,
+            subs=[_zzz_sub(p, disc.rarity) for p in disc.properties], piece_icon=disc.icon or None,
         ))
     gear.sort(key=lambda g: g.slot)
     return dataclasses.replace(

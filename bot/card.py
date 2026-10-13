@@ -384,6 +384,8 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     badges = [b for b in ((*value, TEAL) if value else None,
                           ("EFFECTIVE SUBS", str(effective), EFFECTIVE) if effective is not None else None) if b]
     footer_h = 58 * len(badges) - (12 if badges else 0)
+    # ATK% on gear raises the ATK total; a few totals have longer names than the gear lines
+    wanted_totals = {TOTAL_NAMES.get(n, n.rstrip("%")) for n in wanted or ()}
     box = (STATS_X, PAD, STATS_X + STATS_W, H - PAD)
     _panel(card, box)
     draw = ImageDraw.Draw(card)
@@ -409,8 +411,9 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
         card.alpha_composite(stat_icons.icon(name, 20, light, orb), (box[0] + 16, round(mid - 10)))
         room = box[2] - 18 - (box[0] + 46) - 10 - draw.textlength(s.value, font=f.stat_b)
         font = f.stat if draw.textlength(name, font=f.stat) <= room else f.stat_s  # long names step down a size
-        draw.text((box[0] + 46, mid), _fit_text(draw, name, font, room), font=font, fill=TEXT, anchor="lm")
-        draw.text((box[2] - 18, mid), s.value, font=f.stat_b, fill=TEXT, anchor="rm")
+        color = EFFECTIVE if s.name in wanted_totals else TEXT
+        draw.text((box[0] + 46, mid), _fit_text(draw, name, font, room), font=font, fill=color, anchor="lm")
+        draw.text((box[2] - 18, mid), s.value, font=f.stat_b, fill=color, anchor="rm")
         y += row_h
     y = box[3] - 12 - footer_h
     for label, value, color in badges:
@@ -450,6 +453,10 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     return out.getvalue()
 
 
+TOTAL_NAMES = {"ER": "Energy Recharge", "EM": "Elemental Mastery", "AP": "Anomaly Proficiency"}
+DOTS = 5  # room for this many upgrade dots after each substat value (the most any game allows)
+
+
 def _slanted(card: Image.Image, xy, text: str, font, fill, slant: float = 0.22) -> None:
     """Text leaning right like italics (the bundled font has no italic), centred on x with its bottom at y."""
     w, h = round(font.getlength(text)) + 8, font.size + 8
@@ -485,15 +492,15 @@ def _gear(card: Image.Image, piece: Gear, icon: Image.Image | None, box, light, 
         good = bool(wanted) and s.name in wanted
         color = EFFECTIVE if good else TEXT
         value_w = draw.textlength(s.value, font=f.sub_b)
-        upgrades = max(s.rolls - 1, 0)  # the first roll is the base value, not an upgrade
-        dots_w = 8 * upgrades
-        label = _fit_text(draw, _name(s), f.sub, x1 - x0 - 34 - value_w - dots_w)
+        upgrades = min(max(s.rolls - 1, 0), DOTS)  # the first roll is the base value, not an upgrade
+        value_x = x1 - 12 - DOTS * 7 - 4  # values line up, with the dots in their own column on the right
+        label = _fit_text(draw, _name(s), f.sub, value_x - x0 - 22 - value_w)
         draw.text((x0 + 14, mid), label, font=f.sub_b if good else f.sub, fill=color, anchor="lm")
-        draw.text((x1 - 12, mid), s.value, font=f.sub_b, fill=color, anchor="rm")
-        dx = x1 - 20 - value_w
+        draw.text((value_x, mid), s.value, font=f.sub_b, fill=color, anchor="rm")
+        dx = value_x + 6
         for _ in range(upgrades):
-            draw.ellipse((dx - 6, mid - 3, dx, mid + 3), fill=EFFECTIVE if good else light)
-            dx -= 8
+            draw.ellipse((dx, mid - 3, dx + 6, mid + 3), fill=EFFECTIVE if good else light)
+            dx += 7
         y += step
     if wanted and piece.subs:
         _slanted(card, ((x0 + x1) / 2, y1 - 8), str(piece_count(piece, wanted)), f.count, EFFECTIVE)
