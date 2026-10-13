@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import tempfile
+import unicodedata
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -119,7 +120,12 @@ class AccessCheckTest(unittest.TestCase):
         self.assertEqual([f.filename for f in files], ["fairy-guide.jpg", "fairy-heart.jpg"])
         self.assertIn("attachment://fairy-guide.jpg", str(embeds[0].to_dict()))  # Fairy with her guide book first
         self.assertIn("attachment://fairy-heart.jpg", str(embeds[-1].to_dict()))  # and the heart at the end
-        self.assertIn("I am looking forward to working with you, Master~", str(embeds[-1].to_dict()))
+        self.assertIn("I am looking forward to working with you, Proxy~", str(embeds[-1].to_dict()))
+        self.assertEqual([e.footer.text[:10] for e in embeds[1:3]], ["Page 1 / 2", "Page 2 / 2"])  # a two-page guide book
+        credits = unicodedata.normalize("NFKC", embeds[-1].footer.text)  # slanted letters back to plain ones
+        self.assertIn("@nobawns", credits)  # the artists are credited under the heart picture
+        self.assertIn("@Kuro_Natsumiart", credits)
+        self.assertNotIn("Master", guide)
         for command in ("/genshin", "/hsr", "/zzz", "/genshin-claim", "/hsr-claim", "/zzz-claim", "15"):
             self.assertIn(command, guide)
         self.assertNotIn("/access", guide)
