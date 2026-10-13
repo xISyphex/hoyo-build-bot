@@ -1,5 +1,5 @@
 """The guide to the commands, told by Fairy: sent as a welcome DM when the owner adds someone with /access add,
-and shown by /help. Fairy opens with her guide book picture and signs off with the heart picture."""
+and shown by /help. Fairy opens with her guide book picture and signs off with a goodbye picture."""
 
 from __future__ import annotations
 
@@ -9,10 +9,10 @@ import discord
 
 GAMES = (("genshin", "Genshin Impact"), ("hsr", "Honkai: Star Rail"), ("zzz", "Zenless Zone Zero"))
 ART = Path(__file__).parent / "guide_art"
-OPENING, CLOSING = "fairy-guide.jpg", "fairy-heart.jpg"
+OPENING, CLOSING = "fairy-guide.jpg", "fairy-goodbye.jpg"
 COLOR = 0x4FA3E0  # Fairy's blue
 GOODBYE = "I am looking forward to working with you, Proxy~"
-CREDITS = (("Guide book art", "nobawns"), ("Heart art", "Kuro_Natsumiart"))  # both on x.com
+CREDITS = (("Guide book art", "nobawns"), ("Goodbye art", "yasiro_hayate"))  # both on x.com
 
 
 def _italic(text: str) -> str:
@@ -33,7 +33,7 @@ def install_link(app_id: int) -> str:
 
 def guide_message(bot_name: str, per_hour: int, app_id: int | None = None, welcome: bool = True,
                   owner: bool = False) -> tuple[list[discord.Embed], list[discord.File]]:
-    """The guide as four embeds (Fairy with her guide book, two pages of rules, Fairy's goodbye with the artist
+    """The guide as four embeds (Fairy with her guide book, two pages of rules, Fairy's goodbye picture with the artist
     credits underneath) plus the two pictures.
     The files are new each call, since Discord uses them up when they're sent. Missing pictures are left out."""
     files = [discord.File(ART / name, filename=name) for name in (OPENING, CLOSING) if (ART / name).exists()]
