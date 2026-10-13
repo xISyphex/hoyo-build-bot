@@ -1,4 +1,4 @@
-"""The welcome DM someone gets when the owner adds them with /access add: a short guide to the commands."""
+"""The guide to the commands: sent as a welcome DM when the owner adds someone with /access add, and shown by /help."""
 
 from __future__ import annotations
 
@@ -12,10 +12,11 @@ def install_link(app_id: int) -> str:
     return f"https://discord.com/oauth2/authorize?client_id={app_id}&integration_type=1&scope=applications.commands"
 
 
-def guide_embed(bot_name: str, per_hour: int, app_id: int | None = None) -> discord.Embed:
-    """The guide, covering every command except /access (that one is the owner's)."""
+def guide_embed(bot_name: str, per_hour: int, app_id: int | None = None, welcome: bool = True,
+                owner: bool = False) -> discord.Embed:
+    """The guide, covering every command; /access only when it's for the owner."""
     embed = discord.Embed(
-        title=f"You can now use {bot_name}",
+        title=f"You can now use {bot_name}" if welcome else f"How to use {bot_name}",
         description="It shows a character's stats and build as a card. Here's how it works.",
         color=0x8C7BFF,
     )
@@ -53,5 +54,12 @@ def guide_embed(bot_name: str, per_hour: int, app_id: int | None = None) -> disc
         f"You can look up {per_hour} characters per hour.",
         inline=False,
     )
-    embed.set_footer(text="The commands work in servers with the bot, and in DMs with it.")
+    if owner:
+        embed.add_field(
+            name="Only for you (the owner)",
+            value="`/access add` lets someone use the bot and DMs them this guide, `/access remove` takes it away,"
+            " and `/access list` shows who has access. You have no lookup limit.",
+            inline=False,
+        )
+    embed.set_footer(text="Run /help any time to see this guide again.")
     return embed

@@ -86,6 +86,7 @@ class HoyoBot(discord.Client):
             self.tree.add_command(make_command(game))
             self.tree.add_command(make_claim_command(game))
         self.tree.add_command(AccessGroup())
+        self.tree.add_command(help_command)
         guild_id = os.environ.get("DEV_GUILD_ID")
         if guild_id:
             # Guild commands appear instantly; global ones can take up to an hour.
@@ -282,6 +283,14 @@ def make_claim_command(game: str) -> app_commands.Command:
         await interaction.followup.send(msg)
 
     return claim
+
+
+@app_commands.command(name="help", description="How to use the bot")
+async def help_command(interaction: discord.Interaction) -> None:
+    bot: HoyoBot = interaction.client  # type: ignore[assignment]
+    embed = guide_embed(bot.user.name if bot.user else "the bot", bot.lookups.per_hour, bot.application_id,
+                        welcome=False, owner=bot.access.is_owner(interaction.user.id))
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 class AccessGroup(app_commands.Group):

@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import discord
 
 from bot.access import PRIVATE, AccessList
-from bot.main import AccessGroup, CharacterView, PrivateTree
+from bot.main import AccessGroup, CharacterView, PrivateTree, help_command
 
 OWNER, FRIEND, STRANGER = 1, 2, 3
 
@@ -126,6 +126,27 @@ class AccessCheckTest(unittest.TestCase):
         reply = self._add(_User(STRANGER, closed=True))
         self.assertTrue(self.access.allowed(STRANGER))
         self.assertIn("couldn't DM", reply)
+
+    def test_help_shows_the_guide_and_access_only_to_the_owner(self):
+        for user_id, sees_access in ((OWNER, True), (STRANGER, False)):
+            it = _interaction(self.access, user_id)
+            it.client.user = SimpleNamespace(name="Build Bot")
+            it.client.lookups = SimpleNamespace(per_hour=15)
+            it.client.application_id = 123
+            it.response = _EmbedResponse()
+            asyncio.run(help_command.callback(it))
+            embed, ephemeral = it.response.sent[0]
+            self.assertTrue(ephemeral)
+            self.assertEqual(embed.title, "How to use Build Bot")
+            self.assertEqual("/access" in str(embed.to_dict()), sees_access)
+
+
+class _EmbedResponse:
+    def __init__(self):
+        self.sent = []
+
+    async def send_message(self, content=None, embed=None, **kwargs):
+        self.sent.append((embed, kwargs.get("ephemeral")))
 
 
 class _User:
