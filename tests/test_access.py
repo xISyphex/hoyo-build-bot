@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import discord
 
 from bot.access import PRIVATE, AccessList
-from bot.guide import PageButton
+from bot.guide import OpenGuideButton, PageButton
 from bot.main import AccessGroup, CharacterView, PrivateTree, help_command
 
 OWNER, FRIEND, STRANGER = 1, 2, 3
@@ -29,7 +29,8 @@ class _Response:
 
 def _interaction(access, user_id, kind=discord.InteractionType.application_command):
     return SimpleNamespace(
-        client=SimpleNamespace(access=access), user=SimpleNamespace(id=user_id), type=kind, response=_Response()
+        client=SimpleNamespace(access=access), user=SimpleNamespace(id=user_id), type=kind, response=_Response(),
+        followup=_Followup(),
     )
 
 
@@ -158,6 +159,35 @@ class AccessCheckTest(unittest.TestCase):
         self.assertTrue(self.access.allowed(STRANGER))
         self.assertIn("couldn't DM", reply)
 
+    def test_closed_dms_tag_them_with_a_private_guide_button(self):
+        it = _interaction(self.access, OWNER)
+        it.client.user = SimpleNamespace(name="Build Bot")
+        it.client.lookups = SimpleNamespace(per_hour=15)
+        it.client.application_id = 123
+        it.followup = _Followup()
+        asyncio.run(AccessGroup().add.callback(AccessGroup(), it, _User(STRANGER, closed=True)))
+        self.assertIn("tagged them here", it.response.sent[0][0])
+        content, kwargs = it.followup.sent[0]
+        self.assertIn(f"<@{STRANGER}>", content)
+        self.assertEqual([u.id for u in kwargs["allowed_mentions"].users], [STRANGER])
+        button = kwargs["view"].children[0]
+        match = re.fullmatch(OpenGuideButton.__discord_ui_compiled_template__, button.custom_id)
+        item = asyncio.run(OpenGuideButton.from_custom_id(None, button, match))  # as after a restart
+
+        def press(user_id):
+            press_it = _interaction(self.access, user_id)
+            press_it.client = it.client
+            press_it.response = _EmbedResponse()
+            asyncio.run(item.callback(press_it))
+            return press_it.response.sent[0]
+
+        embeds, files, view, ephemeral = press(STRANGER)
+        self.assertTrue(ephemeral)  # only they see it
+        self.assertIn("Fairy's Guide for Proxy", embeds[0].title)
+        self.assertEqual(len(files), 1)
+        self.assertIsNotNone(view)
+        self.assertTrue(press(FRIEND)[3])  # someone else just gets a private note
+
     def test_help_shows_the_guide_and_access_only_to_the_owner(self):
         for user_id, sees_access in ((OWNER, True), (STRANGER, False)):
             it = _interaction(self.access, user_id)
@@ -173,6 +203,14 @@ class AccessCheckTest(unittest.TestCase):
             page2 = self._flip(view, user_id)[0]  # the /access section is on page 2
             self.assertEqual("/access" in str([e.to_dict() for e in page2]), sees_access)
             self.assertIn("refresher", str(self._flip(self._flip(view, user_id)[2], user_id)[0][0].to_dict()))
+
+
+class _Followup:
+    def __init__(self):
+        self.sent = []
+
+    async def send(self, content=None, **kwargs):
+        self.sent.append((content, kwargs))
 
 
 class _EmbedResponse:

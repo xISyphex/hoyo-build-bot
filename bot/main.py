@@ -23,7 +23,7 @@ from .claims import ClaimStore
 from .card import CardMaker
 from .embeds import build_embed
 from .enka import ERRORS, EnkaClient, EnkaError
-from .guide import PageButton, guide_message
+from .guide import OpenGuideButton, PageButton, guide_message, open_guide_view
 from .hoyolab import HoyolabClient, HoyolabError
 from .hoyolab_links import LinkStore, cookie_string, games_of, load_key
 from .models import CharacterBuild, PlayerProfile
@@ -101,7 +101,7 @@ class HoyoBot(discord.Client):
         self.tree.add_command(AccessGroup())
         self.tree.add_command(HoyolabGroup())
         self.tree.add_command(help_command)
-        self.add_dynamic_items(PageButton)  # the guide's page buttons, also on old messages
+        self.add_dynamic_items(PageButton, OpenGuideButton)  # the guide's buttons, also on old messages
         guild_id = os.environ.get("DEV_GUILD_ID")
         if guild_id:
             # Guild commands appear instantly; global ones can take up to an hour.
@@ -457,6 +457,7 @@ class AccessGroup(app_commands.Group):
         bot: HoyoBot = interaction.client  # type: ignore[assignment]
         added = bot.access.add(user.id, user.name)
         msg = f"{user.mention} can now use the bot." if added else f"{user.mention} already had access."
+        tag = False
         if added:  # send them a guide to the commands
             try:
                 embeds, files, view = guide_message(bot.user.name if bot.user else "the bot", bot.lookups.per_hour,
@@ -464,8 +465,23 @@ class AccessGroup(app_commands.Group):
                 await user.send(embeds=embeds, files=files, view=view)
                 msg += " I sent them a DM with a guide to the commands."
             except discord.HTTPException:
-                msg += " I couldn't DM them a guide (their DMs are probably closed)."
+                # Tag them here instead, with a button that shows the guide only to them (not in your own DMs with
+                # the bot, where they can't see it).
+                tag = not isinstance(getattr(interaction, "channel", None), discord.DMChannel)
+                msg += (" I couldn't DM them a guide (their DMs are probably closed), so I tagged them here with a"
+                        " button that opens it just for them." if tag else
+                        " I couldn't DM them a guide (their DMs are probably closed). Run `/access add` again in a"
+                        " channel they can see, or ask them to use `/help`.")
         await interaction.response.send_message(msg, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+        if tag:
+            try:
+                await interaction.followup.send(
+                    f"{user.mention}, you can use **{bot.user.name if bot.user else 'the bot'}** now!"
+                    " Fairy couldn't reach your DMs, so press the button to read her guide. Only you will see it.",
+                    view=open_guide_view(user.id), allowed_mentions=discord.AllowedMentions(users=[user]),
+                )
+            except discord.HTTPException:
+                log.exception("Could not tag %s in the channel", user.id)
 
     @app_commands.command(name="remove", description="Stop someone from using the bot")
     @app_commands.describe(user="The Discord user to remove")
