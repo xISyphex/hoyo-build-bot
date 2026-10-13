@@ -450,6 +450,9 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     return out.getvalue()
 
 
+DOTS = 5  # room for this many upgrade dots after each substat value (the most any game allows)
+
+
 def _slanted(card: Image.Image, xy, text: str, font, fill, slant: float = 0.22) -> None:
     """Text leaning right like italics (the bundled font has no italic), centred on x with its bottom at y."""
     w, h = round(font.getlength(text)) + 8, font.size + 8
@@ -485,15 +488,15 @@ def _gear(card: Image.Image, piece: Gear, icon: Image.Image | None, box, light, 
         good = bool(wanted) and s.name in wanted
         color = EFFECTIVE if good else TEXT
         value_w = draw.textlength(s.value, font=f.sub_b)
-        upgrades = max(s.rolls - 1, 0)  # the first roll is the base value, not an upgrade
-        dots_w = 8 * upgrades
-        label = _fit_text(draw, _name(s), f.sub, x1 - x0 - 34 - value_w - dots_w)
+        upgrades = min(max(s.rolls - 1, 0), DOTS)  # the first roll is the base value, not an upgrade
+        value_x = x1 - 12 - DOTS * 7 - 4  # values line up, with the dots in their own column on the right
+        label = _fit_text(draw, _name(s), f.sub, value_x - x0 - 22 - value_w)
         draw.text((x0 + 14, mid), label, font=f.sub_b if good else f.sub, fill=color, anchor="lm")
-        draw.text((x1 - 12, mid), s.value, font=f.sub_b, fill=color, anchor="rm")
-        dx = x1 - 20 - value_w
+        draw.text((value_x, mid), s.value, font=f.sub_b, fill=color, anchor="rm")
+        dx = value_x + 6
         for _ in range(upgrades):
-            draw.ellipse((dx - 6, mid - 3, dx, mid + 3), fill=EFFECTIVE if good else light)
-            dx -= 8
+            draw.ellipse((dx, mid - 3, dx + 6, mid + 3), fill=EFFECTIVE if good else light)
+            dx += 7
         y += step
     if wanted and piece.subs:
         _slanted(card, ((x0 + x1) / 2, y1 - 8), str(piece_count(piece, wanted)), f.count, EFFECTIVE)
