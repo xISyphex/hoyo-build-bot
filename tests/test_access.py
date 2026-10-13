@@ -114,7 +114,12 @@ class AccessCheckTest(unittest.TestCase):
         reply = self._add(user)
         self.assertIn("sent them a DM", reply)
         self.assertEqual(len(user.dms), 1)
-        guide = str(user.dms[0].to_dict())
+        embeds, files = user.dms[0]
+        guide = str([e.to_dict() for e in embeds])
+        self.assertEqual([f.filename for f in files], ["fairy-guide.jpg", "fairy-heart.jpg"])
+        self.assertIn("attachment://fairy-guide.jpg", str(embeds[0].to_dict()))  # Fairy with her guide book first
+        self.assertIn("attachment://fairy-heart.jpg", str(embeds[-1].to_dict()))  # and the heart at the end
+        self.assertIn("I am looking forward to working with you, Master~", str(embeds[-1].to_dict()))
         for command in ("/genshin", "/hsr", "/zzz", "/genshin-claim", "/hsr-claim", "/zzz-claim", "15"):
             self.assertIn(command, guide)
         self.assertNotIn("/access", guide)
@@ -135,28 +140,29 @@ class AccessCheckTest(unittest.TestCase):
             it.client.application_id = 123
             it.response = _EmbedResponse()
             asyncio.run(help_command.callback(it))
-            embed, ephemeral = it.response.sent[0]
+            embeds, files, ephemeral = it.response.sent[0]
             self.assertTrue(ephemeral)
-            self.assertEqual(embed.title, "How to use Build Bot")
-            self.assertEqual("/access" in str(embed.to_dict()), sees_access)
+            self.assertEqual(len(files), 2)
+            self.assertIn("refresher", embeds[0].description)
+            self.assertEqual("/access" in str([e.to_dict() for e in embeds]), sees_access)
 
 
 class _EmbedResponse:
     def __init__(self):
         self.sent = []
 
-    async def send_message(self, content=None, embed=None, **kwargs):
-        self.sent.append((embed, kwargs.get("ephemeral")))
+    async def send_message(self, content=None, embeds=(), files=(), **kwargs):
+        self.sent.append((embeds, files, kwargs.get("ephemeral")))
 
 
 class _User:
     def __init__(self, uid, closed=False):
         self.id, self.name, self.mention, self.closed, self.dms = uid, "friend", f"<@{uid}>", closed, []
 
-    async def send(self, embed=None):
+    async def send(self, embeds=(), files=()):
         if self.closed:
             raise discord.Forbidden(SimpleNamespace(status=403, reason="Forbidden"), "Cannot send messages to this user")
-        self.dms.append(embed)
+        self.dms.append((embeds, files))
 
 
 if __name__ == "__main__":
