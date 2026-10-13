@@ -376,6 +376,32 @@ class EmbedTest(unittest.TestCase):
         claim = tree.get_command("genshin-claim").to_dict(tree)
         self.assertEqual([o["name"] for o in claim["options"]], ["uid"])
 
+    def test_autocomplete_suggests_every_character(self):
+        import asyncio
+        from types import SimpleNamespace
+
+        from bot.main import make_command
+
+        showcase = SimpleNamespace(characters=[SimpleNamespace(name="Furina")])
+        bot = SimpleNamespace(
+            claims=SimpleNamespace(get=lambda *a: None),
+            enka=SimpleNamespace(cached=lambda game, uid: showcase),
+            hoyolab=SimpleNamespace(available=lambda game, uid: False),
+            assets=self.assets,
+        )
+        interaction = SimpleNamespace(
+            client=bot, user=SimpleNamespace(id=1), namespace=SimpleNamespace(uid="618285856"))
+        complete = make_command("genshin")._params["character"].autocomplete
+
+        def suggest(text):
+            return [c.name for c in asyncio.run(complete(interaction, text))]
+
+        # Characters off the showcase are offered too; the showcase comes first when nothing is typed yet.
+        self.assertIn("Kamisato Ayaka", suggest("ayaka"))
+        self.assertEqual(suggest("")[0], "Furina")
+        self.assertEqual(len(suggest("")), 25)
+        self.assertNotIn("{NICKNAME}", self.assets.character_names("hsr"))
+
 
 class GearOrderTest(unittest.TestCase):
     """Star Rail and ZZZ: 4-piece set in the left two columns, 2-piece set in the right one."""

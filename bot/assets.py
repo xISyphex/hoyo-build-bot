@@ -223,4 +223,4 @@ class Assets:
                 name = self.zzz_text(info.get("Name"))
                 if name:
                     names.add(name)
-        return sorted(names)
+        return sorted(n for n in names if "{" not in n)  # e.g. Star Rail's "{NICKNAME}" placeholder
