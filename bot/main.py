@@ -25,7 +25,7 @@ from .embeds import build_embed
 from .enka import ERRORS, EnkaClient, EnkaError
 from .guide import PageButton, guide_message
 from .hoyolab import HoyolabClient, HoyolabError
-from .hoyolab_links import LinkStore, cookie_string, games_of
+from .hoyolab_links import LinkStore, cookie_string, games_of, load_key
 from .models import CharacterBuild, PlayerProfile
 from .ratelimit import LookupLimit
 from .set_emojis import SetEmojis
@@ -71,7 +71,9 @@ class HoyoBot(discord.Client):
         self.enka: EnkaClient | None = None
         # Characters off the showcase, from HoYoLAB; only when the server has a HoYoLAB login (cookies).
         # People's own HoYoLAB logins (/hoyolab link) unlock their own UIDs; HOYOLAB_COOKIES is the server's own.
-        self.links = LinkStore(os.environ.get("HOYOLAB_LINKS_FILE", os.path.join(cache_dir, "hoyolab_links.json")))
+        # Their cookies are encrypted with a key kept outside the data folder (or given as HOYOLAB_LINKS_KEY).
+        key = load_key(os.environ.get("HOYOLAB_KEY_FILE", ".hoyolab.key"), os.environ.get("HOYOLAB_LINKS_KEY"))
+        self.links = LinkStore(os.environ.get("HOYOLAB_LINKS_FILE", os.path.join(cache_dir, "hoyolab_links.json")), key)
         cookies = os.environ.get("HOYOLAB_COOKIES", "").strip()
         self.hoyolab = HoyolabClient(cookies or None, self.assets, self.links)
         self.set_emojis: SetEmojis | None = None

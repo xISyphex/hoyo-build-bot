@@ -81,7 +81,9 @@ hour to appear the first time.
 | `CACHE_DIR` | no | Where game data is cached (default `data`). |
 | `ENKA_USER_AGENT` | no | User-Agent sent to Enka.Network. |
 | `CLAIMS_FILE` | no | Where claimed UIDs are saved (default `claims.json` in `CACHE_DIR`). |
-| `HOYOLAB_LINKS_FILE` | no | Where `/hoyolab link` logins are saved (default `hoyolab_links.json` in `CACHE_DIR`, readable by the bot only). |
+| `HOYOLAB_LINKS_FILE` | no | Where `/hoyolab link` logins are saved, encrypted (default `hoyolab_links.json` in `CACHE_DIR`). |
+| `HOYOLAB_KEY_FILE` | no | The key for that file, made on first use (default `.hoyolab.key` in the bot's folder, outside `CACHE_DIR`). Without it the links can't be read and people link again. |
+| `HOYOLAB_LINKS_KEY` | no | The key itself instead of a key file (for Docker, where the bot's folder is rebuilt). |
 | `HOYOLAB_COOKIES` | no | `ltuid_v2=...; ltoken_v2=...` from a HoYoLAB login. Turns on characters that aren't on the showcase (see below). Keep it out of git. |
 
 ## Characters off the showcase (HoYoLAB)

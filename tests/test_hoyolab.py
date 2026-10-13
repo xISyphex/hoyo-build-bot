@@ -15,7 +15,9 @@ import genshin
 from bot.assets import Assets
 from bot.card import draw_card
 from bot.hoyolab import NOTE, HoyolabClient, HoyolabError, genshin_build, starrail_build, zzz_build
-from bot.hoyolab_links import LinkStore, cookie_string, games_of
+import json
+
+from bot.hoyolab_links import LinkStore, cookie_string, games_of, load_key
 from bot.main import pick, with_hoyolab
 from bot.models import PlayerProfile
 
@@ -297,8 +299,10 @@ class HoyolabClientTest(unittest.TestCase):
 class LinkTest(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
-        self.path = Path(self.dir.name) / "hoyolab_links.json"
-        self.links = LinkStore(self.path)
+        self.path = Path(self.dir.name) / "data" / "hoyolab_links.json"
+        self.key_file = Path(self.dir.name) / ".hoyolab.key"
+        self.key = load_key(self.key_file)
+        self.links = LinkStore(self.path, self.key)
 
     def tearDown(self):
         self.dir.cleanup()
@@ -312,12 +316,29 @@ class LinkTest(unittest.TestCase):
     def test_links_are_private_and_survive_a_restart(self):
         self.links.link(42, "ltuid_v2=1; ltoken_v2=v2_x; ltmid_v2=m", {"hsr": ["714485603"]})
         self.assertEqual(stat.S_IMODE(os.stat(self.path).st_mode), 0o600)  # only the bot's own user can read it
-        again = LinkStore(self.path)
+        again = LinkStore(self.path, load_key(self.key_file))  # the same key is read back
         self.assertEqual(again.cookies_for("hsr", "714485603"), "ltuid_v2=1; ltoken_v2=v2_x; ltmid_v2=m")
         self.assertIsNone(again.cookies_for("genshin", "714485603"))
         self.assertEqual(again.unlink(42), {"hsr": ["714485603"]})
-        self.assertIsNone(LinkStore(self.path).cookies_for("hsr", "714485603"))
+        self.assertIsNone(LinkStore(self.path, self.key).cookies_for("hsr", "714485603"))
         self.assertIsNone(again.unlink(42))
+
+    def test_cookies_are_encrypted_with_a_key_outside_the_data_folder(self):
+        self.links.link(42, "ltuid_v2=1; ltoken_v2=v2_secret; ltmid_v2=m", {"hsr": ["714485603"]})
+        self.assertNotIn("v2_secret", self.path.read_text())
+        self.assertEqual(stat.S_IMODE(os.stat(self.key_file).st_mode), 0o600)
+        self.assertNotEqual(self.key_file.parent, self.path.parent)
+        # With another key (say the data folder was copied to a new server) the links can't be read.
+        other = LinkStore(self.path, load_key(Path(self.dir.name) / "other.key"))
+        self.assertIsNone(other.cookies_for("hsr", "714485603"))
+        self.assertEqual(load_key(self.key_file, env_key="abc="), b"abc=")
+
+    def test_links_saved_before_encryption_get_encrypted(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(json.dumps({"42": {"cookies": "ltoken_v2=v2_old", "uids": {"hsr": ["714485603"]}}}))
+        links = LinkStore(self.path, self.key)
+        self.assertEqual(links.cookies_for("hsr", "714485603"), "ltoken_v2=v2_old")
+        self.assertNotIn("v2_old", self.path.read_text())
 
     def test_a_linked_uid_uses_its_owners_login(self):
         client = HoyolabClient(None, Assets("data"), self.links)
