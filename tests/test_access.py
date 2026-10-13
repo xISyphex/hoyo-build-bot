@@ -100,6 +100,41 @@ class AccessCheckTest(unittest.TestCase):
         self.assertFalse(asyncio.run(group.interaction_check(friend)))
         self.assertIn("owner", friend.response.sent[0][0])
 
+    def _add(self, user):
+        """Runs /access add as the owner; returns the owner's reply."""
+        it = _interaction(self.access, OWNER)
+        it.client.user = SimpleNamespace(name="Build Bot")
+        it.client.lookups = SimpleNamespace(per_hour=15)
+        asyncio.run(AccessGroup().add.callback(AccessGroup(), it, user))
+        return it.response.sent[0][0]
+
+    def test_new_users_get_a_guide_without_the_access_commands(self):
+        user = _User(STRANGER)
+        reply = self._add(user)
+        self.assertIn("sent them a DM", reply)
+        self.assertEqual(len(user.dms), 1)
+        guide = str(user.dms[0].to_dict())
+        for command in ("/genshin", "/hsr", "/zzz", "/genshin-claim", "/hsr-claim", "/zzz-claim", "15"):
+            self.assertIn(command, guide)
+        self.assertNotIn("/access", guide)
+        self._add(user)  # adding them again doesn't send it twice
+        self.assertEqual(len(user.dms), 1)
+
+    def test_closed_dms_still_add_the_user(self):
+        reply = self._add(_User(STRANGER, closed=True))
+        self.assertTrue(self.access.allowed(STRANGER))
+        self.assertIn("couldn't DM", reply)
+
+
+class _User:
+    def __init__(self, uid, closed=False):
+        self.id, self.name, self.mention, self.closed, self.dms = uid, "friend", f"<@{uid}>", closed, []
+
+    async def send(self, embed=None):
+        if self.closed:
+            raise discord.Forbidden(SimpleNamespace(status=403, reason="Forbidden"), "Cannot send messages to this user")
+        self.dms.append(embed)
+
 
 if __name__ == "__main__":
     unittest.main()

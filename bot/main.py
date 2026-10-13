@@ -21,6 +21,7 @@ from .claims import ClaimStore
 from .card import CardMaker
 from .embeds import build_embed
 from .enka import ERRORS, EnkaClient, EnkaError
+from .guide import guide_embed
 from .models import CharacterBuild, PlayerProfile
 from .ratelimit import LookupLimit
 from .set_emojis import SetEmojis
@@ -298,8 +299,15 @@ class AccessGroup(app_commands.Group):
     @app_commands.command(name="add", description="Let someone use the bot")
     @app_commands.describe(user="The Discord user to allow")
     async def add(self, interaction: discord.Interaction, user: discord.User) -> None:
-        added = interaction.client.access.add(user.id, user.name)
+        bot: HoyoBot = interaction.client  # type: ignore[assignment]
+        added = bot.access.add(user.id, user.name)
         msg = f"{user.mention} can now use the bot." if added else f"{user.mention} already had access."
+        if added:  # send them a guide to the commands
+            try:
+                await user.send(embed=guide_embed(bot.user.name if bot.user else "the bot", bot.lookups.per_hour))
+                msg += " I sent them a DM with a guide to the commands."
+            except discord.HTTPException:
+                msg += " I couldn't DM them a guide (their DMs are probably closed)."
         await interaction.response.send_message(msg, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
     @app_commands.command(name="remove", description="Stop someone from using the bot")
