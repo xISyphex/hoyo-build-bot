@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import tempfile
+import unicodedata
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,7 +13,8 @@ from types import SimpleNamespace
 import discord
 
 from bot.access import PRIVATE, AccessList
-from bot.main import AccessGroup, CharacterView, PrivateTree
+from bot.guide import PageButton
+from bot.main import AccessGroup, CharacterView, PrivateTree, help_command
 
 OWNER, FRIEND, STRANGER = 1, 2, 3
 
@@ -114,7 +117,22 @@ class AccessCheckTest(unittest.TestCase):
         reply = self._add(user)
         self.assertIn("sent them a DM", reply)
         self.assertEqual(len(user.dms), 1)
-        guide = str(user.dms[0].to_dict())
+        embeds, files, view = user.dms[0]
+        self.assertEqual([f.filename for f in files], ["fairy-guide.jpg"])  # page 1: Fairy with her guide book
+        self.assertIn("attachment://fairy-guide.jpg", str(embeds[0].to_dict()))
+        self.assertEqual(embeds[-1].footer.text[:10], "Page 1 / 2")
+        self.assertEqual(view.children[0].item.label, "Next page ▶")
+        embeds2, files2, view2 = self._flip(view, STRANGER)
+        self.assertEqual([f.filename for f in files2], ["fairy-goodbye.jpg"])  # page 2 ends with the goodbye picture
+        self.assertEqual(embeds2[0].footer.text[:10], "Page 2 / 2")
+        self.assertIn("attachment://fairy-goodbye.jpg", str(embeds2[-1].to_dict()))
+        self.assertIn("I am looking forward to working with you, Proxy~", str(embeds2[-1].to_dict()))
+        credits = unicodedata.normalize("NFKC", embeds2[-1].footer.text)  # slanted letters back to plain ones
+        self.assertIn("@nobawns", credits)  # the artists are credited under the goodbye picture
+        self.assertIn("@yasiro_hayate", credits)
+        self.assertIn("Fairy's Guide for Proxy", str(self._flip(view2, STRANGER)[0][0].to_dict()))  # and back again
+        guide = str([e.to_dict() for e in embeds + embeds2])
+        self.assertNotIn("Master", guide)
         for command in ("/genshin", "/hsr", "/zzz", "/genshin-claim", "/hsr-claim", "/zzz-claim", "15"):
             self.assertIn(command, guide)
         self.assertNotIn("/access", guide)
@@ -122,20 +140,62 @@ class AccessCheckTest(unittest.TestCase):
         self._add(user)  # adding them again doesn't send it twice
         self.assertEqual(len(user.dms), 1)
 
+    def _flip(self, view, user_id):
+        """Presses the guide's page button the way Discord would after a restart: rebuilt from its ID alone."""
+        button = view.children[0]
+        match = re.fullmatch(PageButton.__discord_ui_compiled_template__, button.custom_id)
+        item = asyncio.run(PageButton.from_custom_id(None, button, match))
+        it = _interaction(self.access, user_id)
+        it.client.user = SimpleNamespace(name="Build Bot")
+        it.client.lookups = SimpleNamespace(per_hour=15)
+        it.client.application_id = 123
+        it.response = _EmbedResponse()
+        asyncio.run(item.callback(it))
+        return it.response.edited[0]
+
     def test_closed_dms_still_add_the_user(self):
         reply = self._add(_User(STRANGER, closed=True))
         self.assertTrue(self.access.allowed(STRANGER))
         self.assertIn("couldn't DM", reply)
+
+    def test_help_shows_the_guide_and_access_only_to_the_owner(self):
+        for user_id, sees_access in ((OWNER, True), (STRANGER, False)):
+            it = _interaction(self.access, user_id)
+            it.client.user = SimpleNamespace(name="Build Bot")
+            it.client.lookups = SimpleNamespace(per_hour=15)
+            it.client.application_id = 123
+            it.response = _EmbedResponse()
+            asyncio.run(help_command.callback(it))
+            embeds, files, view, ephemeral = it.response.sent[0]
+            self.assertTrue(ephemeral)
+            self.assertEqual(len(files), 1)
+            self.assertIn("refresher", embeds[0].description)
+            page2 = self._flip(view, user_id)[0]  # the /access section is on page 2
+            self.assertEqual("/access" in str([e.to_dict() for e in page2]), sees_access)
+            self.assertIn("refresher", str(self._flip(self._flip(view, user_id)[2], user_id)[0][0].to_dict()))
+
+
+class _EmbedResponse:
+    def __init__(self):
+        self.sent = []
+
+        self.edited = []
+
+    async def send_message(self, content=None, embeds=(), files=(), view=None, **kwargs):
+        self.sent.append((embeds, files, view, kwargs.get("ephemeral")))
+
+    async def edit_message(self, embeds=(), attachments=(), view=None):
+        self.edited.append((embeds, attachments, view))
 
 
 class _User:
     def __init__(self, uid, closed=False):
         self.id, self.name, self.mention, self.closed, self.dms = uid, "friend", f"<@{uid}>", closed, []
 
-    async def send(self, embed=None):
+    async def send(self, embeds=(), files=(), view=None):
         if self.closed:
             raise discord.Forbidden(SimpleNamespace(status=403, reason="Forbidden"), "Cannot send messages to this user")
-        self.dms.append(embed)
+        self.dms.append((embeds, files, view))
 
 
 if __name__ == "__main__":

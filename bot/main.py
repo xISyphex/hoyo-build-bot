@@ -21,7 +21,7 @@ from .claims import ClaimStore
 from .card import CardMaker
 from .embeds import build_embed
 from .enka import ERRORS, EnkaClient, EnkaError
-from .guide import guide_embed
+from .guide import PageButton, guide_message
 from .models import CharacterBuild, PlayerProfile
 from .ratelimit import LookupLimit
 from .set_emojis import SetEmojis
@@ -86,6 +86,8 @@ class HoyoBot(discord.Client):
             self.tree.add_command(make_command(game))
             self.tree.add_command(make_claim_command(game))
         self.tree.add_command(AccessGroup())
+        self.tree.add_command(help_command)
+        self.add_dynamic_items(PageButton)  # the guide's page buttons, also on old messages
         guild_id = os.environ.get("DEV_GUILD_ID")
         if guild_id:
             # Guild commands appear instantly; global ones can take up to an hour.
@@ -284,6 +286,14 @@ def make_claim_command(game: str) -> app_commands.Command:
     return claim
 
 
+@app_commands.command(name="help", description="How to use the bot")
+async def help_command(interaction: discord.Interaction) -> None:
+    bot: HoyoBot = interaction.client  # type: ignore[assignment]
+    embeds, files, view = guide_message(bot.user.name if bot.user else "the bot", bot.lookups.per_hour,
+                                        bot.application_id, welcome=False, owner=bot.access.is_owner(interaction.user.id))
+    await interaction.response.send_message(embeds=embeds, files=files, view=view, ephemeral=True)
+
+
 class AccessGroup(app_commands.Group):
     """/access add, remove and list: who besides the owner may use the bot."""
 
@@ -304,7 +314,9 @@ class AccessGroup(app_commands.Group):
         msg = f"{user.mention} can now use the bot." if added else f"{user.mention} already had access."
         if added:  # send them a guide to the commands
             try:
-                await user.send(embed=guide_embed(bot.user.name if bot.user else "the bot", bot.lookups.per_hour, bot.application_id))
+                embeds, files, view = guide_message(bot.user.name if bot.user else "the bot", bot.lookups.per_hour,
+                                                    bot.application_id)
+                await user.send(embeds=embeds, files=files, view=view)
                 msg += " I sent them a DM with a guide to the commands."
             except discord.HTTPException:
                 msg += " I couldn't DM them a guide (their DMs are probably closed)."
