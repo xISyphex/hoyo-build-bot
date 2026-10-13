@@ -35,7 +35,8 @@ FONT_DIR = Path(__file__).parent / "fonts"
 TEXT = (238, 236, 246)
 DIM = (176, 172, 196)
 GOLD = (255, 209, 102)
-EFFECTIVE = (94, 234, 212)  # the effective substat count, and the substats it counts
+TEAL = (94, 234, 212)  # Crit Value (or Speed Value)
+EFFECTIVE = GOLD  # the effective substat count, and the substats it counts
 PANEL = (255, 255, 255, 14)
 LINE = (255, 255, 255, 22)
 ART_MAX = 1100  # art is kept at most this tall
@@ -380,7 +381,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     stats = [s for s in build.stats if not _is_zero(s.value)]
     value = gear_value(build, wanted)
     effective = sum(piece_count(p, wanted) for p in build.gear) if wanted and build.gear else None
-    badges = [b for b in ((*value, GOLD) if value else None,
+    badges = [b for b in ((*value, TEAL) if value else None,
                           ("EFFECTIVE SUBS", str(effective), EFFECTIVE) if effective is not None else None) if b]
     footer_h = 58 * len(badges) - (12 if badges else 0)
     box = (STATS_X, PAD, STATS_X + STATS_W, H - PAD)
