@@ -304,7 +304,7 @@ class AccessGroup(app_commands.Group):
         msg = f"{user.mention} can now use the bot." if added else f"{user.mention} already had access."
         if added:  # send them a guide to the commands
             try:
-                await user.send(embed=guide_embed(bot.user.name if bot.user else "the bot", bot.lookups.per_hour))
+                await user.send(embed=guide_embed(bot.user.name if bot.user else "the bot", bot.lookups.per_hour, bot.application_id))
                 msg += " I sent them a DM with a guide to the commands."
             except discord.HTTPException:
                 msg += " I couldn't DM them a guide (their DMs are probably closed)."

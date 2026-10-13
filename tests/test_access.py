@@ -105,6 +105,7 @@ class AccessCheckTest(unittest.TestCase):
         it = _interaction(self.access, OWNER)
         it.client.user = SimpleNamespace(name="Build Bot")
         it.client.lookups = SimpleNamespace(per_hour=15)
+        it.client.application_id = 123
         asyncio.run(AccessGroup().add.callback(AccessGroup(), it, user))
         return it.response.sent[0][0]
 
@@ -117,6 +118,7 @@ class AccessCheckTest(unittest.TestCase):
         for command in ("/genshin", "/hsr", "/zzz", "/genshin-claim", "/hsr-claim", "/zzz-claim", "15"):
             self.assertIn(command, guide)
         self.assertNotIn("/access", guide)
+        self.assertIn("client_id=123&integration_type=1", guide)  # the link to add it to their account
         self._add(user)  # adding them again doesn't send it twice
         self.assertEqual(len(user.dms), 1)
 
