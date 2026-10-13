@@ -35,7 +35,8 @@ FONT_DIR = Path(__file__).parent / "fonts"
 TEXT = (238, 236, 246)
 DIM = (176, 172, 196)
 GOLD = (255, 209, 102)
-EFFECTIVE = (94, 234, 212)  # the effective substat count, and the substats it counts
+TEAL = (94, 234, 212)  # Crit Value (or Speed Value)
+EFFECTIVE = GOLD  # the effective substat count, and the substats it counts
 PANEL = (255, 255, 255, 14)
 LINE = (255, 255, 255, 22)
 ART_MAX = 1100  # art is kept at most this tall
@@ -66,7 +67,7 @@ class Fonts:
         self.small_b = _font("Bold", 18)
         self.slot = _font("Regular", 17)
         self.slot_b = _font("Bold", 14)
-        self.count = _font("Bold", 16)
+        self.count = _font("Bold", 14)
         self.main = _font("Bold", 24)
         self.sub = _font("Regular", 18)
         self.sub_b = _font("SemiBold", 18)
@@ -380,7 +381,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     stats = [s for s in build.stats if not _is_zero(s.value)]
     value = gear_value(build, wanted)
     effective = sum(piece_count(p, wanted) for p in build.gear) if wanted and build.gear else None
-    badges = [b for b in ((*value, GOLD) if value else None,
+    badges = [b for b in ((*value, TEAL) if value else None,
                           ("EFFECTIVE SUBS", str(effective), EFFECTIVE) if effective is not None else None) if b]
     footer_h = 58 * len(badges) - (12 if badges else 0)
     box = (STATS_X, PAD, STATS_X + STATS_W, H - PAD)
@@ -449,6 +450,15 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     return out.getvalue()
 
 
+def _slanted(card: Image.Image, xy, text: str, font, fill, slant: float = 0.22) -> None:
+    """Text leaning right like italics (the bundled font has no italic), centred on x with its bottom at y."""
+    w, h = round(font.getlength(text)) + 8, font.size + 8
+    layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    ImageDraw.Draw(layer).text((w / 2, h - 4), text, font=font, fill=fill, anchor="md")
+    layer = layer.transform(layer.size, Image.AFFINE, (1, slant, -slant * h / 2, 0, 1, 0), Image.BICUBIC)
+    card.alpha_composite(layer, (round(xy[0] - w / 2), round(xy[1] - h + 4)))
+
+
 def _gear(card: Image.Image, piece: Gear, icon: Image.Image | None, box, light, max_level: int, badge: str | None,
           wanted: set[str] | None = None) -> None:
     """One piece: its picture, main stat and value, then the substats with a dot per roll. Substats the character
@@ -486,7 +496,7 @@ def _gear(card: Image.Image, piece: Gear, icon: Image.Image | None, box, light, 
             dx -= 8
         y += step
     if wanted and piece.subs:
-        draw.text((x0 + 14, y + 4), str(piece_count(piece, wanted)), font=f.count, fill=EFFECTIVE, anchor="lt")
+        _slanted(card, ((x0 + x1) / 2, y1 - 8), str(piece_count(piece, wanted)), f.count, EFFECTIVE)
 
 
 CONS_W, CONS_TOP, CONS_BOTTOM = 84, 160, H - PAD - 176  # the strip of six marks left of the art
