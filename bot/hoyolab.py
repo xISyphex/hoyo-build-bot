@@ -149,6 +149,8 @@ SR_NAMES = {
     "Outgoing Healing Boost": "Outgoing Healing",
     "Break Effect": "Break Effect",
 }
+SR_ALWAYS = {"HP", "ATK", "DEF", "SPD", "CRIT Rate", "CRIT DMG", "Break Effect", "Energy Regen Rate",
+             "Effect Hit Rate", "Effect RES"}
 SR_SLOTS = dict(enumerate(sr.SLOT_ORDER, start=1))  # pos 1 = Head ... 6 = Link Rope
 SR_TALENTS = dict(zip(("Point01", "Point02", "Point03", "Point04"), sr.TALENT_LABELS))
 
@@ -169,7 +171,9 @@ def starrail_build(assets: Assets, char) -> CharacterBuild:
     skeleton = sr.parse_character(assets, {"avatarId": char.id, "level": char.level, "rank": char.rank})
     notes = [NOTE]
     properties = getattr(char, "properties", None)
-    stats = [_sr_stat(p.info.name, p.final) for p in properties] if properties else []
+    stats = [_sr_stat(p.info.name, p.final) for p in properties or []]
+    # Like the Enka cards: bonuses the character doesn't have (0%) are left out, the core stats always shown.
+    stats = [st for st in stats if st.name in SR_ALWAYS or _num(st.value)]
     talents = []
     for skill in getattr(char, "skills", None) or []:
         if skill.anchor in SR_TALENTS and skill.point_type == 2:
@@ -261,6 +265,7 @@ def zzz_build(assets: Assets, agent) -> CharacterBuild:
 
 ERRORS = (
     (genshin.DataNotPublic, "Their HoYoLAB Battle Chronicle is private, so I can't see the rest of their characters."),
+    (genshin.errors.UserNotesAccessDenied, "HoYoLAB only shares these builds with the player themselves, so I can't see the rest of their characters."),
     (genshin.AccountNotFound, "They don't have a HoYoLAB profile for this game, so I can't see the rest of their characters."),
     (genshin.TooManyRequests, "The bot has reached HoYoLAB's daily limit of 30 players. Characters off the showcase work again tomorrow."),
     (genshin.InvalidCookies, "The bot's HoYoLAB login has expired, so only showcase characters work for now."),
@@ -298,7 +303,7 @@ class HoyolabClient:
                 if message is None:
                     log.warning("HoYoLAB error for %s %s: %s", game, uid, exc)
                     raise HoyolabError("HoYoLAB returned an error, so only showcase characters work right now.") from exc
-                if isinstance(exc, (genshin.DataNotPublic, genshin.AccountNotFound)):
+                if isinstance(exc, (genshin.DataNotPublic, genshin.AccountNotFound, genshin.errors.UserNotesAccessDenied)):
                     self._failed[key] = (time.monotonic() + CACHE_SECONDS, message)
                 raise HoyolabError(message) from exc
             except Exception as exc:
