@@ -21,7 +21,7 @@ def guide_embed(bot_name: str, per_hour: int, app_id: int | None = None) -> disc
     )
     if app_id:
         embed.add_field(
-            name="1. Add it to your Discord account",
+            name="First, add it to your Discord account",
             value=f"Open [this link]({install_link(app_id)}), pick **Add to My Apps** and press **Authorize**."
             " Then the commands work in any server, group chat or DM, even where the bot isn't a member."
             " In servers that block outside apps, only you will see the replies.",
