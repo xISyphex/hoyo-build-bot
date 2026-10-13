@@ -384,6 +384,8 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     badges = [b for b in ((*value, TEAL) if value else None,
                           ("EFFECTIVE SUBS", str(effective), EFFECTIVE) if effective is not None else None) if b]
     footer_h = 58 * len(badges) - (12 if badges else 0)
+    # ATK% on gear raises the ATK total; a few totals have longer names than the gear lines
+    wanted_totals = {TOTAL_NAMES.get(n, n.rstrip("%")) for n in wanted or ()}
     box = (STATS_X, PAD, STATS_X + STATS_W, H - PAD)
     _panel(card, box)
     draw = ImageDraw.Draw(card)
@@ -409,8 +411,9 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
         card.alpha_composite(stat_icons.icon(name, 20, light, orb), (box[0] + 16, round(mid - 10)))
         room = box[2] - 18 - (box[0] + 46) - 10 - draw.textlength(s.value, font=f.stat_b)
         font = f.stat if draw.textlength(name, font=f.stat) <= room else f.stat_s  # long names step down a size
-        draw.text((box[0] + 46, mid), _fit_text(draw, name, font, room), font=font, fill=TEXT, anchor="lm")
-        draw.text((box[2] - 18, mid), s.value, font=f.stat_b, fill=TEXT, anchor="rm")
+        color = EFFECTIVE if s.name in wanted_totals else TEXT
+        draw.text((box[0] + 46, mid), _fit_text(draw, name, font, room), font=font, fill=color, anchor="lm")
+        draw.text((box[2] - 18, mid), s.value, font=f.stat_b, fill=color, anchor="rm")
         y += row_h
     y = box[3] - 12 - footer_h
     for label, value, color in badges:
@@ -450,6 +453,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     return out.getvalue()
 
 
+TOTAL_NAMES = {"ER": "Energy Recharge", "EM": "Elemental Mastery", "AP": "Anomaly Proficiency"}
 DOTS = 5  # room for this many upgrade dots after each substat value (the most any game allows)
 
 
