@@ -12,6 +12,7 @@ import re
 
 import aiohttp
 import discord
+import genshin
 from discord import app_commands
 from discord.ext import tasks
 
@@ -24,6 +25,7 @@ from .embeds import build_embed
 from .enka import ERRORS, EnkaClient, EnkaError
 from .guide import PageButton, guide_message
 from .hoyolab import HoyolabClient, HoyolabError
+from .hoyolab_links import LinkStore, cookie_string, games_of
 from .models import CharacterBuild, PlayerProfile
 from .ratelimit import LookupLimit
 from .set_emojis import SetEmojis
@@ -68,8 +70,10 @@ class HoyoBot(discord.Client):
         self.session: aiohttp.ClientSession | None = None
         self.enka: EnkaClient | None = None
         # Characters off the showcase, from HoYoLAB; only when the server has a HoYoLAB login (cookies).
+        # People's own HoYoLAB logins (/hoyolab link) unlock their own UIDs; HOYOLAB_COOKIES is the server's own.
+        self.links = LinkStore(os.environ.get("HOYOLAB_LINKS_FILE", os.path.join(cache_dir, "hoyolab_links.json")))
         cookies = os.environ.get("HOYOLAB_COOKIES", "").strip()
-        self.hoyolab: HoyolabClient | None = HoyolabClient(cookies, self.assets) if cookies else None
+        self.hoyolab = HoyolabClient(cookies or None, self.assets, self.links)
         self.set_emojis: SetEmojis | None = None
         self.cards: CardMaker | None = None
 
@@ -93,6 +97,7 @@ class HoyoBot(discord.Client):
             self.tree.add_command(make_command(game))
             self.tree.add_command(make_claim_command(game))
         self.tree.add_command(AccessGroup())
+        self.tree.add_command(HoyolabGroup())
         self.tree.add_command(help_command)
         self.add_dynamic_items(PageButton)  # the guide's page buttons, also on old messages
         guild_id = os.environ.get("DEV_GUILD_ID")
@@ -211,27 +216,28 @@ def make_command(game: str) -> app_commands.Command:
                 return
         await interaction.response.defer(thinking=True)
         profile, problem = None, None
+        hoyolab = bot.hoyolab.available(game, uid)
         try:
             profile = await bot.enka.fetch(game, uid)
         except EnkaError as exc:
             # A UID that doesn't exist stays an error; with Enka down, HoYoLAB can still help.
-            if not bot.hoyolab or str(exc) in (ERRORS[400], ERRORS[404]):
+            if not hoyolab or str(exc) in (ERRORS[400], ERRORS[404]):
                 await interaction.followup.send(str(exc))
                 return
             problem = str(exc)
         except Exception:
             log.exception("Failed to load %s profile %s", game, uid)
-            if not bot.hoyolab:
+            if not hoyolab:
                 await interaction.followup.send("Something went wrong reading that profile. Try again later.")
                 return
             problem = "Something went wrong reading that profile on Enka.Network."
         if profile is None:
             profile = PlayerProfile(game, uid, f"UID {uid}", 0, [], 60, PROFILE_URLS[game].format(uid=uid))
-        if bot.hoyolab and (known := bot.hoyolab.cached(game, uid)):
+        if hoyolab and (known := bot.hoyolab.cached(game, uid)):
             profile = with_hoyolab(profile, known)
 
         match, hoyolab_problem = pick(bot, game, profile, character), None
-        if not match and bot.hoyolab and bot.hoyolab.cached(game, uid) is None:
+        if not match and hoyolab and bot.hoyolab.cached(game, uid) is None:
             # Not on the showcase: HoYoLAB has every character, if the player's Battle Chronicle is public.
             try:
                 profile = with_hoyolab(profile, await bot.hoyolab.fetch(game, uid))
@@ -250,7 +256,7 @@ def make_command(game: str) -> app_commands.Command:
                 await interaction.followup.send(f"**{profile.nickname}** (UID {uid}) has no characters to show. {hint}{extra}")
             else:
                 names = [c.name for c in profile.characters]
-                where = "characters" if bot.hoyolab and hoyolab_problem is None else "showcase"
+                where = "characters" if hoyolab and hoyolab_problem is None else "showcase"
                 await interaction.followup.send(
                     f"**{character}** isn't in {profile.nickname}'s {where}. "
                     f"Characters shown: {', '.join(names[:40])}{' and more' if len(names) > 40 else ''}.\n"
@@ -271,7 +277,7 @@ def make_command(game: str) -> app_commands.Command:
             profile = bot.enka.cached(game, uid)
             if profile:
                 names = [c.name for c in profile.characters]
-                if bot.hoyolab:  # everything else they own, if HoYoLAB was asked already; else every character
+                if bot.hoyolab.available(game, uid):  # everything else they own, if HoYoLAB was asked already; else every character
                     known = bot.hoyolab.cached(game, uid)
                     others = [b.name for b in known] if known is not None else bot.assets.character_names(game)
                     names += [n for n in others if n not in names]
@@ -351,6 +357,86 @@ async def help_command(interaction: discord.Interaction) -> None:
     embeds, files, view = guide_message(bot.user.name if bot.user else "the bot", bot.lookups.per_hour,
                                         bot.application_id, welcome=False, owner=bot.access.is_owner(interaction.user.id))
     await interaction.response.send_message(embeds=embeds, files=files, view=view, ephemeral=True)
+
+
+GAME_SHORT = {"genshin": "Genshin", "hsr": "Star Rail", "zzz": "ZZZ"}
+
+
+def describe_uids(uids: dict[str, list[str]]) -> str:
+    return ", ".join(f"{GAME_SHORT[g]} {', '.join(u)}" for g, u in uids.items() if u) or "no game accounts"
+
+
+class LinkModal(discord.ui.Modal, title="Link your HoYoLAB account"):
+    """Asks for the three HoYoLAB login cookies in a private form, so they never appear in a chat."""
+
+    ltuid = discord.ui.TextInput(label="ltuid_v2 (a number)", max_length=30)
+    ltoken = discord.ui.TextInput(label="ltoken_v2 (starts with v2_)", max_length=400)
+    ltmid = discord.ui.TextInput(label="ltmid_v2", max_length=60)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        bot: HoyoBot = interaction.client  # type: ignore[assignment]
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        values = [str(v.value).strip().strip('"').strip() for v in (self.ltuid, self.ltoken, self.ltmid)]
+        cookies = cookie_string(*values)
+        try:
+            accounts = await genshin.Client(cookies, lang="en-us").get_game_accounts()
+        except genshin.InvalidCookies:
+            await interaction.followup.send(
+                "Those cookies didn't work. Copy the three values again from hoyolab.com while logged in, then retry.",
+                ephemeral=True,
+            )
+            return
+        except Exception:
+            log.exception("Could not check HoYoLAB cookies")
+            await interaction.followup.send("Couldn't reach HoYoLAB to check them. Try again in a moment.", ephemeral=True)
+            return
+        uids = games_of(accounts)
+        if not uids:
+            await interaction.followup.send(
+                "That HoYoLAB account has no Genshin, Star Rail or ZZZ accounts linked, so nothing was saved.", ephemeral=True
+            )
+            return
+        previous = bot.links.uids(interaction.user.id) or {}
+        bot.links.link(interaction.user.id, cookies, uids)
+        bot.hoyolab.forget(previous)
+        bot.hoyolab.forget(uids)
+        await interaction.followup.send(
+            f"Linked: {describe_uids(uids)}. Lookups of these UIDs can now show every character, not just the showcase, "
+            "for anyone who looks them up. `/hoyolab unlink` deletes your cookies from the bot.",
+            ephemeral=True,
+        )
+
+
+class HoyolabGroup(app_commands.Group):
+    """/hoyolab link, unlink and status: people's own HoYoLAB logins, for their characters off the showcase."""
+
+    def __init__(self) -> None:
+        super().__init__(name="hoyolab", description="Show all your characters, not just your showcase")
+
+    @app_commands.command(name="link", description="Link your HoYoLAB account so all your characters can be shown")
+    async def link(self, interaction: discord.Interaction) -> None:
+        await interaction.response.send_modal(LinkModal())
+
+    @app_commands.command(name="unlink", description="Delete your HoYoLAB cookies from the bot")
+    async def unlink(self, interaction: discord.Interaction) -> None:
+        bot: HoyoBot = interaction.client  # type: ignore[assignment]
+        removed = bot.links.unlink(interaction.user.id)
+        if removed is None:
+            await interaction.response.send_message("You haven't linked a HoYoLAB account.", ephemeral=True)
+            return
+        bot.hoyolab.forget(removed)
+        await interaction.response.send_message(
+            "Done, your HoYoLAB cookies are deleted from the bot. To be extra safe, log out of hoyolab.com in your "
+            "browser, which makes the old cookies stop working.",
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="status", description="Show which of your game accounts are linked")
+    async def status(self, interaction: discord.Interaction) -> None:
+        bot: HoyoBot = interaction.client  # type: ignore[assignment]
+        uids = bot.links.uids(interaction.user.id)
+        msg = f"Linked: {describe_uids(uids)}." if uids is not None else "You haven't linked a HoYoLAB account. Use `/hoyolab link`."
+        await interaction.response.send_message(msg, ephemeral=True)
 
 
 class AccessGroup(app_commands.Group):

@@ -81,6 +81,7 @@ hour to appear the first time.
 | `CACHE_DIR` | no | Where game data is cached (default `data`). |
 | `ENKA_USER_AGENT` | no | User-Agent sent to Enka.Network. |
 | `CLAIMS_FILE` | no | Where claimed UIDs are saved (default `claims.json` in `CACHE_DIR`). |
+| `HOYOLAB_LINKS_FILE` | no | Where `/hoyolab link` logins are saved (default `hoyolab_links.json` in `CACHE_DIR`, readable by the bot only). |
 | `HOYOLAB_COOKIES` | no | `ltuid_v2=...; ltoken_v2=...` from a HoYoLAB login. Turns on characters that aren't on the showcase (see below). Keep it out of git. |
 
 ## Characters off the showcase (HoYoLAB)
@@ -93,6 +94,12 @@ at most 30 different UIDs a day, so HoYoLAB is asked only when the showcase
 doesn't have the character (results are kept for half an hour). Such cards say
 "via HoYoLAB" in the corner. HoYoLAB may hide Star Rail relic stats from other
 players; those cards show the light cone, relic sets and levels only.
+
+HoYoLAB only shares full builds with the player themselves, so the server's
+own login mostly helps its owner. Anyone can run `/hoyolab link` and paste
+their own `ltuid_v2`, `ltoken_v2` and `ltmid_v2` cookies into a private form;
+lookups of the UIDs on that HoYoLAB account then use their login and show every
+character. `/hoyolab unlink` deletes it and `/hoyolab status` shows what's linked.
 
 `python -m bot.hoyolab_check genshin|hsr|zzz UID` prints what HoYoLAB sends
 for one player (no names or cookies), to check the setup on the server.

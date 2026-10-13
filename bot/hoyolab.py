@@ -24,6 +24,7 @@ from .games import genshin as gi
 from .games import starrail as sr
 from .games import zenless as zz
 from .games import fmt_int
+from .hoyolab_links import LinkStore
 from .models import CharacterBuild, Gear, Stat, Weapon
 
 log = logging.getLogger(__name__)
@@ -149,6 +150,8 @@ SR_NAMES = {
     "Outgoing Healing Boost": "Outgoing Healing",
     "Break Effect": "Break Effect",
 }
+SR_ALWAYS = {"HP", "ATK", "DEF", "SPD", "CRIT Rate", "CRIT DMG", "Break Effect", "Energy Regen Rate",
+             "Effect Hit Rate", "Effect RES"}
 SR_SLOTS = dict(enumerate(sr.SLOT_ORDER, start=1))  # pos 1 = Head ... 6 = Link Rope
 SR_TALENTS = dict(zip(("Point01", "Point02", "Point03", "Point04"), sr.TALENT_LABELS))
 
@@ -169,7 +172,9 @@ def starrail_build(assets: Assets, char) -> CharacterBuild:
     skeleton = sr.parse_character(assets, {"avatarId": char.id, "level": char.level, "rank": char.rank})
     notes = [NOTE]
     properties = getattr(char, "properties", None)
-    stats = [_sr_stat(p.info.name, p.final) for p in properties] if properties else []
+    stats = [_sr_stat(p.info.name, p.final) for p in properties or []]
+    # Like the Enka cards: bonuses the character doesn't have (0%) are left out, the core stats always shown.
+    stats = [st for st in stats if st.name in SR_ALWAYS or _num(st.value)]
     talents = []
     for skill in getattr(char, "skills", None) or []:
         if skill.anchor in SR_TALENTS and skill.point_type == 2:
@@ -261,6 +266,7 @@ def zzz_build(assets: Assets, agent) -> CharacterBuild:
 
 ERRORS = (
     (genshin.DataNotPublic, "Their HoYoLAB Battle Chronicle is private, so I can't see the rest of their characters."),
+    (genshin.errors.UserNotesAccessDenied, "HoYoLAB only shares these builds with the player themselves, so I can't see the rest of their characters."),
     (genshin.AccountNotFound, "They don't have a HoYoLAB profile for this game, so I can't see the rest of their characters."),
     (genshin.TooManyRequests, "The bot has reached HoYoLAB's daily limit of 30 players. Characters off the showcase work again tomorrow."),
     (genshin.InvalidCookies, "The bot's HoYoLAB login has expired, so only showcase characters work for now."),
@@ -268,13 +274,40 @@ ERRORS = (
 
 
 class HoyolabClient:
-    def __init__(self, cookies: str, assets: Assets):
-        self.client = genshin.Client(cookies, lang="en-us")
+    """Reads HoYoLAB with the login of whoever linked the UID (/hoyolab link), else with the server's own
+    (HOYOLAB_COOKIES), if there is one."""
+
+    def __init__(self, cookies: str | None, assets: Assets, links: LinkStore | None = None):
+        self.client = genshin.Client(cookies, lang="en-us") if cookies else None
+        self.links = links
+        self._clients: dict[str, genshin.Client] = {}  # one per linked login
         self.assets = assets
         self._cache: dict[tuple[str, str], tuple[float, list[CharacterBuild]]] = {}
         self._locks: dict[tuple[str, str], asyncio.Lock] = {}
         # Answers like "private" are kept too: asking again would only use up the daily limit.
         self._failed: dict[tuple[str, str], tuple[float, str]] = {}
+
+    def _client_for(self, game: str, uid: str) -> tuple[genshin.Client | None, bool]:
+        """The client to ask about this UID, and whether it's the player's own linked login."""
+        cookies = self.links.cookies_for(game, uid) if self.links else None
+        if cookies:
+            if cookies not in self._clients:
+                self._clients[cookies] = genshin.Client(cookies, lang="en-us")
+            return self._clients[cookies], True
+        return self.client, False
+
+    def available(self, game: str, uid: str) -> bool:
+        """Whether HoYoLAB can be asked about this UID at all."""
+        return self._client_for(game, uid)[0] is not None
+
+    def forget(self, uids: dict[str, list[str]]) -> None:
+        """Drops what's kept for these UIDs, e.g. after someone links or unlinks them."""
+        for game, game_uids in uids.items():
+            for uid in game_uids:
+                self._cache.pop((game, uid), None)
+                self._failed.pop((game, uid), None)
+        still_linked = self.links.all_cookies() if self.links else set()
+        self._clients = {c: client for c, client in self._clients.items() if c in still_linked}
 
     def cached(self, game: str, uid: str) -> list[CharacterBuild] | None:
         entry = self._cache.get((game, uid))
@@ -291,14 +324,19 @@ class HoyolabClient:
             failed = self._failed.get(key)
             if failed and failed[0] > time.monotonic():
                 raise HoyolabError(failed[1])
+            client, linked = self._client_for(game, uid)
+            if client is None:
+                raise HoyolabError("HoYoLAB isn't set up for this player.")
             try:
-                builds = await self._fetch(game, int(uid))
+                builds = await self._fetch(client, game, int(uid))
             except genshin.GenshinException as exc:
                 message = next((m for kind, m in ERRORS if isinstance(exc, kind)), None)
+                if linked and isinstance(exc, genshin.InvalidCookies):
+                    message = "Their HoYoLAB link has expired. They can run `/hoyolab link` again."
                 if message is None:
                     log.warning("HoYoLAB error for %s %s: %s", game, uid, exc)
                     raise HoyolabError("HoYoLAB returned an error, so only showcase characters work right now.") from exc
-                if isinstance(exc, (genshin.DataNotPublic, genshin.AccountNotFound)):
+                if isinstance(exc, (genshin.DataNotPublic, genshin.AccountNotFound, genshin.errors.UserNotesAccessDenied)):
                     self._failed[key] = (time.monotonic() + CACHE_SECONDS, message)
                 raise HoyolabError(message) from exc
             except Exception as exc:
@@ -312,24 +350,24 @@ class HoyolabClient:
                 self._failed.pop(k, None)
             return builds
 
-    async def _fetch(self, game: str, uid: int) -> list[CharacterBuild]:
+    async def _fetch(self, client: genshin.Client, game: str, uid: int) -> list[CharacterBuild]:
         builds = []
         if game == "genshin":
-            data = await self.client.get_genshin_detailed_characters(uid)
+            data = await client.get_genshin_detailed_characters(uid)
             raw = data.characters
             convert = genshin_build
         elif game == "hsr":
             try:
-                data = await self.client.get_starrail_characters(uid)
+                data = await client.get_starrail_characters(uid)
             except (pydantic.ValidationError, KeyError, TypeError):  # relics come without stats when HoYoLAB hides them
-                data = await self.client.get_starrail_characters(uid, simple=True)
+                data = await client.get_starrail_characters(uid, simple=True)
             raw = data.avatar_list
             convert = starrail_build
         else:
-            agents = await self.client.get_zzz_agents(uid)
+            agents = await client.get_zzz_agents(uid)
             raw = []
             for start in range(0, len(agents), 5):  # a few at a time, one request per agent
-                raw += await self.client.get_zzz_agent_info([a.id for a in agents[start:start + 5]], uid=uid)
+                raw += await client.get_zzz_agent_info([a.id for a in agents[start:start + 5]], uid=uid)
             convert = zzz_build
         for item in raw:
             try:

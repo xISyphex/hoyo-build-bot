@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import stat
+import tempfile
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 
 import genshin
 
 from bot.assets import Assets
 from bot.card import draw_card
 from bot.hoyolab import NOTE, HoyolabClient, HoyolabError, genshin_build, starrail_build, zzz_build
+from bot.hoyolab_links import LinkStore, cookie_string, games_of
 from bot.main import pick, with_hoyolab
 from bot.models import PlayerProfile
 
@@ -76,7 +82,7 @@ def _sr_info(t, name, relic_name=None):
             "property_name_filter": name}
 
 
-SR_INFO = {"1": _sr_info(1, "HP"), "27": _sr_info(27, "HP"), "5": _sr_info(5, "CRIT Rate"),
+SR_INFO = {"12": _sr_info(12, "Outgoing Healing Boost"), "1": _sr_info(1, "HP"), "27": _sr_info(27, "HP"), "5": _sr_info(5, "CRIT Rate"),
            "6": _sr_info(6, "CRIT DMG"), "7": _sr_info(7, "SPD"), "9": _sr_info(9, "Energy Regeneration Rate")}
 
 
@@ -109,6 +115,7 @@ def _starrail(detailed):
             {"property_type": 7, "base": "", "add": "", "final": "134.0"},
             {"property_type": 5, "base": "", "add": "", "final": "72.4%"},
             {"property_type": 9, "base": "", "add": "", "final": "100.0%"},
+            {"property_type": 12, "base": "", "add": "", "final": "0.0%"},
         ]
         char["skills"] = [
             {"point_id": "1", "point_type": 2, "item_url": "", "level": 6, "is_activated": True, "is_rank_work": False,
@@ -182,6 +189,7 @@ class HoyolabBuildTest(unittest.TestCase):
         stats = {s.name: s.value for s in build.stats}
         self.assertEqual(build.name, "Jingliu")
         self.assertEqual(build.constellation, 2)
+        # 0% Outgoing Healing is left out
         self.assertEqual(stats, {"HP": "4,302", "SPD": "134", "CRIT Rate": "72.4%", "Energy Regen Rate": "100.0%"})
         self.assertEqual([(t.name, t.value) for t in build.talents], [("Basic ATK", "6"), ("Ultimate", "12")])
         self.assertEqual(build.weapon.name, "I Shall Be My Own Sword")
@@ -271,11 +279,58 @@ class HoyolabClientTest(unittest.TestCase):
                 asyncio.run(self.client.fetch("genshin", "618285856"))
         self.assertEqual(self.calls, 1)  # asking again would only use up the 30 UIDs a day
 
+    def test_other_players_builds_are_refused_and_remembered(self):
+        refused = genshin.errors.UserNotesAccessDenied({"retcode": 10104, "message": "Cannot view real-time notes of other users."})
+        self.client.client.get_genshin_detailed_characters = self._answer(refused)
+        for _ in range(2):
+            with self.assertRaisesRegex(HoyolabError, "only shares these builds with the player"):
+                asyncio.run(self.client.fetch("genshin", "618285856"))
+        self.assertEqual(self.calls, 1)
+
     def test_daily_limit_is_explained(self):
         limit = genshin.TooManyRequests({"retcode": 10101, "message": "Cannot get data for more than 30 accounts"})
         self.client.client.get_starrail_characters = self._answer(limit)
         with self.assertRaisesRegex(HoyolabError, "30 players"):
             asyncio.run(self.client.fetch("hsr", "800069903"))
+
+
+class LinkTest(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.path = Path(self.dir.name) / "hoyolab_links.json"
+        self.links = LinkStore(self.path)
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def test_game_accounts_become_uids_per_game(self):
+        accounts = [SimpleNamespace(game_biz="hk4e_global", uid=700000001), SimpleNamespace(game_biz="hkrpg_global", uid=714485603),
+                    SimpleNamespace(game_biz="bh3_global", uid=1), SimpleNamespace(game_biz="nap_global", uid=1500000001)]
+        self.assertEqual(games_of(accounts), {"genshin": ["700000001"], "hsr": ["714485603"], "zzz": ["1500000001"]})
+        self.assertEqual(cookie_string(" 1 ", "v2_x", "m"), "ltuid_v2=1; ltoken_v2=v2_x; ltmid_v2=m")
+
+    def test_links_are_private_and_survive_a_restart(self):
+        self.links.link(42, "ltuid_v2=1; ltoken_v2=v2_x; ltmid_v2=m", {"hsr": ["714485603"]})
+        self.assertEqual(stat.S_IMODE(os.stat(self.path).st_mode), 0o600)  # only the bot's own user can read it
+        again = LinkStore(self.path)
+        self.assertEqual(again.cookies_for("hsr", "714485603"), "ltuid_v2=1; ltoken_v2=v2_x; ltmid_v2=m")
+        self.assertIsNone(again.cookies_for("genshin", "714485603"))
+        self.assertEqual(again.unlink(42), {"hsr": ["714485603"]})
+        self.assertIsNone(LinkStore(self.path).cookies_for("hsr", "714485603"))
+        self.assertIsNone(again.unlink(42))
+
+    def test_a_linked_uid_uses_its_owners_login(self):
+        client = HoyolabClient(None, Assets("data"), self.links)
+        self.assertFalse(client.available("hsr", "714485603"))  # no server login and nobody linked it
+        self.links.link(42, "ltuid_v2=1; ltoken_v2=v2_x; ltmid_v2=m", {"hsr": ["714485603"]})
+        self.assertTrue(client.available("hsr", "714485603"))
+        linked, own = client._client_for("hsr", "714485603")
+        self.assertTrue(own)
+        self.assertEqual(dict(linked.cookie_manager.cookies)["ltuid_v2"], "1")
+        self.assertFalse(client.available("hsr", "800069903"))
+        self.links.unlink(42)
+        client.forget({"hsr": ["714485603"]})
+        self.assertFalse(client.available("hsr", "714485603"))
 
 
 if __name__ == "__main__":

@@ -62,7 +62,7 @@ def guide_message(bot_name: str, per_hour: int, app_id: int | None = None, welco
     def section(page: int, title: str, text: str) -> None:
         nonlocal step
         step += 1
-        pages[page].add_field(name=f"{'①②③④⑤⑥'[step - 1]} {title}", value=text, inline=False)
+        pages[page].add_field(name=f"{'①②③④⑤⑥⑦'[step - 1]} {title}", value=text, inline=False)
 
     if app_id:
         section(
@@ -93,8 +93,16 @@ def guide_message(bot_name: str, per_hour: int, app_id: int | None = None, welco
     )
     section(
         1,
+        "Show me everything",
+        "Your showcase only holds a few characters. `/hoyolab link` lets me see all of yours, Proxy."
+        " On hoyolab.com on a PC, log in, press **Ctrl+Shift+I**, open **Application → Cookies**,"
+        " and copy `ltuid_v2`, `ltoken_v2` and `ltmid_v2` into the form. They are a login to your HoYoLAB account,"
+        " so only share them if you trust this bot's owner. `/hoyolab unlink` makes me forget them.",
+    )
+    section(
+        1,
         "Rules",
-        "I can only show characters in the player's in-game showcase, with character details turned on."
+        "Without `/hoyolab link`, I can only show characters in the player's in-game showcase, with character details turned on."
         " After changing the showcase, give the data a few minutes to update. Even I can't rush that.\n"
         f"You may look up **{per_hour}** characters per hour. Please don't overwork me, Proxy.",
     )
