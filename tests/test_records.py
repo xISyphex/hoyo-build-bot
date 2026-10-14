@@ -46,20 +46,20 @@ class ReadersTest(unittest.TestCase):
 
     def test_scores(self):
         self.assertEqual(dict(R.hsr_pf(F.pf()).headline)["Score"], "114,632")
-        self.assertEqual(R.hsr_apoc(F.apoc()).teams[1].result, "3,720 pts")
+        self.assertEqual(R.hsr_apoc(F.apoc()).teams[1].chips, [("score", "3,720")])
 
     def test_anomaly_arbitration_knights_then_king(self):
         rec = R.hsr_aa(F.aa())
         self.assertEqual([t.label for t in rec.teams],
                          ["Wolf Knight", "Lion Knight", "Stag Knight", "Sovereign of Thrones · Hard Mode"])
-        self.assertEqual(rec.teams[3].result, "3★ · 4 cycles")
+        self.assertEqual(rec.teams[3].chips, [("stars", "3/3"), ("cycles", "4")])
         self.assertEqual([t.stage for t in rec.teams], ["", "", "", "King"])
 
     def test_zzz_ranking(self):
         sd, da = R.zzz_sd(F.sd()), R.zzz_da(F.da())
         self.assertEqual(dict(sd.headline)["Top"], "4.21%")
         self.assertEqual(dict(da.headline)["Top"], "2.8%")
-        self.assertEqual(sd.teams[0].result, "31,890 pts · S · 1:44")
+        self.assertEqual(sd.teams[0].chips, [("rating", "S"), ("score", "31,890"), ("time", "1:44")])
         self.assertEqual(len(da.teams), 4)
         self.assertEqual((da.teams[3].stage, da.teams[3].label), ("Adversity Mode", "Notorious - Miasma Priest"))
         self.assertEqual(dict(da.headline)["Adversity top"], "11.3%")
@@ -91,6 +91,19 @@ class DrawTest(unittest.TestCase):
             img = Image.open(io.BytesIO(draw_records(game, "800069903", recs, {})))
             self.assertEqual(img.width, W)
             self.assertGreater(img.height, 300)
+
+    def test_boss_art_and_medal_pictures(self):
+        rec = R.hsr_aa(F.aa())
+        rec.teams[3].art, rec.medal = "boss.png", "medal.png"
+        pics = {"boss.png": Image.new("RGBA", (300, 400), (200, 40, 40, 255)), "medal.png": Image.new("RGBA", (64, 64), (250, 200, 60, 255))}
+        img = Image.open(io.BytesIO(draw_records("hsr", "800069903", [rec], pics)))
+        self.assertEqual(img.width, W)
+
+    def test_every_rating_plate(self):
+        from bot import card, record_icons
+        card.FONTS = card.FONTS or card.Fonts()
+        for letter in ("S+", "S", "A", "B"):
+            self.assertEqual(record_icons.rating(letter, 24, card.FONTS.main).height, 24)
 
 
 if __name__ == "__main__":

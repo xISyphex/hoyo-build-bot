@@ -34,10 +34,13 @@ class Member:
 
 @dataclass
 class Team:
-    label: str  # e.g. "Node 1", "Knight · Wolf", "12-3 · First half"
-    result: str = ""  # e.g. "8 cycles", "31,204 pts"
+    label: str  # e.g. "Node 1", "Wolf Knight", "12-3 · First half"
+    # This node's own results, each drawn with its icon: ("stars", "3/3"), ("cycles", "2"), ("score", "40,000"),
+    # ("rating", "S"), ("time", "1:44"), ("text", "boss not defeated")
+    chips: list[tuple[str, str]] = field(default_factory=list)
     members: list[Member] = field(default_factory=list)
     stage: str = ""  # set for a stage shown in its own row under the others, with this header (e.g. "King")
+    art: str | None = None  # the boss's picture from HoYoLAB, faded into the panel
 
 
 @dataclass
@@ -48,6 +51,7 @@ class Record:
     headline: list[tuple[str, str]] = field(default_factory=list)  # e.g. [("Stars", "36 / 36"), ("Cycles", "8")]
     teams: list[Team] = field(default_factory=list)
     empty: str | None = None  # why there's nothing to show, e.g. "No runs this season yet."
+    medal: str | None = None  # Anomaly Arbitration's medal picture from HoYoLAB
 
 
 @dataclass(frozen=True)
@@ -184,9 +188,8 @@ def hsr_moc(data) -> Record:
         return rec
     rec.headline = [("Stars", _stars(data.total_stars, 36)), ("Floor", _floor_no(floor.name)), ("Cycles", str(floor.round_num))]
     _starward(rec, data)
-    rec.season = f"Floor {_floor_no(floor.name)} · {floor.star_num}★ · {floor.round_num} cycles" + (f"  ·  {rec.season}" if rec.season else "")
     for i, node in enumerate(_nodes(floor), 1):
-        rec.teams.append(Team(_node_label(i), "", [_hsr_member(c) for c in node.avatars]))
+        rec.teams.append(Team(_node_label(i), [], [_hsr_member(c) for c in node.avatars]))
     return rec
 
 
@@ -199,9 +202,8 @@ def hsr_pf(data) -> Record:
     total = sum(n.score for n in nodes)
     rec.headline = [("Stars", _stars(data.total_stars, 12)), ("Floor", _floor_no(floor.name)), ("Score", _num(total))]
     _starward(rec, data)
-    rec.season = f"Floor {_floor_no(floor.name)} · {floor.star_num}★" + (f"  ·  {rec.season}" if rec.season else "")
     for i, node in enumerate(nodes, 1):
-        rec.teams.append(Team(_node_label(i), f"{_num(node.score)} pts", [_hsr_member(c) for c in node.avatars]))
+        rec.teams.append(Team(_node_label(i), [("score", _num(node.score))], [_hsr_member(c) for c in node.avatars]))
     return rec
 
 
@@ -214,10 +216,9 @@ def hsr_apoc(data) -> Record:
     total = sum(n.score for n in nodes)
     rec.headline = [("Stars", _stars(data.total_stars, 12)), ("Floor", _floor_no(floor.name)), ("Score", _num(total))]
     _starward(rec, data)
-    rec.season = f"Floor {_floor_no(floor.name)} · {floor.star_num}★" + (f"  ·  {rec.season}" if rec.season else "")
     for i, node in enumerate(nodes, 1):
-        killed = "" if node.boss_defeated else " · boss not defeated"
-        rec.teams.append(Team(_node_label(i), f"{_num(node.score)} pts{killed}", [_hsr_member(c) for c in node.avatars]))
+        chips = [("score", _num(node.score))] + ([] if node.boss_defeated else [("text", "boss not defeated")])
+        rec.teams.append(Team(_node_label(i), chips, [_hsr_member(c) for c in node.avatars]))
     return rec
 
 
@@ -228,20 +229,22 @@ def hsr_aa(data) -> Record:
         rec.empty = "No Anomaly Arbitration runs yet."
         return rec
     rec.season = record.season.name
-    mobs = {m.id: m.name for m in record.mini_bosses}
+    mobs = {m.id: m for m in record.mini_bosses}
     stars = record.boss_stars + record.mini_boss_stars
     rec.headline = [("Stars", str(stars)), ("Cycles", str(record.cycles_used))]
     if data.summary and data.summary.medal_type:
         rec.headline.append(("Medal", data.summary.medal_type.replace("_", " ").title()))
+        rec.medal = getattr(data.summary, "medal_icon", None) or None
     for mob in record.mini_boss_records:
         if mob.has_data:
-            rec.teams.append(Team(mobs.get(mob.id, "Knight"), f"{mob.stars}★ · {mob.cycles_used} cycles",
-                                  [_hsr_member(c) for c in mob.characters]))
+            info = mobs.get(mob.id)
+            rec.teams.append(Team(info.name if info else "Knight", [("stars", f"{mob.stars}/3"), ("cycles", str(mob.cycles_used))],
+                                  [_hsr_member(c) for c in mob.characters], art=getattr(info, "icon", None)))
     boss = record.boss_record
     if boss and boss.has_data:
         mode = f" · {record.boss.game_mode_name}" if boss.is_hard_mode and record.boss.game_mode_name else ""
-        rec.teams.append(Team(f"{record.boss.name}{mode}", f"{boss.stars}★ · {boss.cycles_used} cycles",
-                              [_hsr_member(c) for c in boss.characters], stage="King"))
+        rec.teams.append(Team(f"{record.boss.name}{mode}", [("stars", f"{boss.stars}/3"), ("cycles", str(boss.cycles_used))],
+                              [_hsr_member(c) for c in boss.characters], stage="King", art=getattr(record.boss, "icon", None)))
     return rec
 
 
@@ -264,9 +267,11 @@ def zzz_sd(data) -> Record:
         if brief.total_clear_time:
             rec.headline.append(("Time", _clock(brief.total_clear_time)))
         for i, layer in enumerate(fifth.layers, 1):
-            time = f" · {_clock(layer.clear_time)}" if layer.clear_time else ""
-            rec.teams.append(Team(f"Battle {i}", f"{_num(layer.score)} pts · {layer.rating}{time}",
-                                  [_zzz_member(c) for c in layer.characters]))
+            chips = [("rating", layer.rating), ("score", _num(layer.score))]
+            if layer.clear_time:
+                chips.append(("time", _clock(layer.clear_time)))
+            rec.teams.append(Team(f"Battle {i}", chips, [_zzz_member(c) for c in layer.characters],
+                                  art=getattr(layer, "boss_icon", None)))
         return rec
     # The older Shiyu Defense (v1): floors with a rating each
     if not data.has_data or not data.floors:
@@ -276,9 +281,15 @@ def zzz_sd(data) -> Record:
     rec.headline = [("Deepest", str(data.max_floor)), ("S ratings", str(data.ratings.get("S", 0)))]
     rec.season = f"{floor.name} · {floor.rating}"
     for i, node in enumerate((floor.node_1, floor.node_2), 1):
-        rec.teams.append(Team(_node_label(i), _clock(getattr(node, "battle_time", None) and int(node.battle_time.total_seconds())),
+        seconds = getattr(node, "battle_time", None) and int(node.battle_time.total_seconds())
+        rec.teams.append(Team(_node_label(i), [("time", _clock(seconds))] if seconds else [],
                               [_zzz_member(c) for c in node.characters]))
     return rec
+
+
+def _da_team(c, stage: str = "") -> Team:
+    return Team(c.boss.name, [("stars", f"{c.star}/3"), ("score", _num(c.score))], [_zzz_member(a) for a in c.agents],
+                stage=stage, art=getattr(c.boss, "icon", None))
 
 
 def zzz_da(data) -> Record:
@@ -288,11 +299,10 @@ def zzz_da(data) -> Record:
         return rec
     rec.headline = [("Score", _num(data.total_score)), ("Stars", str(data.total_star)), ("Top", data.rank_percent)]
     for c in data.challenges:
-        rec.teams.append(Team(c.boss.name, f"{_num(c.score)} pts · {c.star}★", [_zzz_member(a) for a in c.agents]))
+        rec.teams.append(_da_team(c))
     hard = list(getattr(data, "hard_challenges", None) or ())  # Adversity Mode, the extra boss
     for c in hard:
-        rec.teams.append(Team(c.boss.name, f"{_num(c.score)} pts · {c.star}★",
-                              [_zzz_member(a) for a in c.agents], stage="Adversity Mode"))
+        rec.teams.append(_da_team(c, "Adversity Mode"))
     if hard and getattr(data, "hard_rank_percent", None):
         rec.headline.append(("Adversity top", data.hard_rank_percent))
     return rec
@@ -313,7 +323,7 @@ def gi_abyss(data) -> Record:
     for chamber in floor.chambers:
         for battle in chamber.battles:
             half = "First half" if battle.half == 1 else "Second half"
-            rec.teams.append(Team(f"{floor.floor}-{chamber.chamber} · {half}", f"{chamber.stars}★",
+            rec.teams.append(Team(f"{floor.floor}-{chamber.chamber} · {half}", [("stars", f"{chamber.stars}/3")],
                                   [_gi_member(c) for c in battle.characters]))
     return rec
 
@@ -331,7 +341,7 @@ def gi_theater(data) -> Record:
     rec.headline = [("Act", str(stats.best_record)), ("Medals", str(stats.medal_num)),
                     ("Mode", THEATER_MODES.get(int(stats.difficulty), str(stats.difficulty)))]
     for act in list(run.acts)[-2:]:  # the last two acts reached
-        rec.teams.append(Team(f"Act {act.round_id}", "★" if act.medal_obtained else "",
+        rec.teams.append(Team(f"Act {act.round_id}", [("stars", "1/1" if act.medal_obtained else "0/1")],
                               [_gi_member(c) for c in act.characters]))
     return rec
 
@@ -347,7 +357,7 @@ def gi_stygian(data) -> Record:
     if run.best_record:
         rec.headline = [("Difficulty", str(run.best_record.difficulty)), ("Time", f"{run.best_record.time_used}s")]
     for c in run.challenges:
-        rec.teams.append(Team(c.name or c.enemy.name, f"{c.time_used}s",
+        rec.teams.append(Team(c.name or c.enemy.name, [("time", f"{c.time_used}s")],
                               [_gi_member(m, m.constellation) for m in c.team]))
     return rec
 
