@@ -109,7 +109,8 @@ def guide_message(bot_name: str, per_hour: int, app_id: int | None = None, welco
         " ".join(f"`/{cmd}-records`" for cmd, _ in GAMES)
         + "\nYour endgame runs as one picture: scores, cycles, rankings and the teams you used, with every"
         " character's copies and their weapon's. Name the modes you want, or leave `modes` empty for all of them."
-        " These come from HoYoLAB, so they work best after `/hoyolab link`."
+        " You don't need `/hoyolab link` for these, but the player's battle records must be public:"
+        " on HoYoLAB, open your profile, go to **Privacy Settings** and turn on **Show my Battle Chronicle on my profile**."
         "\nExample: `/hsr-records modes:moc pf`",
     )
     section(
