@@ -21,8 +21,19 @@ BANGBOO = 64  # ZZZ's Bangboo, smaller beside the agents
 TEAM_W = 4 * PORTRAIT + 3 * PORTRAIT_GAP + 32
 W = 2 * PAD + COLS * TEAM_W + (COLS - 1) * GAP  # as wide as three teams of four need
 TAB_H = 36  # the box's title, as a tab clipped to its top-left corner
-PORTRAIT_TOP = 96  # under the title tab and the results row
-TEAM_H = PORTRAIT_TOP + PORTRAIT + 20  # title and result rows, portraits, padding
+ROW_GAP = 12  # the same space between the title tab, the results row and the portraits, and under the portraits
+# How far each game's portraits reach above / below their spot: Star Rail's copies pill sticks out on top, its tile is taller
+LIFT = {"hsr": 10}
+DROP = {"hsr": 4}
+
+
+def _portrait_top(game: str) -> int:
+    """Where the portraits go in a box with a results row, so every gap is the same."""
+    return TAB_H + ROW_GAP + CHIP_H + ROW_GAP + LIFT.get(game, 0)
+
+
+def _team_h(game: str) -> int:
+    return _portrait_top(game) + PORTRAIT + DROP.get(game, 0) + ROW_GAP + 4
 STAGE_HEAD = 30  # the header over a stage in its own row (the King, Adversity Mode)
 GAME_ACCENT = {"genshin": (232, 178, 92), "hsr": (150, 128, 255), "zzz": (250, 196, 40)}
 GAME_TITLE = {"genshin": "Genshin Impact", "hsr": "Honkai: Star Rail", "zzz": "Zenless Zone Zero"}
@@ -294,11 +305,11 @@ def _rows(record: Record) -> list[tuple[str, list[Team]]]:
 HEAD = 92  # a section's header: title, season line and the headline tiles
 
 
-def _section_height(record: Record) -> int:
+def _section_height(game: str, record: Record) -> int:
     if record.empty or not record.teams:
         return HEAD + 44
     rows = _rows(record)
-    return HEAD + sum(TEAM_H + (STAGE_HEAD if head else 0) for head, _ in rows) + (len(rows) - 1) * GAP + 16
+    return HEAD + sum(_team_h(game) + (STAGE_HEAD if head else 0) for head, _ in rows) + (len(rows) - 1) * GAP + 16
 
 
 def _cover(icon: Image.Image, w: int, h: int, top: bool = True) -> Image.Image:
@@ -364,12 +375,16 @@ def _zzz_portrait(card: Image.Image, member, icon, x: int, y: int, accent, size:
     pic = Image.new("RGBA", (inner, inner), (58, 58, 64, 255))
     if icon is not None:
         pic.alpha_composite(_cover(icon, inner, inner, top=False))
-    label = copies_label("zzz", member) if copies else ""
-    if label:  # part of the picture, so the frame's rounded corner trims it too
-        _slant_plate(pic, label, -3, 0, accent)
     mask = Image.new("L", (inner * 4, inner * 4), 0)
     ImageDraw.Draw(mask).rounded_rectangle((0, 0, inner * 4 - 1, inner * 4 - 1), (13 if size > 80 else 10) * 4, fill=255)
     tile.alpha_composite(_masked(pic, mask.resize((inner, inner), Image.LANCZOS)), (frame, frame))
+    label = copies_label("zzz", member) if copies else ""
+    if label:  # over the frame too, trimmed by its outer rounded corner
+        plate = Image.new("RGBA", tile.size, (0, 0, 0, 0))
+        _slant_plate(plate, label, -3, 0, accent)
+        outer = Image.new("L", (size * 4, size * 4), 0)
+        ImageDraw.Draw(outer).rounded_rectangle((0, 0, size * 4 - 1, size * 4 - 1), (18 if size > 80 else 14) * 4, fill=255)
+        tile.alpha_composite(_masked(plate, outer.resize((size, size), Image.LANCZOS)))
     card.alpha_composite(tile, (x, y))
 
 
@@ -480,9 +495,13 @@ def _team(card: Image.Image, game: str, team: Team, images: dict, box, accent, c
         x += _paste(card, star, x - 2, y0 + TAB_H / 2) + 6
     draw.text((x, y0 + TAB_H / 2), title, font=f.stat_s, fill=c.TEXT, anchor="lm")
     if team.chips:  # this node's own stars / cycles / points, under its title
-        _chips(card, game, team.chips, x0 + 10, y0 + TAB_H + 20, colour, light)
+        _chips(card, game, team.chips, x0 + 10, y0 + TAB_H + ROW_GAP + CHIP_H / 2, colour, light)
     members = team.members[:4]
-    top = y0 + PORTRAIT_TOP if team.chips else round(y0 + TAB_H + (y1 - y0 - TAB_H - PORTRAIT) / 2)  # no results row: centred
+    lift, drop = LIFT.get(game, 0), DROP.get(game, 0)
+    if team.chips:
+        top = y0 + _portrait_top(game)
+    else:  # no results row: centred under the tab
+        top = round(y0 + TAB_H + (y1 - y0 - TAB_H - (lift + PORTRAIT + drop)) / 2 + lift)
     row_w = len(members) * PORTRAIT + max(0, len(members) - 1) * PORTRAIT_GAP
     if team.bangboo:
         row_w += PORTRAIT_GAP + BANGBOO
@@ -513,7 +532,7 @@ def draw_records(game: str, uid: str, records: list[Record], images: dict[str, I
     f = c.FONTS
     accent = GAME_ACCENT[game]
     light = c._mix(accent, (255, 255, 255), 0.45)
-    height = 120 + sum(_section_height(r) + GAP for r in records) + PAD - GAP
+    height = 120 + sum(_section_height(game, r) + GAP for r in records) + PAD - GAP
     card = Image.new("RGBA", (W, height), (14, 12, 24, 255))
     glow = Image.new("RGBA", (W, height), (0, 0, 0, 0))
     ImageDraw.Draw(glow).ellipse((-300, -260, 700, 300), fill=c._mix((14, 12, 24), accent, 0.4) + (255,))
@@ -528,7 +547,7 @@ def draw_records(game: str, uid: str, records: list[Record], images: dict[str, I
 
     y = 120
     for record in records:
-        h = _section_height(record)
+        h = _section_height(game, record)
         colour = MODE_COLOUR.get(record.mode, accent)
         mode_light = c._mix(colour, (255, 255, 255), 0.5)
         c._panel(card, (PAD - 8, y, W - PAD + 8, y + h), 20, c.PANEL)
@@ -560,19 +579,19 @@ def draw_records(game: str, uid: str, records: list[Record], images: dict[str, I
                 bx = PAD + (W - 2 * PAD - row_w) // 2  # a short row sits in the middle
                 for team in row:
                     if team.plight:
-                        _shimmer(card, (bx, by, bx + col_w, by + TEAM_H))
-                    _team(card, game, team, images, (bx, by, bx + col_w, by + TEAM_H), accent, colour, mode_light)
+                        _shimmer(card, (bx, by, bx + col_w, by + _team_h(game)))
+                    _team(card, game, team, images, (bx, by, bx + col_w, by + _team_h(game)), accent, colour, mode_light)
                     edge = bx - 2 * GAP  # the stage's own numbers, as tall tiles beside its box
                     for label, value in reversed(team.left):
                         edge -= _side_w(game, label, value)
-                        _side_tile(card, game, record, label, value, (edge, by, edge + _side_w(game, label, value), by + TEAM_H), colour, images)
+                        _side_tile(card, game, record, label, value, (edge, by, edge + _side_w(game, label, value), by + _team_h(game)), colour, images)
                         edge -= 12
                     edge = bx + col_w + 2 * GAP
                     for label, value in team.right:
-                        _side_tile(card, game, record, label, value, (edge, by, edge + _side_w(game, label, value), by + TEAM_H), colour, images)
+                        _side_tile(card, game, record, label, value, (edge, by, edge + _side_w(game, label, value), by + _team_h(game)), colour, images)
                         edge += _side_w(game, label, value) + 12
                     bx += col_w + GAP
-                by += TEAM_H + GAP
+                by += _team_h(game) + GAP
         y += h + GAP
 
     out = io.BytesIO()
