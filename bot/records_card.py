@@ -72,11 +72,11 @@ def _chips(card: Image.Image, game: str, chips, x: float, cy: float, colour, lig
         elif kind == "rating":
             x += _paste(card, icons.rating(value, 24, f.main), x, cy)
         else:
-            icon = {"cycles": icons.cycles, "score": icons.score, "time": icons.clock}.get(kind)
+            icon = {"score": icons.score, "time": icons.clock}.get(kind)
             if icon:
                 x += _paste(card, icon(20, colour), x, cy) + 6
             text = f"{value} cycle{'s' if value != '1' else ''}" if kind == "cycles" else value
-            draw.text((x, cy), text, font=f.small_b, fill=light if icon else c.DIM, anchor="lm")
+            draw.text((x, cy), text, font=f.small_b, fill=c.DIM if kind == "text" else light, anchor="lm")
             x += draw.textlength(text, font=f.small_b)
         x += 16
 
@@ -96,8 +96,6 @@ def _tile(card: Image.Image, game: str, record: Record, label: str, value: str, 
         icon = icons.star(game, 28)
     elif key == "starward":
         icon, text = icons.starward(32), value.replace("★", "")
-    elif key == "cycles":
-        icon = icons.cycles(26, colour)
     elif key == "score":
         icon = icons.score(26, colour)
     elif key == "time":
@@ -124,13 +122,13 @@ def _tile(card: Image.Image, game: str, record: Record, label: str, value: str, 
     draw = ImageDraw.Draw(card)
     x = left + 12 + (inner - (icon.width + 8 if icon else 0) - text_w) / 2
     if icon:
-        x += _paste(card, icon, x, y + 22) + 8
+        x += _paste(card, icon, x, y + 38) + 8
     if text:
-        draw.text((x, y + 22), text, font=f.main, fill=c.TEXT, anchor="lm")
+        draw.text((x, y + 38), text, font=f.main, fill=c.TEXT, anchor="lm")
         x += draw.textlength(text, font=f.main) + 2
     if suffix:
-        draw.text((x, y + 25), suffix, font=f.small, fill=c.DIM, anchor="lm")
-    c._spaced(draw, (left + 12 + (inner - label_w) / 2, y + 47), label.upper(), f.label, c.DIM, 1.2)
+        draw.text((x, y + 41), suffix, font=f.small, fill=c.DIM, anchor="lm")
+    c._spaced(draw, (left + 12 + (inner - label_w) / 2, y + 14), label.upper(), f.label, c.DIM, 1.2)
     return left
 
 
