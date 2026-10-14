@@ -58,6 +58,28 @@ def hsr_star(size: int, lit: bool = True) -> Image.Image:
 
 
 @lru_cache(maxsize=None)
+def crown(size: int) -> Image.Image:
+    """A gold three-pointed crown with round tips, for the King's header."""
+    b = size * SS
+    top, base, band = b * 0.22, b * 0.80, b * 0.66
+    poly = [(b * 0.08, top + b * 0.08), (b * 0.30, b * 0.48), (b * 0.50, top), (b * 0.70, b * 0.48), (b * 0.92, top + b * 0.08),
+            (b * 0.84, base), (b * 0.16, base)]
+    mask = Image.new("L", (b, b), 0)
+    d = ImageDraw.Draw(mask)
+    d.polygon(poly, fill=255)
+    for x, y in ((b * 0.08, top + b * 0.08), (b * 0.50, top), (b * 0.92, top + b * 0.08)):
+        r = b * 0.075
+        d.ellipse((x - r, y - r, x + r, y + r), fill=255)
+    out = Image.new("RGBA", (b, b), (0, 0, 0, 0))
+    halo = Image.new("RGBA", (b, b), (255, 190, 70, 0))
+    halo.putalpha(mask.filter(ImageFilter.GaussianBlur(b * 0.07)).point(lambda v: v * 0.6))
+    out.alpha_composite(halo)
+    out.paste(_gradient((b, b), (255, 236, 160), (232, 150, 40)), (0, 0), mask)
+    ImageDraw.Draw(out).line((b * 0.17, band, b * 0.83, band), fill=(150, 84, 20, 200), width=max(1, b // 28))
+    return out.resize((size, size), Image.LANCZOS)
+
+
+@lru_cache(maxsize=None)
 def starward(size: int) -> Image.Image:
     """The Starward star: blue four-pointed star with a white rim and a white heart."""
     b = size * SS
