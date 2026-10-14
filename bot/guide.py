@@ -123,8 +123,9 @@ def guide_message(bot_name: str, per_hour: int, app_id: int | None = None, welco
     section(
         1,
         "Other commands",
-        "`/help` opens this guide again. And `/pat`... pats me. Not that I asked for it, Proxy."
-        "\nExample: `/pat`",
+        "`/help` opens this guide again. `/hsr-patch` shows Star Rail's current version, how long it has left"
+        " and the warps running now. And `/pat`... pats me. Not that I asked for it, Proxy."
+        "\nExample: `/hsr-patch`",
     )
     if owner:
         section(

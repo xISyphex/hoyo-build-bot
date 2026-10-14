@@ -17,7 +17,7 @@ import genshin
 from discord import app_commands
 from discord.ext import tasks
 
-from . import matching, records
+from . import matching, patch, records
 from .access import PRIVATE, AccessList
 from .assets import Assets
 from .claims import ClaimStore
@@ -107,6 +107,7 @@ class HoyoBot(discord.Client):
         self.tree.add_command(HoyolabGroup())
         self.tree.add_command(help_command)
         self.tree.add_command(pat_command)
+        self.tree.add_command(hsr_patch_command)
         self.add_dynamic_items(PageButton, OpenGuideButton)  # the guide's buttons, also on old messages
         guild_id = os.environ.get("DEV_GUILD_ID")
         if guild_id:
@@ -445,6 +446,23 @@ def make_claim_command(game: str) -> app_commands.Command:
         await interaction.followup.send(msg)
 
     return claim
+
+
+@app_commands.command(name="hsr-patch", description="Show the current Honkai: Star Rail version, its time left and warps")
+async def hsr_patch_command(interaction: discord.Interaction) -> None:
+    bot: HoyoBot = interaction.client  # type: ignore[assignment]
+    await interaction.response.defer(thinking=True)
+    try:
+        calendar = await bot.hoyolab.hsr_calendar()
+        info = patch.hsr_patch(calendar)
+    except HoyolabError as exc:
+        await interaction.followup.send(str(exc))
+        return
+    except Exception:
+        log.exception("Could not read the Star Rail version")
+        await interaction.followup.send("Something went wrong reading the current version. Try again later.")
+        return
+    await interaction.followup.send(embed=patch.patch_embed(info))
 
 
 @app_commands.command(name="help", description="How to use the bot")

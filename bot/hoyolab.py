@@ -318,6 +318,8 @@ class HoyolabClient:
         self._locks: dict[tuple[str, str], asyncio.Lock] = {}
         # Answers like "private" are kept too: asking again would only use up the daily limit.
         self._failed: dict[tuple[str, str], tuple[float, str]] = {}
+        self._calendar: tuple[float, object] | None = None  # Star Rail's event calendar, for /hsr-patch
+        self._hsr_uid: int | None = None  # the server's own Star Rail account, which the calendar is read for
 
     def _client_for(self, game: str, uid: str) -> tuple[genshin.Client | None, bool]:
         """The client to ask about this UID, and whether it's the player's own linked login."""
@@ -430,6 +432,30 @@ class HoyolabClient:
         if self.effective:
             self.effective.learn_genshin(raw)
         return genshin.models.GenshinDetailCharacters(**raw)
+
+    async def hsr_calendar(self):
+        """HoYoLAB's Star Rail event calendar (version, warps, events), read with the server's own login.
+        Kept for 10 minutes."""
+        if self.client is None:
+            raise HoyolabError("The bot has no HoYoLAB login, so it can't read the current version.")
+        hit = self._calendar
+        if hit and hit[0] > time.monotonic():
+            return hit[1]
+        try:
+            if self._hsr_uid is None:
+                accounts = await self.client.get_game_accounts()
+                own = [a for a in accounts if str(a.game_biz).startswith("hkrpg")]
+                if not own:
+                    raise HoyolabError("The bot's HoYoLAB account has no Star Rail account, so it can't read the calendar.")
+                self._hsr_uid = int(own[0].uid)
+            calendar = await self.client.get_starrail_event_calendar(self._hsr_uid)
+        except HoyolabError:
+            raise
+        except Exception as exc:
+            log.warning("Could not read the Star Rail event calendar: %s", exc)
+            raise HoyolabError("HoYoLAB didn't answer just now. Try again in a bit.") from exc
+        self._calendar = (time.monotonic() + 600, calendar)
+        return calendar
 
     async def learn_own(self) -> None:
         """Reads the Genshin substat recommendations of every character on the server's own HoYoLAB account (they
