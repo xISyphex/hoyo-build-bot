@@ -41,6 +41,9 @@ class Team:
     members: list[Member] = field(default_factory=list)
     stage: str = ""  # set for a stage shown in its own row under the others, with this header (e.g. "King")
     art: str | None = None  # the boss's picture from HoYoLAB, faded into the panel
+    left: list[tuple[str, str]] = field(default_factory=list)  # headline-style tiles beside a stage's box
+    right: list[tuple[str, str]] = field(default_factory=list)
+    plight: bool = False  # the King beaten on Plight (hard) mode: a red shimmer around the box
 
 
 @dataclass
@@ -230,11 +233,9 @@ def hsr_aa(data) -> Record:
         return rec
     rec.season = record.season.name
     mobs = {m.id: m for m in record.mini_bosses}
-    stars = record.boss_stars + record.mini_boss_stars
-    rec.headline = [("Stars", str(stars)), ("Cycles", str(record.cycles_used))]
-    if data.summary and data.summary.medal_type:
-        rec.headline.append(("Medal", data.summary.medal_type.replace("_", " ").title()))
-        rec.medal = getattr(data.summary, "medal_icon", None) or None
+    knights = [m for m in record.mini_boss_records if m.has_data]  # the header has the knights only; the King's
+    rec.headline = [("Stars", str(record.mini_boss_stars)),       # numbers sit beside its own box
+                    ("Cycles", str(sum(m.cycles_used for m in knights)))]
     for mob in record.mini_boss_records:
         if mob.has_data:
             info = mobs.get(mob.id)
@@ -242,10 +243,14 @@ def hsr_aa(data) -> Record:
                                   [_hsr_member(c) for c in mob.characters], art=getattr(info, "icon", None)))
     boss = record.boss_record
     if boss and boss.has_data:
-        rec.headline.insert(2, ("King cycles", str(boss.cycles_used)))
-        mode = f" · {record.boss.game_mode_name}" if boss.is_hard_mode and record.boss.game_mode_name else ""
-        rec.teams.append(Team(f"{record.boss.name}{mode}", [("stars", f"{boss.stars}/3"), ("cycles", str(boss.cycles_used))],
-                              [_hsr_member(c) for c in boss.characters], stage="King", art=getattr(record.boss, "icon", None)))
+        king = Team(f"{record.boss.name}{' · Plight' if boss.is_hard_mode else ''}", [("stars", f"{boss.stars}/3")],
+                    [_hsr_member(c) for c in boss.characters], stage="King", art=getattr(record.boss, "icon", None),
+                    left=[("Cycles", str(boss.cycles_used))], plight=bool(boss.is_hard_mode))
+        medal_type = getattr(boss, "medal_type", "") or (data.summary.medal_type if data.summary else "")
+        if medal_type:
+            king.right = [("Medal", medal_type.replace("_", " ").title())]
+            rec.medal = getattr(boss, "medal_icon", None) or getattr(data.summary, "medal_icon", None) or None
+        rec.teams.append(king)
     return rec
 
 
@@ -298,16 +303,18 @@ def zzz_da(data) -> Record:
     if not data.has_data or not data.challenges:
         rec.empty = "No Deadly Assault runs this season yet."
         return rec
-    rec.headline = [("Score", _num(data.total_score)), ("Stars", str(data.total_star)), ("Top", data.rank_percent)]
+    # The header has the three regular bosses only; Adversity Mode's numbers sit beside its own box
+    rec.headline = [("Score", _num(sum(c.score for c in data.challenges))), ("Stars", str(sum(c.star for c in data.challenges))),
+                    ("Top", data.rank_percent)]
     for c in data.challenges:
         rec.teams.append(_da_team(c))
-    hard = list(getattr(data, "hard_challenges", None) or ())  # Adversity Mode, the extra boss
-    for c in hard:
-        rec.teams.append(_da_team(c, "Adversity Mode"))
-    if hard:
-        rec.headline.append(("Adversity stars", str(sum(c.star for c in hard))))
-    if hard and getattr(data, "hard_rank_percent", None):
-        rec.headline.append(("Adversity top", data.hard_rank_percent))
+    for c in getattr(data, "hard_challenges", None) or ():  # Adversity Mode, the extra boss
+        team = _da_team(c, "Adversity Mode")
+        team.chips = [("score", _num(c.score))]
+        team.left = [("Stars", str(c.star))]
+        if getattr(data, "hard_rank_percent", None):
+            team.right = [("Top", data.hard_rank_percent)]
+        rec.teams.append(team)
     return rec
 
 

@@ -4,6 +4,7 @@ character's portrait carries their copies and their weapon's (E2S1, C0R1, M6P1) 
 from __future__ import annotations
 
 import io
+import re
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
@@ -82,8 +83,9 @@ def _chips(card: Image.Image, game: str, chips, x: float, cy: float, colour, lig
 
 
 def _tile(card: Image.Image, game: str, record: Record, label: str, value: str, right: float, y: int, colour, light,
-          images: dict) -> float:
-    """One headline number as a tile (icon, value, label) ending at x = right; returns its left edge."""
+          images: dict, from_left: bool = False) -> float:
+    """One headline number as a tile (icon, value, label) ending at x = right; returns its left edge. With from_left,
+    the tile starts at x = right instead and its right edge is returned."""
     f = c.FONTS
     draw = ImageDraw.Draw(card)
     key = label.lower()
@@ -116,6 +118,8 @@ def _tile(card: Image.Image, game: str, record: Record, label: str, value: str, 
     label_w = draw.textlength(label.upper(), font=f.label) * 1.15
     inner = max((icon.width + 8 if icon else 0) + text_w, label_w)
     left = right - inner - 24
+    if from_left:
+        left, right = right, right + inner + 24
     layer = Image.new("RGBA", card.size, (0, 0, 0, 0))
     ImageDraw.Draw(layer).rounded_rectangle((left, y, right, y + 58), 12, fill=colour + (22,), outline=colour + (70,))
     card.alpha_composite(layer)
@@ -129,7 +133,26 @@ def _tile(card: Image.Image, game: str, record: Record, label: str, value: str, 
     if suffix:
         draw.text((x, y + 41), suffix, font=f.small, fill=c.DIM, anchor="lm")
     c._spaced(draw, (left + 12 + (inner - label_w) / 2, y + 14), label.upper(), f.label, c.DIM, 1.2)
-    return left
+    return right if from_left else left
+
+
+def _shimmer(card: Image.Image, box) -> None:
+    """Plight mode: a red shimmering glow around the box."""
+    x0, y0, x1, y1 = box
+    m = 26
+    w, h = x1 - x0 + 2 * m, y1 - y0 + 2 * m
+    glow = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    gd = ImageDraw.Draw(glow)
+    gd.rounded_rectangle((m - 6, m - 6, w - m + 6, h - m + 6), 22, outline=(255, 36, 56, 255), width=14)
+    glow = glow.filter(ImageFilter.GaussianBlur(10))
+    sheen = Image.linear_gradient("L").rotate(-60, expand=True).resize((w, h))  # brighter towards the top left
+    sheen = sheen.point(lambda v: round(120 + 135 * abs(((v / 255) * 3) % 2 - 1)))  # bands, like light moving across
+    glow.putalpha(ImageChops.multiply(glow.getchannel("A"), sheen))
+    card.alpha_composite(glow, (x0 - m, y0 - m))
+    edge = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    ImageDraw.Draw(edge).rounded_rectangle((m, m, w - m - 1, h - m - 1), 16, outline=(255, 110, 124, 255), width=3)
+    edge.putalpha(ImageChops.multiply(edge.getchannel("A"), sheen))
+    card.alpha_composite(edge, (x0 - m, y0 - m))
 
 
 def _art(card: Image.Image, pic: Image.Image, box) -> None:
@@ -188,17 +211,69 @@ def _portrait(card: Image.Image, game: str, member, icon: Image.Image | None, x:
     ImageDraw.Draw(tile).rounded_rectangle((0, 0, PORTRAIT - 1, PORTRAIT - 1), 14, outline=(255, 255, 255, 40), width=1)
     card.alpha_composite(tile, (x, y))
     draw = ImageDraw.Draw(card)
-    label = copies_label(game, member)
-    if label:  # copies at the top left
-        w = draw.textlength(label, font=f.small_b) + 14
-        draw.rounded_rectangle((x - 4, y - 6, x - 4 + w, y + 20), 9, fill=(14, 12, 24, 235), outline=accent + (255,), width=1)
-        draw.text((x - 4 + w / 2, y + 7), label, font=f.small_b, fill=c.TEXT, anchor="mm")
+    _copies(card, game, member, x, y, accent)
     if member.level:
         lv = f"Lv. {member.level}"
         shade = Image.new("RGBA", (PORTRAIT, 26), (0, 0, 0, 0))
         ImageDraw.Draw(shade).rounded_rectangle((0, 0, PORTRAIT - 1, 25), 10, fill=(0, 0, 0, 130))
         card.alpha_composite(shade, (x, y + PORTRAIT - 26))
-        draw.text((x + PORTRAIT / 2, y + PORTRAIT - 13), lv, font=f.slot, fill=c.TEXT, anchor="mm")
+        if COPY_STYLE == "band" and copies_label(game, member):
+            draw.text((x + 6, y + PORTRAIT - 13), copies_label(game, member), font=f.small_b, fill=accent, anchor="lm")
+            draw.text((x + PORTRAIT - 6, y + PORTRAIT - 13), f"{member.level}", font=f.slot, fill=c.TEXT, anchor="rm")
+        else:
+            draw.text((x + PORTRAIT / 2, y + PORTRAIT - 13), lv, font=f.slot, fill=c.TEXT, anchor="mm")
+
+
+COPY_STYLE = "pill"  # how a portrait's copies are drawn: pill, split, tab, slant, band, stack
+
+
+def _copies(card: Image.Image, game: str, member, x: int, y: int, accent) -> None:
+    """The character's and weapon's copies (E2S1) on a portrait, in COPY_STYLE."""
+    f = c.FONTS
+    label = copies_label(game, member)
+    if not label:
+        return
+    draw = ImageDraw.Draw(card)
+    char, weapon = re.match(r"([A-Z]\d+)?([A-Z]\d+)?", label).groups() if re.match(r"[A-Z]\d+", label) else (label, None)
+    dark = (14, 12, 24, 235)
+    style = COPY_STYLE
+    if style == "split":  # the character's copies on the colour, the weapon's on dark, joined
+        cw = draw.textlength(char, font=f.small_b) + 12
+        ww = draw.textlength(weapon, font=f.small_b) + 12 if weapon else 0
+        draw.rounded_rectangle((x - 4, y - 6, x - 4 + cw + ww, y + 20), 6, fill=dark, outline=accent + (255,), width=1)
+        draw.rounded_rectangle((x - 4, y - 6, x - 4 + cw, y + 20), 6, fill=accent + (255,))
+        draw.text((x - 4 + cw / 2, y + 7), char, font=f.small_b, fill=(14, 12, 24), anchor="mm")
+        if weapon:
+            draw.text((x - 4 + cw + ww / 2, y + 7), weapon, font=f.small_b, fill=c.TEXT, anchor="mm")
+    elif style == "tab":  # a tab tucked into the portrait's corner, rounded on its free corner only
+        w = draw.textlength(label, font=f.small_b) + 14
+        layer = Image.new("RGBA", (PORTRAIT, PORTRAIT), (0, 0, 0, 0))
+        ld = ImageDraw.Draw(layer)
+        ld.rounded_rectangle((-20, -20, w, 24), 10, fill=accent + (240,))
+        mask = Image.new("L", layer.size, 0)
+        ImageDraw.Draw(mask).rounded_rectangle((0, 0, PORTRAIT - 1, PORTRAIT - 1), 14, fill=255)
+        layer.putalpha(ImageChops.multiply(layer.getchannel("A"), mask))
+        card.alpha_composite(layer, (x, y))
+        draw.text((x + w / 2, y + 12), label, font=f.small_b, fill=(14, 12, 24), anchor="mm")
+    elif style == "slant":  # a slanted plate with a colour stripe
+        w = draw.textlength(label, font=f.small_b) + 22
+        sl = 7
+        draw.polygon([(x - 4 + sl, y - 6), (x - 4 + w + sl, y - 6), (x - 4 + w, y + 20), (x - 4, y + 20)], fill=dark)
+        draw.polygon([(x - 4 + sl, y - 6), (x + 2 + sl, y - 6), (x + 2, y + 20), (x - 4, y + 20)], fill=accent + (255,))
+        draw.text((x + 6 + (w - 10) / 2 + sl / 2, y + 7), label, font=f.small_b, fill=c.TEXT, anchor="mm")
+    elif style == "band":  # in the bottom band, left of the level (the level moves right)
+        pass  # drawn with the level, see _portrait
+    elif style == "stack":  # two small squares down the left edge
+        for i, part in enumerate(p for p in (char, weapon) if p):
+            w = draw.textlength(part, font=f.small_b) + 10
+            top = y - 6 + i * 26
+            draw.rounded_rectangle((x - 4, top, x - 4 + w, top + 23), 5,
+                                   fill=accent + (255,) if i == 0 else dark, outline=accent + (255,), width=1)
+            draw.text((x - 4 + w / 2, top + 12), part, font=f.small_b, fill=(14, 12, 24) if i == 0 else c.TEXT, anchor="mm")
+    else:  # pill
+        w = draw.textlength(label, font=f.small_b) + 14
+        draw.rounded_rectangle((x - 4, y - 6, x - 4 + w, y + 20), 9, fill=dark, outline=accent + (255,), width=1)
+        draw.text((x - 4 + w / 2, y + 7), label, font=f.small_b, fill=c.TEXT, anchor="mm")
 
 
 def _team(card: Image.Image, game: str, team: Team, images: dict, box, accent, colour, light) -> None:
@@ -287,7 +362,16 @@ def draw_records(game: str, uid: str, records: list[Record], images: dict[str, I
                 row_w = len(row) * col_w + (len(row) - 1) * GAP
                 bx = PAD + (W - 2 * PAD - row_w) // 2  # a short row sits in the middle
                 for team in row:
+                    if team.plight:
+                        _shimmer(card, (bx, by, bx + col_w, by + TEAM_H))
                     _team(card, game, team, images, (bx, by, bx + col_w, by + TEAM_H), accent, colour, mode_light)
+                    ty = by + (TEAM_H - 58) // 2  # the stage's own numbers, beside its box
+                    edge = bx - 2 * GAP
+                    for label, value in reversed(team.left):
+                        edge = _tile(card, game, record, label, value, edge, ty, colour, mode_light, images) - 10
+                    edge = bx + col_w + 2 * GAP
+                    for label, value in team.right:
+                        edge = _tile(card, game, record, label, value, edge, ty, colour, mode_light, images, from_left=True) + 10
                     bx += col_w + GAP
                 by += TEAM_H + GAP
         y += h + GAP
