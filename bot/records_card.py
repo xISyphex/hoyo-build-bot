@@ -61,26 +61,41 @@ def _starry_width(draw: ImageDraw.ImageDraw, text: str, font) -> float:
     return sum(draw.textlength(p, font=font) for p in parts) + (round(font.size * STAR_TEXT) + 2) * (len(parts) - 1)
 
 
+CHIP_H, CHIP_PAD = 28, 9  # each result sits in its own dark pill, readable over any boss art
+
+
 def _chips(card: Image.Image, game: str, chips, x: float, cy: float, colour, light) -> None:
-    """A node's results in a row, each with its icon."""
+    """A node's results in a row, each in a dark pill with its icon."""
     f = c.FONTS
-    draw = ImageDraw.Draw(card)
+    fg = Image.new("RGBA", card.size, (0, 0, 0, 0))  # the contents, drawn first so the pills can be sized to them
+    draw = ImageDraw.Draw(fg)
+    spans = []
     for kind, value in chips:
+        start = x = x + CHIP_PAD
         if kind == "stars":  # earned stars lit, the rest dim
             got, _, of = value.partition("/")
             got, of = int(got), int(of or got)
             for i in range(of):
-                x += _paste(card, icons.star(game, 22, i < got), x, cy) + 2
+                x += _paste(fg, icons.star(game, 22, i < got), x, cy) + 2
+            x -= 2
         elif kind == "rating":
-            x += _paste(card, icons.rating(value, 30, f.main), x, cy)
+            x += _paste(fg, icons.rating(value, 24, f.main), x, cy)
         else:
             icon = {"score": icons.score, "time": icons.clock}.get(kind)
             if icon:
-                x += _paste(card, icon(20, colour), x, cy) + 6
+                x += _paste(fg, icon(20, colour), x, cy) + 6
             text = f"{value} cycle{'s' if value != '1' else ''}" if kind == "cycles" else value
             draw.text((x, cy), text, font=f.small_b, fill=c.DIM if kind == "text" else light, anchor="lm")
             x += draw.textlength(text, font=f.small_b)
-        x += 16
+        spans.append((start - CHIP_PAD, x + CHIP_PAD))
+        x += CHIP_PAD + 6
+    pills = Image.new("RGBA", card.size, (0, 0, 0, 0))
+    pd = ImageDraw.Draw(pills)
+    for left, right in spans:
+        pd.rounded_rectangle((left, cy - CHIP_H / 2, right, cy + CHIP_H / 2), CHIP_H // 2,
+                             fill=(10, 10, 16, 200), outline=colour + (110,), width=1)
+    card.alpha_composite(pills)
+    card.alpha_composite(fg)
 
 
 def _tile(card: Image.Image, game: str, record: Record, label: str, value: str, right: float, y: int, colour, light,
@@ -455,7 +470,7 @@ def _team(card: Image.Image, game: str, team: Team, images: dict, box, accent, c
         x += _paste(card, icons.starward(24), x - 2, y0 + 21) + 4
     draw.text((x, y0 + 20), c._fit_text(draw, team.label, f.stat_s, x1 - x - 14), font=f.stat_s, fill=c.TEXT, anchor="lm")
     if team.chips:  # this node's own stars / cycles / points, under its title
-        _chips(card, game, team.chips, x0 + 14, y0 + (49 if game == "zzz" else 45), colour, light)  # ZZZ's rank marks need room
+        _chips(card, game, team.chips, x0 + 10, y0 + 47, colour, light)
     members = team.members[:4]
     row_w = len(members) * PORTRAIT + max(0, len(members) - 1) * PORTRAIT_GAP
     if team.bangboo:
