@@ -143,10 +143,11 @@ def _tile(card: Image.Image, game: str, record: Record, label: str, value: str, 
 SIDE_W = 170  # a tall tile beside the King / Adversity Mode box
 RANK_PIECE = 92  # Anomaly Arbitration's rank piece; its tile is just big enough to hold it
 RANK_TILE = RANK_PIECE + 2 * 18
+SNUG = ("medal", "rank", "cycles")  # side tiles kept to that same small square
 
 
 def _side_w(label: str) -> int:
-    return RANK_TILE if label.lower() in ("medal", "rank") else SIDE_W
+    return RANK_TILE if label.lower() in SNUG else SIDE_W
 # Numbers shown with their icon alone, no label over them (Syphex's picks)
 ICON_ONLY = {"hsr": {"stars", "score", "starward", "floor", "rank"},
              "zzz": {"stars", "score", "rating", "top", "adversity top", "time"},
@@ -169,7 +170,7 @@ def _side_tile(card: Image.Image, game: str, record: Record, label: str, value: 
     """A stage's own number, big: label on top, a large icon, the value under it."""
     f = c.FONTS
     key = label.lower()
-    if key in ("medal", "rank"):  # a snug square, level with the middle of the stage's box
+    if key in SNUG:  # a snug square, level with the middle of the stage's box
         mid_y = (box[1] + box[3]) / 2
         box = (box[0], round(mid_y - RANK_TILE / 2), box[2], round(mid_y + RANK_TILE / 2))
     x0, y0, x1, y1 = box
@@ -212,7 +213,7 @@ def _side_tile(card: Image.Image, game: str, record: Record, label: str, value: 
         return
     big = f.name[56]
     if icon is None:  # just the number, very large (cycles)
-        draw.text((mid, (top + y1) / 2), text, font=big, fill=c.TEXT, anchor="mm")
+        draw.text((mid, (top + y1 - 6) / 2), text, font=big, fill=c.TEXT, anchor="mm")
         return
     iy = top + (y1 - top - (44 if text else 0)) / 2
     card.alpha_composite(icon, (round(mid - icon.width / 2), round(iy - icon.height / 2)))
