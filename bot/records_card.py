@@ -136,6 +136,44 @@ def _tile(card: Image.Image, game: str, record: Record, label: str, value: str, 
     return right if from_left else left
 
 
+SIDE_W = 170  # a tall tile beside the King / Adversity Mode box
+
+
+def _side_tile(card: Image.Image, game: str, record: Record, label: str, value: str, box, colour, images: dict) -> None:
+    """A stage's own number, big: label on top, a large icon, the value under it."""
+    f = c.FONTS
+    x0, y0, x1, y1 = box
+    layer = Image.new("RGBA", card.size, (0, 0, 0, 0))
+    ImageDraw.Draw(layer).rounded_rectangle(box, 16, fill=colour + (26,), outline=colour + (90,), width=2)
+    card.alpha_composite(layer)
+    draw = ImageDraw.Draw(card)
+    mid = (x0 + x1) / 2
+    key = label.lower()
+    label = "Ranking" if key == "top" else label
+    lw = draw.textlength(label.upper(), font=f.label) * 1.15
+    c._spaced(draw, (mid - lw / 2, y0 + 22), label.upper(), f.label, c.DIM, 1.2)
+    icon, text = None, value
+    if key == "stars":
+        icon = icons.star(game, 64)
+    elif key == "top":
+        icon, text = icons.top_tag(f"TOP {value}", 40, f.main), ""
+    elif key == "medal":
+        pic = images.get(record.medal or "")
+        if pic is not None:
+            pic = pic.convert("RGBA")
+            icon = pic.resize((round(pic.width * 76 / pic.height), 76), Image.LANCZOS)
+        else:
+            icon = icons.medal(76, value)
+    big = f.name[56]
+    if icon is None:  # just the number, very large (cycles)
+        draw.text((mid, (y0 + 40 + y1) / 2), text, font=big, fill=c.TEXT, anchor="mm")
+        return
+    iy = y0 + 40 + (y1 - y0 - 40 - (44 if text else 0)) / 2
+    card.alpha_composite(icon, (round(mid - icon.width / 2), round(iy - icon.height / 2)))
+    if text:
+        draw.text((mid, y1 - 28), text, font=f.name[38], fill=c.TEXT, anchor="mm")
+
+
 def _shimmer(card: Image.Image, box) -> None:
     """Plight mode: a red shimmering glow around the box."""
     x0, y0, x1, y1 = box
@@ -217,14 +255,15 @@ def _portrait(card: Image.Image, game: str, member, icon: Image.Image | None, x:
         shade = Image.new("RGBA", (PORTRAIT, 26), (0, 0, 0, 0))
         ImageDraw.Draw(shade).rounded_rectangle((0, 0, PORTRAIT - 1, 25), 10, fill=(0, 0, 0, 130))
         card.alpha_composite(shade, (x, y + PORTRAIT - 26))
-        if COPY_STYLE == "band" and copies_label(game, member):
+        if (COPY_STYLE or COPY_STYLES.get(game)) == "band" and copies_label(game, member):
             draw.text((x + 6, y + PORTRAIT - 13), copies_label(game, member), font=f.small_b, fill=accent, anchor="lm")
             draw.text((x + PORTRAIT - 6, y + PORTRAIT - 13), f"{member.level}", font=f.slot, fill=c.TEXT, anchor="rm")
         else:
             draw.text((x + PORTRAIT / 2, y + PORTRAIT - 13), lv, font=f.slot, fill=c.TEXT, anchor="mm")
 
 
-COPY_STYLE = "pill"  # how a portrait's copies are drawn: pill, split, tab, slant, band, stack
+COPY_STYLE: str | None = None  # force one style for every game (previews); otherwise COPY_STYLES picks per game
+COPY_STYLES = {"hsr": "pill", "zzz": "slant", "genshin": "tab"}  # pill, split, tab, slant, band, stack (Syphex's picks)
 
 
 def _copies(card: Image.Image, game: str, member, x: int, y: int, accent) -> None:
@@ -236,7 +275,7 @@ def _copies(card: Image.Image, game: str, member, x: int, y: int, accent) -> Non
     draw = ImageDraw.Draw(card)
     char, weapon = re.match(r"([A-Z]\d+)?([A-Z]\d+)?", label).groups() if re.match(r"[A-Z]\d+", label) else (label, None)
     dark = (14, 12, 24, 235)
-    style = COPY_STYLE
+    style = COPY_STYLE or COPY_STYLES.get(game, "pill")
     if style == "split":  # the character's copies on the colour, the weapon's on dark, joined
         cw = draw.textlength(char, font=f.small_b) + 12
         ww = draw.textlength(weapon, font=f.small_b) + 12 if weapon else 0
@@ -365,13 +404,15 @@ def draw_records(game: str, uid: str, records: list[Record], images: dict[str, I
                     if team.plight:
                         _shimmer(card, (bx, by, bx + col_w, by + TEAM_H))
                     _team(card, game, team, images, (bx, by, bx + col_w, by + TEAM_H), accent, colour, mode_light)
-                    ty = by + (TEAM_H - 58) // 2  # the stage's own numbers, beside its box
-                    edge = bx - 2 * GAP
+                    edge = bx - 2 * GAP  # the stage's own numbers, as tall tiles beside its box
                     for label, value in reversed(team.left):
-                        edge = _tile(card, game, record, label, value, edge, ty, colour, mode_light, images) - 10
+                        edge -= SIDE_W
+                        _side_tile(card, game, record, label, value, (edge, by, edge + SIDE_W, by + TEAM_H), colour, images)
+                        edge -= 12
                     edge = bx + col_w + 2 * GAP
                     for label, value in team.right:
-                        edge = _tile(card, game, record, label, value, edge, ty, colour, mode_light, images, from_left=True) + 10
+                        _side_tile(card, game, record, label, value, (edge, by, edge + SIDE_W, by + TEAM_H), colour, images)
+                        edge += SIDE_W + 12
                     bx += col_w + GAP
                 by += TEAM_H + GAP
         y += h + GAP
