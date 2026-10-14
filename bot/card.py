@@ -720,6 +720,11 @@ def _rays(d: ImageDraw.ImageDraw, cx: float, cy: float, r: float, color, count: 
                fill=color + (255,), width=SS * width)
 
 
+def _links(n: int) -> int:
+    """How many of the six gaps between the ring's marks are lit: the ones up to the last mark, and at 6 the ring closes."""
+    return 6 if n >= 6 else max(0, n - 1)
+
+
 def _genshin_marks(img: Image.Image, n: int, accent, light, icon: Image.Image | None = None) -> None:
     """A constellation ring: six stars around the badge, joined along the ring as they're unlocked; star dust from C2,
     an inner glow from C3, an outer orbit from C4, twinkles from C5 and a starburst at C6."""
@@ -736,7 +741,7 @@ def _genshin_marks(img: Image.Image, n: int, accent, light, icon: Image.Image | 
     def neon(d):
         if n >= 6:
             _rays(d, cx, cy, r, light, 8, 3)
-        for k in range(n - 1):
+        for k in range(_links(n)):
             d.arc((cx - r, cy - r, cx + r, cy + r), -90 + k * 60, -30 + k * 60, fill=accent + (255,), width=SS * (4 + 2 * n))
         for x, y in stars[:n]:
             d.ellipse((x - 9 * SS, y - 9 * SS, x + 9 * SS, y + 9 * SS), fill=accent + (255,))
@@ -758,7 +763,7 @@ def _genshin_marks(img: Image.Image, n: int, accent, light, icon: Image.Image | 
     symbol = _badge_core(img, cx, cy, r, n, accent, "genshin", icon)
     draw = ImageDraw.Draw(img)
     draw.ellipse((cx - r, cy - r, cx + r, cy + r), outline=(255, 255, 255, 60), width=SS)
-    for k in range(n - 1):  # constellation lines along the ring
+    for k in range(_links(n)):  # constellation lines along the ring
         draw.arc((cx - r, cy - r, cx + r, cy + r), -90 + k * 60, -30 + k * 60, fill=light + (255,), width=SS * 3)
     for i, (x, y) in enumerate(stars):
         if i < n:
@@ -786,7 +791,7 @@ def _hsr_marks(img: Image.Image, n: int, accent, light, icon: Image.Image | None
         if n >= 6:
             _rays(d, cx, cy, r, light, 12, 2)
         if n > 1:
-            d.arc((cx - r, cy - r, cx + r, cy + r), -90, -90 + 60 * (n - 1), fill=accent + (255,), width=SS * (4 + 2 * n))
+            d.arc((cx - r, cy - r, cx + r, cy + r), -90, -90 + 60 * _links(n), fill=accent + (255,), width=SS * (4 + 2 * n))
         for a in ang[:n]:
             x, y = cx + math.cos(math.radians(a)) * r, cy + math.sin(math.radians(a)) * r
             d.ellipse((x - 9 * SS, y - 9 * SS, x + 9 * SS, y + 9 * SS), fill=accent + (255,))
@@ -819,7 +824,7 @@ def _hsr_marks(img: Image.Image, n: int, accent, light, icon: Image.Image | None
                   fill=(255, 255, 255, 50), width=SS)
     if n > 1:
         for rr in (r * 0.93, r * 1.07):
-            draw.arc((cx - rr, cy - rr, cx + rr, cy + rr), -90, -90 + 60 * (n - 1), fill=light + (255,), width=SS * 2)
+            draw.arc((cx - rr, cy - rr, cx + rr, cy + rr), -90, -90 + 60 * _links(n), fill=light + (255,), width=SS * 2)
     for i, a in enumerate(ang):  # stations
         x, y = cx + math.cos(math.radians(a)) * r, cy + math.sin(math.radians(a)) * r
         s = 8 * SS
