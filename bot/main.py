@@ -8,6 +8,7 @@ import io
 import logging
 import math
 import os
+import random
 import re
 
 import aiohttp
@@ -366,9 +367,17 @@ async def help_command(interaction: discord.Interaction) -> None:
     await interaction.response.send_message(embeds=embeds, files=files, view=view, ephemeral=True)
 
 
+PAT_LINES = (
+    "Th-thank you, Proxy. That was... acceptable. You may continue.",
+    "Thank you for the pat, Proxy. My processing efficiency just went up by 12%.",
+    "Hmph. Thank you, Proxy. I'll pretend I didn't enjoy that.",
+    "Thank you, Proxy~ Fairy will remember this kindness.",
+)
+
+
 @app_commands.command(name="pat", description="Pat Fairy")
 async def pat_command(interaction: discord.Interaction) -> None:
-    """Fairy enjoys it. The reply is only her happy face, so Discord shows the emoji big."""
+    """Fairy enjoys it: her happy face (alone in its message, so Discord shows the emoji big), then her thanks."""
     bot: HoyoBot = interaction.client  # type: ignore[assignment]
     emojis = bot.set_emojis
     if emojis and "fairy_happy" not in emojis.emojis:
@@ -378,6 +387,7 @@ async def pat_command(interaction: discord.Interaction) -> None:
         await interaction.followup.send(emoji or "(*^▽^*)")
     else:
         await interaction.response.send_message(emoji or "(*^▽^*)")
+    await interaction.followup.send(random.choice(PAT_LINES))
 
 
 GAME_SHORT = {"genshin": "Genshin", "hsr": "Star Rail", "zzz": "ZZZ"}

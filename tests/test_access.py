@@ -276,7 +276,8 @@ class PatTest(unittest.TestCase):
             it = SimpleNamespace(client=SimpleNamespace(set_emojis=emojis), response=Response(),
                                  followup=SimpleNamespace(send=followup))
             asyncio.run(pat_command.callback(it))
-            self.assertEqual(sent, ["<:fairy_happy:1>"])
+            self.assertEqual(sent[0], "<:fairy_happy:1>")  # alone, so Discord shows it big
+            self.assertIn("Proxy", sent[1])  # then her thanks
         self.assertEqual([name for name, _ in uploads], ["fairy_happy"])
         self.assertLess(uploads[0][1], 256 * 1024)  # Discord's emoji size limit
 
