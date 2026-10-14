@@ -66,7 +66,7 @@ class ReadersTest(unittest.TestCase):
         self.assertEqual((sd.teams[0].bangboo.rarity, sd.teams[1].bangboo), (5, None))
         self.assertEqual(da.teams[0].bangboo.level, 60)
         self.assertEqual((da.teams[3].stage, da.teams[3].label), ("Adversity Mode", "Notorious - Miasma Priest"))
-        self.assertEqual((da.teams[3].left, da.teams[3].right), ([("Stars", "2/3")], [("Top", "11.3%")]))
+        self.assertEqual((da.teams[3].left, da.teams[3].right), ([("Stars", "2/3")], [("Top", "0.16%")]))
         self.assertEqual(dict(da.headline)["Score"], "60,120")
 
     def test_genshin(self):

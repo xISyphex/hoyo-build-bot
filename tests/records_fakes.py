@@ -84,7 +84,7 @@ def da() -> NS:
         NS(boss=boss("Notorious - Marionette"), score=20110, star=3, agents=ZZZ_B),
         NS(boss=boss("Notorious - Pompey"), score=19530, star=3, agents=ZZZ_A[::-1]),
     ], hard_challenges=[NS(boss=boss("Notorious - Miasma Priest"), score=24860, star=2, agents=ZZZ_B[::-1])],
-        hard_rank_percent="11.3%")
+        hard_rank_percent="0.16%")
 
 
 GI_A = [gi_char(10000089, "Furina", constellation=2), gi_char(10000073, "Nahida"), gi_char(10000052, "Shougun"),

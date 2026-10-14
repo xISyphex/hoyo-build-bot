@@ -301,7 +301,7 @@ def _hsr_portrait(card: Image.Image, member, icon, x: int, y: int, accent) -> No
 
 def _zzz_portrait(card: Image.Image, member, icon, x: int, y: int, accent, size: int, copies: bool = True) -> None:
     """HoYoLAB's ZZZ portrait: the agent's square picture (with the outfit they wear) in a thick dark rounded frame,
-    the copies at the top right."""
+    the copies at the top left."""
     frame = 5 if size > 80 else 4
     tile = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     td = ImageDraw.Draw(tile)
@@ -317,16 +317,15 @@ def _zzz_portrait(card: Image.Image, member, icon, x: int, y: int, accent, size:
     if copies:
         label = copies_label("zzz", member)
         if label:
-            _slant_plate(card, label, x + size - frame, y + frame, accent)
+            _slant_plate(card, label, x + frame - 2, y + frame, accent)
 
 
-def _slant_plate(card: Image.Image, label: str, right: float, y: float, accent) -> None:
-    """A dark slanted plate with a colour stripe, its right edge at x = right."""
+def _slant_plate(card: Image.Image, label: str, x: float, y: float, accent) -> None:
+    """A dark slanted plate with a colour stripe, its left edge at x."""
     f = c.FONTS
     draw = ImageDraw.Draw(card)
     w = draw.textlength(label, font=f.small_b) + 22
     sl = 7
-    x = right - w - sl
     draw.polygon([(x + sl, y), (x + w + sl, y), (x + w, y + 24), (x, y + 24)], fill=(14, 12, 24, 230))
     draw.polygon([(x + sl, y), (x + 6 + sl, y), (x + 6, y + 24), (x, y + 24)], fill=accent + (255,))
     draw.text((x + 10 + (w - 10) / 2 + sl / 2, y + 12), label, font=f.small_b, fill=c.TEXT, anchor="mm")

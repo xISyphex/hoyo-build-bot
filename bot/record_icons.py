@@ -220,68 +220,77 @@ def rating(letter: str, height: int, font: ImageFont.FreeTypeFont) -> Image.Imag
     return img
 
 
-def _heat(percent: str) -> float:
-    """How fiery a ranking is: 1 for the top 1%, fading out by the top 25%."""
+def _percent(text: str) -> float | None:
     try:
-        p = float(percent.strip().rstrip("%"))
+        return float(text.strip().rstrip("%"))
     except ValueError:
-        return 0.0
-    return 1.0 if p <= 1 else 0.8 if p <= 5 else 0.55 if p <= 10 else 0.3 if p <= 25 else 0.0
+        return None
 
 
-def rank_badge(percent: str, height: int, font: ImageFont.FreeTypeFont, seed: int = 7) -> tuple[Image.Image, tuple[int, int]]:
-    """A round ranking badge, 'TOP 2.8%'; the better the ranking the more it burns, flames licking from left to
-    right across it. Returns the picture and where the badge itself sits in it (its top left)."""
-    import random
-    heat = _heat(percent)
-    f = font.font_variant(size=round(height * 0.56))
-    text = f"TOP {percent}"
-    pw = round(f.getlength(text) + height * 1.1)
-    m = round(height * 0.5)  # room for the glow
-    mt = round(height * (0.6 + 1.6 * heat)) if heat else m  # and above, for the flames
-    W, H = pw + 2 * m + round(height * 0.6 * heat), height + mt + m
-    out = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    if heat:
-        rnd = random.Random(seed)
-        fire = Image.new("RGBA", (W * SS, H * SS), (0, 0, 0, 0))
-        fd = ImageDraw.Draw(fire)
-        tongues = round(5 + 12 * heat)
-        layers = (((220, 40, 16), 1.0), ((255, 120, 20), 0.68), ((255, 214, 90), 0.36))  # red rim, orange, yellow core
-        flames = []
-        for i in range(tongues):
-            t = i / max(1, tongues - 1)
-            x = (m + height * 0.2 + t * pw * 0.9) * SS  # along the badge, from its left end
-            y = (mt + height * rnd.uniform(0.2, 0.6)) * SS
-            length = height * (0.55 + 0.9 * heat) * (1.25 - 0.55 * t) * rnd.uniform(0.75, 1.1) * SS  # tallest at the left
-            width = height * rnd.uniform(0.3, 0.45) * SS
-            flames.append((x, y, length, width, rnd.uniform(0, math.tau), rnd.uniform(0.25, 0.55)))
-        for colour, scale in layers:
-            for x, y, length, width, phase, lean in flames:
-                left, right = [], []
-                for k in range(13):  # a tongue rising up and leaning right, wavering, tapering to a point
-                    u = k / 12
-                    cx = x + length * lean * u ** 1.4 + width * 0.18 * math.sin(phase + u * 5)
-                    cy = y - length * scale ** 0.3 * u
-                    half = width * scale * 0.5 * (1 - u) ** 0.8 * (0.6 + 0.4 * math.sin(math.pi * min(1, u * 1.6 + 0.3)))
-                    left.append((cx - half, cy))
-                    right.append((cx + half, cy))
-                fd.polygon(left + right[::-1], fill=colour + (235,))
-        fire = fire.resize((W, H), Image.LANCZOS)
-        glow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-        ImageDraw.Draw(glow).rounded_rectangle((m - 4, mt - 4, m + pw + 4, mt + height + 4), height, fill=(255, 96, 20, round(200 * heat)))
-        out.alpha_composite(glow.filter(ImageFilter.GaussianBlur(height * 0.35)))
-        out.alpha_composite(fire.filter(ImageFilter.GaussianBlur(1.2)))
-        out.alpha_composite(fire.filter(ImageFilter.GaussianBlur(height * 0.12)))
-    b = (pw * SS, height * SS)
-    pill = Image.new("RGBA", b, (0, 0, 0, 0))
-    pd = ImageDraw.Draw(pill)
-    top = (255, 214, 80) if heat else (250, 196, 40)
-    bottom = (255, 120, 20) if heat >= 0.55 else (240, 170, 30)
-    mask = Image.new("L", b, 0)
-    ImageDraw.Draw(mask).rounded_rectangle((0, 0, b[0] - 1, b[1] - 1), b[1] / 2, fill=255)
-    pill.paste(Image.new("RGBA", b, (16, 12, 8, 255)), (0, 0), mask)
-    pill.paste(_gradient(b, top, bottom), (0, 0), mask.filter(ImageFilter.MinFilter(SS * 2 + 1)))
-    pill = pill.resize((pw, height), Image.LANCZOS)
-    ImageDraw.Draw(pill).text((pw / 2, height / 2 + 1), text, font=f, fill=(16, 12, 8, 255), anchor="mm")
-    out.alpha_composite(pill, (m, mt))
-    return out, (m, mt)
+def _heat(percent: str) -> float:
+    """Kept for callers that size things by the flame: the tail is part of the badge now, so nothing sticks out."""
+    return 0.0
+
+
+HOLO = ((255, 150, 210), (150, 212, 255), (255, 240, 150), (140, 255, 210), (206, 166, 255), (255, 176, 222))
+GOLD = ((255, 236, 150), (250, 196, 60), (232, 150, 30))
+
+
+def _bands(size: tuple[int, int], stops, angle: float = 25) -> Image.Image:
+    """A colour gradient through the stops, running diagonally across."""
+    w, h = size
+    strip = Image.new("RGB", (len(stops) * 64, 1))
+    px = strip.load()
+    for x in range(strip.width):
+        t = x / (strip.width - 1) * (len(stops) - 1)
+        i = min(int(t), len(stops) - 2)
+        a, b = stops[i], stops[i + 1]
+        px[x, 0] = tuple(round(a[k] + (b[k] - a[k]) * (t - i)) for k in range(3))
+    D = 2 * max(w, h)
+    big = strip.resize((D, D), Image.BILINEAR).rotate(angle, resample=Image.BILINEAR)
+    return big.crop(((D - w) // 2, (D - h) // 2, (D - w) // 2 + w, (D - h) // 2 + h)).convert("RGBA")
+
+
+def _curve(p0, p1, p2, steps: int = 12) -> list[tuple[float, float]]:
+    """Points along a quadratic Bezier curve."""
+    return [((1 - t) ** 2 * p0[0] + 2 * (1 - t) * t * p1[0] + t * t * p2[0],
+             (1 - t) ** 2 * p0[1] + 2 * (1 - t) * t * p1[1] + t * t * p2[1]) for t in (i / steps for i in range(steps + 1))]
+
+
+def rank_badge(percent: str, height: int, font: ImageFont.FreeTypeFont) -> tuple[Image.Image, tuple[int, int]]:
+    """The ranking as a badge whose right end burns out into a flame: holographic for the top 1% and better (with a
+    bigger flame), gold otherwise. Returns the picture and where the badge's left edge and top sit in it."""
+    p = _percent(percent)
+    holo = p is not None and p <= 1
+    f = font.font_variant(size=round(height * 0.66))
+    pw = round(f.getlength(percent) + height * 0.9)  # the round-ended body holding the number
+    tail = round(height * (1.5 if holo else 0.9))
+    pad = round(height * (0.45 if holo else 0.3))  # the big tongue's tip rises above the body
+    W, H, P = (pw + tail) * SS, height * SS, pad * SS
+    mask = Image.new("L", (W, H + P), 0)
+    d = ImageDraw.Draw(mask)
+    r = H / 2
+    d.rounded_rectangle((0, P, pw * SS, P + H - 1), r, fill=255)
+    x0, L = pw * SS - r, tail * SS + r - SS * 2  # the flame: from the body's right end, two tongues curling up and right
+    big, notch, small, bottom = (x0 + L, SS), (x0 + L * 0.5, P + H * 0.42), (x0 + L * 0.9, P + H * 0.46), (x0, P + H - 1)
+    pts = [(x0, P)]
+    pts += _curve((x0, P), (x0 + L * 0.6, P + H * 0.05), big)
+    pts += _curve(big, (x0 + L * 0.66, P + H * 0.12), notch)
+    pts += _curve(notch, (x0 + L * 0.75, P + H * 0.34), small)
+    pts += _curve(small, (x0 + L * 0.7, P + H * 1.02), bottom)
+    d.polygon(pts, fill=255)
+    mask = mask.filter(ImageFilter.GaussianBlur(SS * 0.8)).point(lambda v: 255 if v > 110 else 0)  # soften the joins
+    img = Image.new("RGBA", (W, H + P), (0, 0, 0, 0))
+    img.paste(Image.new("RGBA", (W, H + P), (16, 12, 8, 255)), (0, 0), mask)
+    inner = mask.filter(ImageFilter.MinFilter(SS * 2 + 1))
+    fill = _bands((W, H + P), HOLO if holo else GOLD, 25 if holo else 90)
+    if holo:  # a pale sheen across, like foil
+        sheen = Image.new("RGBA", (W, H + P), (0, 0, 0, 0))
+        ImageDraw.Draw(sheen).polygon([(W * 0.25, 0), (W * 0.42, 0), (W * 0.3, H + P), (W * 0.13, H + P)], fill=(255, 255, 255, 120))
+        fill.alpha_composite(sheen.filter(ImageFilter.GaussianBlur(SS * 3)))
+    img.paste(fill, (0, 0), inner)
+    img = img.resize((pw + tail, height + pad), Image.LANCZOS)
+    ImageDraw.Draw(img).text((pw / 2 + height * 0.05, pad + height / 2 + 1), percent, font=f, fill=(16, 12, 8, 255), anchor="mm")
+    return img, (0, pad)
+
+
