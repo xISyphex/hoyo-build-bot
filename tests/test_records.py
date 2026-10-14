@@ -51,9 +51,9 @@ class ReadersTest(unittest.TestCase):
     def test_anomaly_arbitration_knights_then_king(self):
         rec = R.hsr_aa(F.aa())
         self.assertEqual([t.label for t in rec.teams],
-                         ["Knight · Wolf Knight", "Knight · Lion Knight", "Knight · Stag Knight",
-                          "King · Sovereign of Thrones · Hard Mode"])
+                         ["Wolf Knight", "Lion Knight", "Stag Knight", "Sovereign of Thrones · Hard Mode"])
         self.assertEqual(rec.teams[3].result, "3★ · 4 cycles")
+        self.assertEqual([t.stage for t in rec.teams], ["", "", "", "King"])
 
     def test_zzz_ranking(self):
         sd, da = R.zzz_sd(F.sd()), R.zzz_da(F.da())
@@ -61,7 +61,7 @@ class ReadersTest(unittest.TestCase):
         self.assertEqual(dict(da.headline)["Top"], "2.8%")
         self.assertEqual(sd.teams[0].result, "31,890 pts · S · 1:44")
         self.assertEqual(len(da.teams), 4)
-        self.assertEqual(da.teams[3].label, "Adversity · Notorious - Miasma Priest")
+        self.assertEqual((da.teams[3].stage, da.teams[3].label), ("Adversity Mode", "Notorious - Miasma Priest"))
         self.assertEqual(dict(da.headline)["Adversity top"], "11.3%")
 
     def test_genshin(self):

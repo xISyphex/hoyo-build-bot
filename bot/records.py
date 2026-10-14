@@ -37,6 +37,7 @@ class Team:
     label: str  # e.g. "Node 1", "Knight · Wolf", "12-3 · First half"
     result: str = ""  # e.g. "8 cycles", "31,204 pts"
     members: list[Member] = field(default_factory=list)
+    stage: str = ""  # set for a stage shown in its own row under the others, with this header (e.g. "King")
 
 
 @dataclass
@@ -234,13 +235,13 @@ def hsr_aa(data) -> Record:
         rec.headline.append(("Medal", data.summary.medal_type.replace("_", " ").title()))
     for mob in record.mini_boss_records:
         if mob.has_data:
-            rec.teams.append(Team(f"Knight · {mobs.get(mob.id, '?')}", f"{mob.stars}★ · {mob.cycles_used} cycles",
+            rec.teams.append(Team(mobs.get(mob.id, "Knight"), f"{mob.stars}★ · {mob.cycles_used} cycles",
                                   [_hsr_member(c) for c in mob.characters]))
     boss = record.boss_record
     if boss and boss.has_data:
         mode = f" · {record.boss.game_mode_name}" if boss.is_hard_mode and record.boss.game_mode_name else ""
-        rec.teams.append(Team(f"King · {record.boss.name}{mode}", f"{boss.stars}★ · {boss.cycles_used} cycles",
-                              [_hsr_member(c) for c in boss.characters]))
+        rec.teams.append(Team(f"{record.boss.name}{mode}", f"{boss.stars}★ · {boss.cycles_used} cycles",
+                              [_hsr_member(c) for c in boss.characters], stage="King"))
     return rec
 
 
@@ -290,8 +291,8 @@ def zzz_da(data) -> Record:
         rec.teams.append(Team(c.boss.name, f"{_num(c.score)} pts · {c.star}★", [_zzz_member(a) for a in c.agents]))
     hard = list(getattr(data, "hard_challenges", None) or ())  # Adversity Mode, the extra boss
     for c in hard:
-        rec.teams.append(Team(f"Adversity · {c.boss.name}", f"{_num(c.score)} pts · {c.star}★",
-                              [_zzz_member(a) for a in c.agents]))
+        rec.teams.append(Team(c.boss.name, f"{_num(c.score)} pts · {c.star}★",
+                              [_zzz_member(a) for a in c.agents], stage="Adversity Mode"))
     if hard and getattr(data, "hard_rank_percent", None):
         rec.headline.append(("Adversity top", data.hard_rank_percent))
     return rec

@@ -13,9 +13,11 @@ from .records import Record, Team, copies_label
 W = 1200
 PAD = 28
 GAP = 16
-PORTRAIT = 104
-PORTRAIT_GAP = 12
-TEAM_H = 46 + PORTRAIT + 18  # label row, portraits, padding
+PORTRAIT = 80
+PORTRAIT_GAP = 8
+COLS = 3  # teams per row
+TEAM_H = 62 + PORTRAIT + 14  # title and result rows, portraits, padding
+STAGE_HEAD = 30  # the header over a stage in its own row (the King, Adversity Mode)
 GAME_ACCENT = {"genshin": (232, 178, 92), "hsr": (150, 128, 255), "zzz": (250, 196, 40)}
 GAME_TITLE = {"genshin": "Genshin Impact", "hsr": "Honkai: Star Rail", "zzz": "Zenless Zone Zero"}
 RARITY_BG = {5: ((176, 120, 52), (98, 60, 30)), 4: ((128, 92, 196), (64, 44, 110))}
@@ -40,11 +42,18 @@ def _starry_width(draw: ImageDraw.ImageDraw, text: str, font) -> float:
     return sum(draw.textlength(p, font=font) for p in parts) + font.size * 0.62 * (len(parts) - 1)
 
 
+def _rows(record: Record) -> list[tuple[str, list[Team]]]:
+    """The teams in rows of COLS; each stage (King, Adversity Mode) gets a row of its own under its header."""
+    plain = [t for t in record.teams if not t.stage]
+    rows = [("", plain[i:i + COLS]) for i in range(0, len(plain), COLS)]
+    return rows + [(t.stage, [t]) for t in record.teams if t.stage]
+
+
 def _section_height(record: Record) -> int:
     if record.empty or not record.teams:
         return 64 + 50
-    rows = (len(record.teams) + 1) // 2
-    return 64 + 12 + rows * TEAM_H + (rows - 1) * GAP + 8
+    rows = _rows(record)
+    return 64 + 12 + sum(TEAM_H + (STAGE_HEAD if head else 0) for head, _ in rows) + (len(rows) - 1) * GAP + 8
 
 
 def _portrait(card: Image.Image, game: str, member, icon: Image.Image | None, x: int, y: int, accent) -> None:
@@ -70,15 +79,15 @@ def _portrait(card: Image.Image, game: str, member, icon: Image.Image | None, x:
     draw = ImageDraw.Draw(card)
     label = copies_label(game, member)
     if label:  # copies at the top left
-        w = draw.textlength(label, font=f.small_b) + 14
-        draw.rounded_rectangle((x - 4, y - 6, x - 4 + w, y + 20), 9, fill=(14, 12, 24, 235), outline=accent + (255,), width=1)
-        draw.text((x - 4 + w / 2, y + 7), label, font=f.small_b, fill=c.TEXT, anchor="mm")
+        w = draw.textlength(label, font=f.label) + 12
+        draw.rounded_rectangle((x - 4, y - 6, x - 4 + w, y + 14), 8, fill=(14, 12, 24, 235), outline=accent + (255,), width=1)
+        draw.text((x - 4 + w / 2, y + 4), label, font=f.label, fill=c.TEXT, anchor="mm")
     if member.level:
         lv = f"Lv. {member.level}"
-        shade = Image.new("RGBA", (PORTRAIT, 26), (0, 0, 0, 0))
-        ImageDraw.Draw(shade).rounded_rectangle((0, 0, PORTRAIT - 1, 25), 10, fill=(0, 0, 0, 130))
-        card.alpha_composite(shade, (x, y + PORTRAIT - 26))
-        draw.text((x + PORTRAIT / 2, y + PORTRAIT - 13), lv, font=f.slot, fill=c.TEXT, anchor="mm")
+        shade = Image.new("RGBA", (PORTRAIT, 20), (0, 0, 0, 0))
+        ImageDraw.Draw(shade).rounded_rectangle((0, 0, PORTRAIT - 1, 19), 8, fill=(0, 0, 0, 140))
+        card.alpha_composite(shade, (x, y + PORTRAIT - 20))
+        draw.text((x + PORTRAIT / 2, y + PORTRAIT - 10), lv, font=f.stamp, fill=c.TEXT, anchor="mm")
 
 
 def _team(card: Image.Image, game: str, team: Team, images: dict, box, accent, light) -> None:
@@ -86,15 +95,14 @@ def _team(card: Image.Image, game: str, team: Team, images: dict, box, accent, l
     x0, y0, x1, y1 = box
     c._panel(card, box, 16, (0, 0, 0, 80))
     draw = ImageDraw.Draw(card)
-    result_w = _starry_width(draw, team.result, f.small_b) if team.result else 0
-    draw.text((x0 + 16, y0 + 24), c._fit_text(draw, team.label, f.stat_s, x1 - x0 - 48 - result_w), font=f.stat_s, fill=c.TEXT, anchor="lm")
-    if team.result:
-        _starry(draw, (x1 - 16, y0 + 24), team.result, f.small_b, light, anchor="rm")
+    draw.text((x0 + 14, y0 + 20), c._fit_text(draw, team.label, f.stat_s, x1 - x0 - 28), font=f.stat_s, fill=c.TEXT, anchor="lm")
+    if team.result:  # this node's own cycles / points, under its title
+        _starry(draw, (x0 + 14, y0 + 44), team.result, f.small_b, light)
     members = team.members[:4]
     row_w = len(members) * PORTRAIT + max(0, len(members) - 1) * PORTRAIT_GAP
     x = x0 + (x1 - x0 - row_w) // 2
     for m in members:
-        _portrait(card, game, m, images.get(m.icon_url or ""), x, y0 + 52, accent)
+        _portrait(card, game, m, images.get(m.icon_url or ""), x, y0 + 64, accent)
         x += PORTRAIT + PORTRAIT_GAP
 
 
@@ -135,16 +143,23 @@ def draw_records(game: str, uid: str, records: list[Record], images: dict[str, I
         if record.empty or not record.teams:
             draw.text((PAD + 8, y + 86), record.empty or "Nothing to show.", font=f.stat_s, fill=c.DIM, anchor="lm")
         else:
-            ty = y + 76
-            col_w = (W - 2 * PAD - GAP) // 2
-            for i, team in enumerate(record.teams):
-                col, row = i % 2, i // 2
-                if i == len(record.teams) - 1 and i % 2 == 0:  # an odd last team sits in the middle
-                    bx = PAD + (W - 2 * PAD - col_w) // 2
-                else:
-                    bx = PAD + col * (col_w + GAP)
-                by = ty + row * (TEAM_H + GAP)
-                _team(card, game, team, images, (bx, by, bx + col_w, by + TEAM_H), accent, light)
+            by = y + 76
+            col_w = (W - 2 * PAD - (COLS - 1) * GAP) // COLS
+            for head, row in _rows(record):
+                if head:  # a stage of its own: a header line across the section, the team centred under it
+                    draw = ImageDraw.Draw(card)
+                    tw = draw.textlength(head.upper(), font=f.label) * 1.15
+                    mid = W / 2
+                    draw.line((PAD + 8, by + 12, mid - tw / 2 - 14, by + 12), fill=accent + (120,), width=1)
+                    draw.line((mid + tw / 2 + 14, by + 12, W - PAD - 8, by + 12), fill=accent + (120,), width=1)
+                    c._spaced(draw, (mid - tw / 2, by + 12), head.upper(), f.label, light, 1.2)
+                    by += STAGE_HEAD
+                row_w = len(row) * col_w + (len(row) - 1) * GAP
+                bx = PAD + (W - 2 * PAD - row_w) // 2  # a short row sits in the middle
+                for team in row:
+                    _team(card, game, team, images, (bx, by, bx + col_w, by + TEAM_H), accent, light)
+                    bx += col_w + GAP
+                by += TEAM_H + GAP
         y += h + GAP
 
     out = io.BytesIO()
