@@ -37,6 +37,7 @@ SLOT_ORDER = list(SLOTS.values())
 RELIC_ICONS = "https://enka.network/ui/hsr/SpriteOutput/ItemIcon/RelicIcons/"
 # StarRailRes images: full character art and light cone cards.
 SRR_IMAGES = "https://raw.githubusercontent.com/Mar-7th/StarRailRes/master/image/"
+SRR_ICONS = "https://raw.githubusercontent.com/Mar-7th/StarRailRes/master/icon/"
 SRR_PATH_ICONS = "https://raw.githubusercontent.com/Mar-7th/StarRailRes/master/icon/path/"
 SRR_ELEMENT_ICONS = "https://raw.githubusercontent.com/Mar-7th/StarRailRes/master/icon/element/"
 # Path ids in the game data -> the name of the path icon in StarRailRes
@@ -282,7 +283,18 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
         art_url=f"{SRR_IMAGES}character_portrait/{avatar_id}.png",
         path_icon=f"{SRR_PATH_ICONS}{PATH_ICONS[path]}.png" if (path := char.get("AvatarBaseType")) in PATH_ICONS else None,
         element_icon=f"{SRR_ELEMENT_ICONS}{element}.png" if element in ELEMENTS else None,
+        cons_icons=_eidolon_icons(assets, avatar_id),
     )
+
+
+def _eidolon_icons(assets: Assets, avatar_id: str) -> list[str]:
+    """Enka's eidolon icons; characters newer than Enka's data use StarRailRes's (it names them by eidolon)."""
+    ranks = assets.data.get("hsr_ranks", {})
+    icons = []
+    for k in range(1, 7):
+        path = ranks.get(f"{avatar_id}0{k}", {}).get("IconPath")
+        icons.append(f"https://enka.network/ui/hsr/{path}" if path else f"{SRR_ICONS}skill/{avatar_id}_rank{k}.png")
+    return icons
 
 
 def parse_profile(assets: Assets, uid: str, data: dict) -> PlayerProfile:
