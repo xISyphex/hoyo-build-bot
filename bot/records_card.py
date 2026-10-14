@@ -17,6 +17,7 @@ GAP = 16
 PORTRAIT = 104
 PORTRAIT_GAP = 12
 COLS = 3  # teams per row
+BANGBOO = 64  # ZZZ's Bangboo, smaller beside the agents
 TEAM_W = 4 * PORTRAIT + 3 * PORTRAIT_GAP + 32
 W = 2 * PAD + COLS * TEAM_W + (COLS - 1) * GAP  # as wide as three teams of four need
 TEAM_H = 66 + PORTRAIT + 18  # title and result rows, portraits, padding
@@ -228,38 +229,131 @@ def _section_height(record: Record) -> int:
     return HEAD + sum(TEAM_H + (STAGE_HEAD if head else 0) for head, _ in rows) + (len(rows) - 1) * GAP + 16
 
 
+def _cover(icon: Image.Image, w: int, h: int, top: bool = True) -> Image.Image:
+    """The picture scaled to fill w x h, cropped from the top (faces sit high) or the middle."""
+    pic = icon.convert("RGBA")
+    scale = max(w / pic.width, h / pic.height)
+    pic = pic.resize((round(pic.width * scale), round(pic.height * scale)), Image.LANCZOS)
+    left = (pic.width - w) // 2
+    upper = 0 if top else (pic.height - h) // 2
+    return pic.crop((left, upper, left + w, upper + h))
+
+
+def _masked(layer: Image.Image, mask: Image.Image) -> Image.Image:
+    layer.putalpha(ImageChops.multiply(layer.getchannel("A"), mask))
+    return layer
+
+
 def _portrait(card: Image.Image, game: str, member, icon: Image.Image | None, x: int, y: int, accent) -> None:
+    if game == "hsr":
+        _hsr_portrait(card, member, icon, x, y, accent)
+    elif game == "zzz":
+        _zzz_portrait(card, member, icon, x, y, accent, PORTRAIT)
+    else:
+        _gi_portrait(card, game, member, icon, x, y, accent)
+
+
+def _rarity_tile(w: int, h: int, rarity: int) -> Image.Image:
+    top, bottom = RARITY_BG.get(rarity, ((70, 70, 84), (40, 40, 50)))
+    grad = Image.linear_gradient("L").resize((w, h))
+    return Image.composite(Image.new("RGBA", (w, h), bottom + (255,)), Image.new("RGBA", (w, h), top + (255,)), grad)
+
+
+HSR_H = PORTRAIT + 8  # Star Rail's portraits are a little taller than wide, like HoYoLAB's
+
+
+def _hsr_portrait(card: Image.Image, member, icon, x: int, y: int, accent) -> None:
+    """HoYoLAB's Star Rail portrait: rarity colour behind the art, square corners but a rounded top right, and a
+    black level band across the bottom."""
     f = c.FONTS
-    top, bottom = RARITY_BG.get(member.rarity, ((70, 70, 84), (40, 40, 50)))
+    w, h = PORTRAIT, HSR_H
+    tile = _rarity_tile(w, h, member.rarity)
+    if icon is not None:
+        tile.alpha_composite(_cover(icon, w, h - 22))
+    band = Image.new("RGBA", (w, 24), (0, 0, 0, 225))
+    tile.alpha_composite(band, (0, h - 24))
+    ImageDraw.Draw(tile).text((w / 2, h - 12), f"Lv. {member.level}" if member.level else "", font=f.slot, fill=c.TEXT, anchor="mm")
+    mask = Image.new("L", (w * 4, h * 4), 0)
+    md = ImageDraw.Draw(mask)
+    md.rounded_rectangle((0, 0, w * 4 - 1, h * 4 - 1), 22 * 4, fill=255, corners=(False, True, False, False))
+    mask = mask.resize((w, h), Image.LANCZOS)
+    card.alpha_composite(_masked(tile, mask), (x, y - 4))
+    _copies(card, "hsr", member, x, y - 4, accent)
+
+
+ZZZ_RANK = {5: ("S", (255, 132, 20)), 4: ("A", (196, 92, 255))}
+
+
+def _zzz_rank(card: Image.Image, rarity: int, x: int, y: int, size: int) -> None:
+    """ZZZ's rank mark: a slanted S (or A) over a small RANK plate."""
+    f = c.FONTS
+    letter, colour = ZZZ_RANK.get(rarity, ("B", (64, 160, 255)))
+    s = size
+    layer = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+    ld = ImageDraw.Draw(layer)
+    big = f.name[32].font_variant(size=round(s * 0.78))
+    ld.text((s / 2, s * 0.4), letter, font=big, fill=colour + (255,), anchor="mm", stroke_width=max(1, s // 14), stroke_fill=(12, 12, 12, 255))
+    layer = layer.transform(layer.size, Image.AFFINE, (1, 0.2, -0.1 * s, 0, 1, 0), Image.BICUBIC)
+    ld = ImageDraw.Draw(layer)
+    ld.rectangle((s * 0.12, s * 0.74, s * 0.88, s * 0.98), fill=colour + (255,))
+    tiny = f.label.font_variant(size=max(7, round(s * 0.24)))
+    ld.text((s / 2, s * 0.86), "RANK", font=tiny, fill=(255, 255, 255, 255), anchor="mm")
+    card.alpha_composite(layer, (x, y))
+
+
+def _zzz_portrait(card: Image.Image, member, icon, x: int, y: int, accent, size: int, copies: bool = True) -> None:
+    """HoYoLAB's ZZZ portrait: the agent's square picture (with the outfit they wear) in a thick dark rounded frame,
+    the rank mark at the top left and the copies at the top right."""
+    frame = 5 if size > 80 else 4
+    tile = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    td = ImageDraw.Draw(tile)
+    td.rounded_rectangle((0, 0, size - 1, size - 1), 18 if size > 80 else 14, fill=(40, 40, 44, 255), outline=(70, 70, 76, 255), width=1)
+    inner = size - 2 * frame
+    pic = Image.new("RGBA", (inner, inner), (58, 58, 64, 255))
+    if icon is not None:
+        pic.alpha_composite(_cover(icon, inner, inner, top=False))
+    mask = Image.new("L", (inner * 4, inner * 4), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, inner * 4 - 1, inner * 4 - 1), (13 if size > 80 else 10) * 4, fill=255)
+    tile.alpha_composite(_masked(pic, mask.resize((inner, inner), Image.LANCZOS)), (frame, frame))
+    card.alpha_composite(tile, (x, y))
+    _zzz_rank(card, member.rarity, x + frame + 2, y + frame + 1, 30 if size > 80 else 22)
+    if copies:
+        label = copies_label("zzz", member)
+        if label:
+            _slant_plate(card, label, x + size - frame, y + frame, accent)
+
+
+def _slant_plate(card: Image.Image, label: str, right: float, y: float, accent) -> None:
+    """A dark slanted plate with a colour stripe, its right edge at x = right."""
+    f = c.FONTS
+    draw = ImageDraw.Draw(card)
+    w = draw.textlength(label, font=f.small_b) + 22
+    sl = 7
+    x = right - w - sl
+    draw.polygon([(x + sl, y), (x + w + sl, y), (x + w, y + 24), (x, y + 24)], fill=(14, 12, 24, 230))
+    draw.polygon([(x + sl, y), (x + 6 + sl, y), (x + 6, y + 24), (x, y + 24)], fill=accent + (255,))
+    draw.text((x + 10 + (w - 10) / 2 + sl / 2, y + 12), label, font=f.small_b, fill=c.TEXT, anchor="mm")
+
+
+def _gi_portrait(card: Image.Image, game: str, member, icon, x: int, y: int, accent) -> None:
+    f = c.FONTS
     tile = Image.new("RGBA", (PORTRAIT, PORTRAIT), (0, 0, 0, 0))
-    grad = Image.linear_gradient("L").resize((PORTRAIT, PORTRAIT))
-    colour = Image.composite(Image.new("RGBA", tile.size, bottom + (255,)), Image.new("RGBA", tile.size, top + (255,)), grad)
     mask = Image.new("L", tile.size, 0)
     ImageDraw.Draw(mask).rounded_rectangle((0, 0, PORTRAIT - 1, PORTRAIT - 1), 14, fill=255)
-    tile.paste(colour, (0, 0), mask)
+    tile.paste(_rarity_tile(PORTRAIT, PORTRAIT, member.rarity), (0, 0), mask)
     if icon is not None:
-        pic = icon.convert("RGBA")
-        scale = max(PORTRAIT / pic.width, PORTRAIT / pic.height)
-        pic = pic.resize((round(pic.width * scale), round(pic.height * scale)), Image.LANCZOS)
-        pic = pic.crop(((pic.width - PORTRAIT) // 2, 0, (pic.width - PORTRAIT) // 2 + PORTRAIT, PORTRAIT))
         layer = Image.new("RGBA", tile.size, (0, 0, 0, 0))
-        layer.alpha_composite(pic)
-        layer.putalpha(Image.composite(layer.getchannel("A"), Image.new("L", tile.size, 0), mask))
-        tile.alpha_composite(layer)
+        layer.alpha_composite(_cover(icon, PORTRAIT, PORTRAIT))
+        tile.alpha_composite(_masked(layer, mask))
     ImageDraw.Draw(tile).rounded_rectangle((0, 0, PORTRAIT - 1, PORTRAIT - 1), 14, outline=(255, 255, 255, 40), width=1)
     card.alpha_composite(tile, (x, y))
     draw = ImageDraw.Draw(card)
     _copies(card, game, member, x, y, accent)
     if member.level:
-        lv = f"Lv. {member.level}"
         shade = Image.new("RGBA", (PORTRAIT, 26), (0, 0, 0, 0))
         ImageDraw.Draw(shade).rounded_rectangle((0, 0, PORTRAIT - 1, 25), 10, fill=(0, 0, 0, 130))
         card.alpha_composite(shade, (x, y + PORTRAIT - 26))
-        if (COPY_STYLE or COPY_STYLES.get(game)) == "band" and copies_label(game, member):
-            draw.text((x + 6, y + PORTRAIT - 13), copies_label(game, member), font=f.small_b, fill=accent, anchor="lm")
-            draw.text((x + PORTRAIT - 6, y + PORTRAIT - 13), f"{member.level}", font=f.slot, fill=c.TEXT, anchor="rm")
-        else:
-            draw.text((x + PORTRAIT / 2, y + PORTRAIT - 13), lv, font=f.slot, fill=c.TEXT, anchor="mm")
+        draw.text((x + PORTRAIT / 2, y + PORTRAIT - 13), f"Lv. {member.level}", font=f.slot, fill=c.TEXT, anchor="mm")
 
 
 COPY_STYLE: str | None = None  # force one style for every game (previews); otherwise COPY_STYLES picks per game
@@ -331,10 +425,15 @@ def _team(card: Image.Image, game: str, team: Team, images: dict, box, accent, c
         _chips(card, game, team.chips, x0 + 14, y0 + 45, colour, light)
     members = team.members[:4]
     row_w = len(members) * PORTRAIT + max(0, len(members) - 1) * PORTRAIT_GAP
+    if team.bangboo:
+        row_w += PORTRAIT_GAP + BANGBOO
     x = x0 + (x1 - x0 - row_w) // 2
     for m in members:
         _portrait(card, game, m, images.get(m.icon_url or ""), x, y0 + 68, accent)
         x += PORTRAIT + PORTRAIT_GAP
+    if team.bangboo:  # smaller, sitting on the same bottom line
+        b = team.bangboo
+        _zzz_portrait(card, b, images.get(b.icon_url or ""), x, y0 + 68 + PORTRAIT - BANGBOO, accent, BANGBOO, copies=False)
 
 
 def _band(card: Image.Image, box, colour) -> None:

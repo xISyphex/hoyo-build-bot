@@ -1006,7 +1006,7 @@ class CardMaker:
         """The battle records image (see records_card)."""
         from .records_card import draw_records
 
-        urls = list({m.icon_url for r in records for t in r.teams for m in t.members if m.icon_url}
+        urls = list({m.icon_url for r in records for t in r.teams for m in t.members + ([t.bangboo] if t.bangboo else []) if m.icon_url}
                     | {r.medal for r in records if r.medal})
         art = list({t.art for r in records for t in r.teams if t.art})  # boss pictures, kept larger
         loaded = await asyncio.gather(*(self._image(u, big=False) for u in urls), *(self._image(u, big=True) for u in art))

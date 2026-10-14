@@ -224,7 +224,9 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
             talents.append(Stat(label, f"{levels[index] + bonus}" + (" ★" if bonus else "")))
 
     elements = meta.get("ElementTypes", [])
-    icon = meta.get("CircleIcon") or meta.get("Image")
+    skin = (meta.get("Skins") or {}).get(str(info.get("SkinId", "")))  # wearing an outfit: its pictures instead
+    image = (skin or {}).get("Image") or meta.get("Image")
+    icon = (skin or {}).get("CircleIcon") or meta.get("CircleIcon") or image
     return CharacterBuild(
         game="zzz",
         character_id=avatar_id,
@@ -240,7 +242,7 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
         gear=gear,
         set_bonuses=set_bonuses,
         notes=["W-Engine and disc main stats use Enka's approximate formulas and may be off by 1."],
-        art_url=f"https://enka.network{meta['Image']}" if meta.get("Image") else None,
+        art_url=f"https://enka.network{image}" if image else None,
         path_icon=f"https://enka.network/ui/zzz/Icon{spec}.png" if (spec := meta.get("ProfessionType")) in SPECIALTIES else None,
         element_icon=next((f"https://static.nanoka.cc/assets/zzz/Icon{ELEMENT_ICONS[t]}.webp" for t in elements if t in ELEMENT_ICONS), None),
     )

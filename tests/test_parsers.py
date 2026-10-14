@@ -488,3 +488,19 @@ class StarRailResFallbackTest(unittest.TestCase):
         self.assertEqual((ashveil.name, ashveil.element), ("Ashveil", "Lightning"))
         self.assertNotEqual(stats(ashveil)["HP"], "0")
         self.assertIn("Ashveil", assets.character_names("hsr"))
+
+
+class OutfitTest(unittest.TestCase):
+    def test_genshin_costume_icon_and_art(self):
+        from bot.games import genshin as gi
+        build = gi.parse_character(load_assets(), {"avatarId": 10000002, "costumeId": 200201, "propMap": {"4001": {"val": 90}}})
+        self.assertEqual(build.outfit_icon, "https://enka.network/ui/UI_AvatarIcon_AyakaCostumeFruhling.png")
+        self.assertEqual(build.art_url, "https://enka.network/ui/UI_Costume_AyakaCostumeFruhling.png")
+        plain = gi.parse_character(load_assets(), {"avatarId": 10000002, "propMap": {"4001": {"val": 90}}})
+        self.assertIsNone(plain.outfit_icon)
+
+    def test_zzz_skin_pictures(self):
+        from bot.games import zenless as zz
+        build = zz.parse_character(load_assets(), {"Id": 1031, "Level": 60, "SkinId": 3110311})
+        self.assertEqual(build.art_url, "https://enka.network/ui/zzz/IconRole12_01.png")
+        self.assertEqual(build.icon_url, "https://enka.network/ui/zzz/IconRoleCircle12_01.png")

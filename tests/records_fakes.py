@@ -66,10 +66,13 @@ ZZZ_B = [zzz_char(1041, "/ui/zzz/IconRoleCircle05.png", 1), zzz_char(1131, "/ui/
          zzz_char(1101, "/ui/zzz/IconRoleCircle14.png", 6)]
 
 
+BANGBOO = NS(id=54001, rarity="S", level=60, icon="")
+
+
 def sd() -> NS:
-    layers = [NS(score=31890, rating="S", clear_time=104, characters=ZZZ_A),
-              NS(score=29760, rating="S", clear_time=132, characters=ZZZ_B),
-              NS(score=27105, rating="A", clear_time=171, characters=ZZZ_A[::-1])]
+    layers = [NS(score=31890, rating="S", clear_time=104, characters=ZZZ_A, bangboo=BANGBOO),
+              NS(score=29760, rating="S", clear_time=132, characters=ZZZ_B, bangboo=None),
+              NS(score=27105, rating="A", clear_time=171, characters=ZZZ_A[::-1], bangboo=BANGBOO)]
     brief = NS(score=88755, rating="S", rank_percent="4.21%", total_clear_time=407)
     return NS(brief_info=brief, fifth_frontier=NS(layers=layers))
 
@@ -77,7 +80,7 @@ def sd() -> NS:
 def da() -> NS:
     boss = lambda name: NS(name=name)  # noqa: E731
     return NS(has_data=True, total_score=60120, total_star=9, rank_percent="2.8%", challenges=[
-        NS(boss=boss("Notorious - Dead End Butcher"), score=20480, star=3, agents=ZZZ_A),
+        NS(boss=boss("Notorious - Dead End Butcher"), score=20480, star=3, agents=ZZZ_A, bangboo=BANGBOO),
         NS(boss=boss("Notorious - Marionette"), score=20110, star=3, agents=ZZZ_B),
         NS(boss=boss("Notorious - Pompey"), score=19530, star=3, agents=ZZZ_A[::-1]),
     ], hard_challenges=[NS(boss=boss("Notorious - Miasma Priest"), score=24860, star=3, agents=ZZZ_B[::-1])],

@@ -209,9 +209,12 @@ def starrail_build(assets: Assets, char) -> CharacterBuild:
     gear.sort(key=lambda g: sr.SLOT_ORDER.index(g.slot) if g.slot in sr.SLOT_ORDER else 99)
     if not properties:
         notes.append("HoYoLAB doesn't share this player's stats or relic stats, only levels and gear.")
+    outfit = getattr(char, "is_wearing_outfit", False)  # HoYoLAB's pictures then show the outfit
     return dataclasses.replace(
         skeleton, level=char.level, constellation=char.rank, stats=stats, talents=talents or skeleton.talents,
         weapon=weapon, gear=gear, set_bonuses=_sets(gear), notes=notes, source="hoyolab",
+        art_url=char.image if outfit and getattr(char, "image", None) else skeleton.art_url,
+        outfit_icon=char.icon if outfit and getattr(char, "icon", None) else None,
     )
 
 
@@ -276,6 +279,8 @@ def zzz_build(assets: Assets, agent) -> CharacterBuild:
     return dataclasses.replace(
         skeleton, level=agent.level, constellation=agent.rank, stats=stats or skeleton.stats,
         talents=talents or skeleton.talents, weapon=weapon, gear=gear, set_bonuses=_sets(gear), notes=[NOTE], source="hoyolab",
+        # in an outfit, HoYoLAB's full picture shows it
+        art_url=agent.banner_icon if getattr(agent, "outfit_id", None) and getattr(agent, "banner_icon", None) else skeleton.art_url,
     )
 
 

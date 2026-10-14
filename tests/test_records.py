@@ -63,6 +63,8 @@ class ReadersTest(unittest.TestCase):
         self.assertEqual(dict(da.headline)["Top"], "2.8%")
         self.assertEqual(sd.teams[0].chips, [("rating", "S"), ("score", "31,890"), ("time", "1:44")])
         self.assertEqual(len(da.teams), 4)
+        self.assertEqual((sd.teams[0].bangboo.rarity, sd.teams[1].bangboo), (5, None))
+        self.assertEqual(da.teams[0].bangboo.level, 60)
         self.assertEqual((da.teams[3].stage, da.teams[3].label), ("Adversity Mode", "Notorious - Miasma Priest"))
         self.assertEqual((da.teams[3].left, da.teams[3].right), ([("Stars", "3")], [("Top", "11.3%")]))
         self.assertEqual(dict(da.headline)["Score"], "60,120")
@@ -82,6 +84,12 @@ class ReadersTest(unittest.TestCase):
         R.fill_copies([rec], [build(1407, 2, 1)])
         self.assertEqual(R.copies_label("hsr", rec.teams[0].members[0]), "E2S1")
         self.assertEqual(R.copies_label("hsr", rec.teams[0].members[1]), "E0")  # weapon unknown
+
+    def test_outfit_from_builds(self):
+        import dataclasses
+        rec = R.hsr_moc(F.moc())
+        R.fill_copies([rec], [dataclasses.replace(build(1407, 2, 1), outfit_icon="outfit.png")])
+        self.assertEqual(rec.teams[0].members[0].icon_url, "outfit.png")
 
 
 class DrawTest(unittest.TestCase):

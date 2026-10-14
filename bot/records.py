@@ -44,6 +44,7 @@ class Team:
     left: list[tuple[str, str]] = field(default_factory=list)  # headline-style tiles beside a stage's box
     right: list[tuple[str, str]] = field(default_factory=list)
     plight: bool = False  # the King beaten on Plight (hard) mode: a red shimmer around the box
+    bangboo: Member | None = None  # ZZZ: the Bangboo that came along
 
 
 @dataclass
@@ -115,7 +116,8 @@ def copies_label(game: str, member: Member) -> str:
 
 
 def fill_copies(records: list[Record], builds: list[CharacterBuild]) -> None:
-    """Fills in each character's weapon copies (and copies, where the record left them out) from their builds."""
+    """Fills in each character's weapon copies (copies, where the record left them out, and the outfit they wear)
+    from their builds."""
     by_id = {b.character_id.split("-")[0]: b for b in builds}
     for record in records:
         for team in record.teams:
@@ -127,6 +129,8 @@ def fill_copies(records: list[Record], builds: list[CharacterBuild]) -> None:
                     m.copies = build.constellation
                 if build.weapon and m.weapon_copies is None:
                     m.weapon_copies = build.weapon.refinement
+                if build.outfit_icon:  # HoYoLAB's record shows the default look; the build knows the outfit
+                    m.icon_url = build.outfit_icon
 
 
 def _num(value) -> str:
@@ -143,6 +147,11 @@ def _hsr_member(c) -> Member:
 
 def _zzz_member(c) -> Member:
     return Member(str(c.id), c.icon, c.level, 5 if c.rarity == "S" else 4, c.mindscape)
+
+
+def _bangboo(run) -> Member | None:
+    b = getattr(run, "bangboo", None)
+    return Member(str(b.id), b.icon, b.level, 5 if b.rarity == "S" else 4) if b else None
 
 
 def _gi_member(c, copies: int | None = None) -> Member:
@@ -277,7 +286,7 @@ def zzz_sd(data) -> Record:
             if layer.clear_time:
                 chips.append(("time", _clock(layer.clear_time)))
             rec.teams.append(Team(f"Battle {i}", chips, [_zzz_member(c) for c in layer.characters],
-                                  art=getattr(layer, "boss_icon", None)))
+                                  art=getattr(layer, "boss_icon", None), bangboo=_bangboo(layer)))
         return rec
     # The older Shiyu Defense (v1): floors with a rating each
     if not data.has_data or not data.floors:
@@ -295,7 +304,7 @@ def zzz_sd(data) -> Record:
 
 def _da_team(c, stage: str = "") -> Team:
     return Team(c.boss.name, [("stars", f"{c.star}/3"), ("score", _num(c.score))], [_zzz_member(a) for a in c.agents],
-                stage=stage, art=getattr(c.boss, "icon", None))
+                stage=stage, art=getattr(c.boss, "icon", None), bangboo=_bangboo(c))
 
 
 def zzz_da(data) -> Record:
