@@ -30,6 +30,7 @@ class Member:
     rarity: int = 0  # 4 / 5 (ZZZ: A = 4, S = 5)
     copies: int | None = None  # eidolon / constellation / mindscape
     weapon_copies: int | None = None  # superimposition / refinement / phase
+    weapon_rarity: int | None = None  # 3 / 4 / 5 (ZZZ: B = 3, A = 4, S = 5)
 
 
 @dataclass
@@ -129,6 +130,9 @@ def fill_copies(records: list[Record], builds: list[CharacterBuild]) -> None:
                     m.copies = build.constellation
                 if build.weapon and m.weapon_copies is None:
                     m.weapon_copies = build.weapon.refinement
+                if build.weapon and m.weapon_rarity is None and build.weapon.rarity:
+                    # ZZZ's game data counts S as 4 and A as 3; the others count stars
+                    m.weapon_rarity = build.weapon.rarity + (1 if build.game == "zzz" else 0)
                 if build.outfit_icon:  # HoYoLAB's record shows the default look; the build knows the outfit
                     m.icon_url = build.outfit_icon
 

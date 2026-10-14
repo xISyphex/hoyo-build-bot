@@ -23,17 +23,22 @@ W = 2 * PAD + COLS * TEAM_W + (COLS - 1) * GAP  # as wide as three teams of four
 TAB_H = 36  # the box's title, as a tab clipped to its top-left corner
 ROW_GAP = 12  # the same space between the title tab, the results row and the portraits, and under the portraits
 # How far each game's portraits reach above / below their spot: Star Rail's copies pill sticks out on top, its tile is taller
-LIFT = {"hsr": 10}
+LIFT = {"hsr": 10, "genshin": 6}  # Genshin's copies pill sits like Star Rail's
 DROP = {"hsr": 4}
 
 
-def _portrait_top(game: str) -> int:
-    """Where the portraits go in a box with a results row, so every gap is the same."""
-    return TAB_H + ROW_GAP + CHIP_H + ROW_GAP + LIFT.get(game, 0)
+def _portrait_top(game: str, chips: bool = True) -> int:
+    """Where the portraits go, so every gap is the same (the results row only when there is one)."""
+    return TAB_H + ROW_GAP + (CHIP_H + ROW_GAP if chips else 0) + LIFT.get(game, 0)
 
 
-def _team_h(game: str) -> int:
-    return _portrait_top(game) + PORTRAIT + DROP.get(game, 0) + ROW_GAP + 4
+def _team_h(game: str, chips: bool = True) -> int:
+    return _portrait_top(game, chips) + PORTRAIT + DROP.get(game, 0) + ROW_GAP + 4
+
+
+def _has_chips(record: Record) -> bool:
+    """Whether the section's boxes have a results row; without one (Memory of Chaos) they're shorter."""
+    return any(t.chips for t in record.teams)
 STAGE_HEAD = 30  # the header over a stage in its own row (the King, Adversity Mode)
 GAME_ACCENT = {"genshin": (232, 178, 92), "hsr": (150, 128, 255), "zzz": (250, 196, 40)}
 GAME_TITLE = {"genshin": "Genshin Impact", "hsr": "Honkai: Star Rail", "zzz": "Zenless Zone Zero"}
@@ -309,7 +314,7 @@ def _section_height(game: str, record: Record) -> int:
     if record.empty or not record.teams:
         return HEAD + 44
     rows = _rows(record)
-    return HEAD + sum(_team_h(game) + (STAGE_HEAD if head else 0) for head, _ in rows) + (len(rows) - 1) * GAP + 16
+    return HEAD + sum(_team_h(game, _has_chips(record)) + (STAGE_HEAD if head else 0) for head, _ in rows) + (len(rows) - 1) * GAP + 16
 
 
 def _cover(icon: Image.Image, w: int, h: int, top: bool = True) -> Image.Image:
@@ -381,14 +386,35 @@ def _zzz_portrait(card: Image.Image, member, icon, x: int, y: int, accent, size:
     label = copies_label("zzz", member) if copies else ""
     if label:  # over the frame too, trimmed by its outer rounded corner
         plate = Image.new("RGBA", tile.size, (0, 0, 0, 0))
-        _slant_plate(plate, label, -3, 0, accent)
+        _slant_plate(plate, label, -3, 0, accent, _copy_parts("zzz", member))
         outer = Image.new("L", (size * 4, size * 4), 0)
         ImageDraw.Draw(outer).rounded_rectangle((0, 0, size * 4 - 1, size * 4 - 1), (18 if size > 80 else 14) * 4, fill=255)
         tile.alpha_composite(_masked(plate, outer.resize((size, size), Image.LANCZOS)))
     card.alpha_composite(tile, (x, y))
 
 
-def _slant_plate(card: Image.Image, label: str, x: float, y: float, accent) -> None:
+# Copies text in the colour of what they're copies of: gold 5-star / S, purple 4-star / A, blue 3-star / B
+RARITY_TEXT = {5: (255, 204, 96), 4: (200, 150, 255), 3: (112, 176, 255)}
+
+
+def _copy_parts(game: str, member) -> list[tuple[str, tuple]]:
+    """The copies label in pieces, each in its rarity's colour: [("E2", gold), ("S1", purple)]."""
+    label = copies_label(game, member)
+    parts = re.findall(r"[A-Z]\d+", label) or [label]
+    rarities = [member.rarity, getattr(member, "weapon_rarity", None)]
+    return [(p, RARITY_TEXT.get(rarities[i] if i < 2 else None, c.TEXT)) for i, p in enumerate(parts)]
+
+
+def _parts_text(draw: ImageDraw.ImageDraw, centre: tuple[float, float], parts, font) -> None:
+    """Pieces of text side by side, centred together on centre."""
+    total = sum(draw.textlength(p, font=font) for p, _ in parts)
+    x = centre[0] - total / 2
+    for text, colour in parts:
+        draw.text((x, centre[1]), text, font=font, fill=colour, anchor="lm")
+        x += draw.textlength(text, font=font)
+
+
+def _slant_plate(card: Image.Image, label: str, x: float, y: float, accent, parts=None) -> None:
     """A dark slanted plate with a colour stripe, its left edge at x."""
     f = c.FONTS
     draw = ImageDraw.Draw(card)
@@ -396,7 +422,7 @@ def _slant_plate(card: Image.Image, label: str, x: float, y: float, accent) -> N
     sl = 7
     draw.polygon([(x + sl, y), (x + w + sl, y), (x + w, y + 24), (x, y + 24)], fill=(14, 12, 24, 240))
     draw.polygon([(x + sl, y), (x + 6 + sl, y), (x + 6, y + 24), (x, y + 24)], fill=accent + (255,))
-    draw.text((x + 10 + (w - 10) / 2 + sl / 2, y + 12), label, font=f.small_b, fill=c.TEXT, anchor="mm")
+    _parts_text(draw, (x + 10 + (w - 10) / 2 + sl / 2, y + 12), parts or [(label, c.TEXT)], f.small_b)
 
 
 def _gi_portrait(card: Image.Image, game: str, member, icon, x: int, y: int, accent) -> None:
@@ -421,7 +447,7 @@ def _gi_portrait(card: Image.Image, game: str, member, icon, x: int, y: int, acc
 
 
 COPY_STYLE: str | None = None  # force one style for every game (previews); otherwise COPY_STYLES picks per game
-COPY_STYLES = {"hsr": "pill", "zzz": "slant", "genshin": "tab"}  # pill, split, tab, slant, band, stack (Syphex's picks)
+COPY_STYLES = {"hsr": "pill", "zzz": "slant", "genshin": "pill"}  # pill, split, tab, slant, band, stack (Syphex's picks)
 
 
 def _copies(card: Image.Image, game: str, member, x: int, y: int, accent) -> None:
@@ -470,7 +496,7 @@ def _copies(card: Image.Image, game: str, member, x: int, y: int, accent) -> Non
     else:  # pill
         w = draw.textlength(label, font=f.small_b) + 14
         draw.rounded_rectangle((x - 4, y - 6, x - 4 + w, y + 20), 9, fill=dark, outline=accent + (255,), width=1)
-        draw.text((x - 4 + w / 2, y + 7), label, font=f.small_b, fill=c.TEXT, anchor="mm")
+        _parts_text(draw, (x - 4 + w / 2, y + 7), _copy_parts(game, member), f.small_b)
 
 
 def _team(card: Image.Image, game: str, team: Team, images: dict, box, accent, colour, light) -> None:
@@ -497,11 +523,10 @@ def _team(card: Image.Image, game: str, team: Team, images: dict, box, accent, c
     if team.chips:  # this node's own stars / cycles / points, under its title
         _chips(card, game, team.chips, x0 + 10, y0 + TAB_H + ROW_GAP + CHIP_H / 2, colour, light)
     members = team.members[:4]
-    lift, drop = LIFT.get(game, 0), DROP.get(game, 0)
-    if team.chips:
-        top = y0 + _portrait_top(game)
-    else:  # no results row: centred under the tab
-        top = round(y0 + TAB_H + (y1 - y0 - TAB_H - (lift + PORTRAIT + drop)) / 2 + lift)
+    if team.chips or y1 - y0 > _team_h(game, False):
+        top = y0 + _portrait_top(game) if team.chips else round(y0 + (y1 - y0 - _team_h(game, False)) / 2 + _portrait_top(game, False))
+    else:
+        top = y0 + _portrait_top(game, False)
     row_w = len(members) * PORTRAIT + max(0, len(members) - 1) * PORTRAIT_GAP
     if team.bangboo:
         row_w += PORTRAIT_GAP + BANGBOO
@@ -566,6 +591,7 @@ def draw_records(game: str, uid: str, records: list[Record], images: dict[str, I
         else:
             by = y + HEAD
             col_w = TEAM_W
+            team_h = _team_h(game, _has_chips(record))
             for head, row in _rows(record):
                 if head:  # a stage of its own: a header line across the section, the team centred under it
                     draw = ImageDraw.Draw(card)
@@ -579,19 +605,19 @@ def draw_records(game: str, uid: str, records: list[Record], images: dict[str, I
                 bx = PAD + (W - 2 * PAD - row_w) // 2  # a short row sits in the middle
                 for team in row:
                     if team.plight:
-                        _shimmer(card, (bx, by, bx + col_w, by + _team_h(game)))
-                    _team(card, game, team, images, (bx, by, bx + col_w, by + _team_h(game)), accent, colour, mode_light)
+                        _shimmer(card, (bx, by, bx + col_w, by + team_h))
+                    _team(card, game, team, images, (bx, by, bx + col_w, by + team_h), accent, colour, mode_light)
                     edge = bx - 2 * GAP  # the stage's own numbers, as tall tiles beside its box
                     for label, value in reversed(team.left):
                         edge -= _side_w(game, label, value)
-                        _side_tile(card, game, record, label, value, (edge, by, edge + _side_w(game, label, value), by + _team_h(game)), colour, images)
+                        _side_tile(card, game, record, label, value, (edge, by, edge + _side_w(game, label, value), by + team_h), colour, images)
                         edge -= 12
                     edge = bx + col_w + 2 * GAP
                     for label, value in team.right:
-                        _side_tile(card, game, record, label, value, (edge, by, edge + _side_w(game, label, value), by + _team_h(game)), colour, images)
+                        _side_tile(card, game, record, label, value, (edge, by, edge + _side_w(game, label, value), by + team_h), colour, images)
                         edge += _side_w(game, label, value) + 12
                     bx += col_w + GAP
-                by += _team_h(game) + GAP
+                by += team_h + GAP
         y += h + GAP
 
     out = io.BytesIO()
