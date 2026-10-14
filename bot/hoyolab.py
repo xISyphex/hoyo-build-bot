@@ -318,6 +318,8 @@ class HoyolabClient:
         self._locks: dict[tuple[str, str], asyncio.Lock] = {}
         # Answers like "private" are kept too: asking again would only use up the daily limit.
         self._failed: dict[tuple[str, str], tuple[float, str]] = {}
+        self._calendars: dict[tuple[str, str], tuple[float, object]] = {}  # (game, linked UID or "") -> version info
+        self._own_uids: dict[str, int] = {}  # the server's own account in each game, which calendars are read for
 
     def _client_for(self, game: str, uid: str) -> tuple[genshin.Client | None, bool]:
         """The client to ask about this UID, and whether it's the player's own linked login."""
@@ -430,6 +432,60 @@ class HoyolabClient:
         if self.effective:
             self.effective.learn_genshin(raw)
         return genshin.models.GenshinDetailCharacters(**raw)
+
+    async def patch(self, game: str, linked_uid: str | None = None):
+        """The game's current version, its end and its banners, from HoYoLAB's calendars. Read with the caller's own
+        login when they linked an account in this game (linked_uid, one of their own), else with the server's own
+        login for its own account. The result's server is the one the times were read on. Kept for 10 minutes."""
+        uid = linked_uid
+        if uid and self.links and self.links.cookies_for(game, uid):
+            client, _ = self._client_for(game, uid)
+            try:
+                return await self._patch(client, game, int(uid), (game, uid))
+            except HoyolabError as exc:
+                log.info("Reading the %s calendar with %s's own login failed (%s); using the server's", game, uid, exc)
+        if self.client is None:
+            raise HoyolabError("The bot has no HoYoLAB login, so it can't read the current version.")
+        if game not in self._own_uids:
+            try:
+                accounts = await self.client.get_game_accounts()
+            except Exception as exc:
+                log.warning("Could not read the bot's own HoYoLAB accounts: %s", exc)
+                raise HoyolabError("HoYoLAB didn't answer just now. Try again in a bit.") from exc
+            biz = {"genshin": "hk4e", "hsr": "hkrpg", "zzz": "nap"}[game]
+            own = [a for a in accounts if str(a.game_biz).startswith(biz)]
+            if not own:
+                raise HoyolabError("The bot's HoYoLAB account doesn't play this game, so it can't read its calendar.")
+            self._own_uids[game] = int(own[0].uid)
+        return await self._patch(self.client, game, self._own_uids[game], (game, ""))
+
+    async def _patch(self, client: genshin.Client, game: str, uid: int, key: tuple[str, str]):
+        from . import patch as patches
+        from .card import server_name
+
+        hit = self._calendars.get(key)
+        if hit and hit[0] > time.monotonic():
+            return hit[1]
+        try:
+            if game == "hsr":
+                info = patches.hsr_patch(await client.get_starrail_event_calendar(uid))
+            elif game == "genshin":
+                info = patches.genshin_patch(await client.get_genshin_event_calendar(uid))
+            else:
+                gacha = await client.get_zzz_gacha_calendar(uid)
+                events = await client.get_zzz_event_calendar(uid)
+
+                def weapon_name(weapon_id) -> str | None:
+                    meta = self.assets.data.get("zzz_weapons", {}).get(str(weapon_id), {})
+                    return self.assets.zzz_text(meta.get("ItemName")) if meta else None
+
+                info = patches.zzz_patch(gacha, events, weapon_name)
+        except Exception as exc:
+            log.warning("Could not read the %s calendar: %s", game, exc)
+            raise HoyolabError("HoYoLAB didn't answer just now. Try again in a bit.") from exc
+        info.server = server_name(game, str(uid))
+        self._calendars[key] = (time.monotonic() + 600, info)
+        return info
 
     async def learn_own(self) -> None:
         """Reads the Genshin substat recommendations of every character on the server's own HoYoLAB account (they

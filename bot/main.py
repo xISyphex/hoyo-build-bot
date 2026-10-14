@@ -17,11 +17,11 @@ import genshin
 from discord import app_commands
 from discord.ext import tasks
 
-from . import matching, records
+from . import matching, patch, records
 from .access import PRIVATE, AccessList
 from .assets import Assets
 from .claims import ClaimStore
-from .card import CardMaker
+from .card import CardMaker, server_name
 from .embeds import build_embed
 from .effective import EffectiveStats
 from .enka import ERRORS, EnkaClient, EnkaError
@@ -103,6 +103,7 @@ class HoyoBot(discord.Client):
             self.tree.add_command(make_command(game))
             self.tree.add_command(make_claim_command(game))
             self.tree.add_command(make_records_command(game))
+            self.tree.add_command(make_patch_command(game))
         self.tree.add_command(AccessGroup())
         self.tree.add_command(HoyolabGroup())
         self.tree.add_command(help_command)
@@ -445,6 +446,35 @@ def make_claim_command(game: str) -> app_commands.Command:
         await interaction.followup.send(msg)
 
     return claim
+
+
+def make_patch_command(game: str) -> app_commands.Command:
+    @app_commands.command(name=f"{game}-patch",
+                          description=f"Show the current {GAME_NAMES[game]} version, its time left and banners")
+    @app_commands.describe(uid=f"Any UID on your server, for its banner times. Leave empty to use your /{game}-claim")
+    async def command(interaction: discord.Interaction, uid: str | None = None) -> None:
+        bot: HoyoBot = interaction.client  # type: ignore[assignment]
+        uid = resolve_uid(bot.claims, interaction.user.id, game, uid)
+        # Read with the caller's own HoYoLAB login if they linked one for this game, else with the server's
+        mine = (bot.links.uids(interaction.user.id) or {}).get(game) or []
+        linked = uid if uid in mine else (mine[0] if mine else None)
+        uid = uid or linked
+        await interaction.response.defer(thinking=True)
+        try:
+            info = await bot.hoyolab.patch(game, linked)
+        except HoyolabError as exc:
+            await interaction.followup.send(str(exc))
+            return
+        except Exception:
+            log.exception("Could not read the %s version", game)
+            await interaction.followup.send("Something went wrong reading the current version. Try again later.")
+            return
+        # Mid-version banner switches happen at the same local time on every server, so move them to the player's
+        server = server_name(game, uid) if uid else None
+        info = patch.for_server(info, info.server, server)
+        await interaction.followup.send(embed=patch.patch_embed(info))
+
+    return command
 
 
 @app_commands.command(name="help", description="How to use the bot")

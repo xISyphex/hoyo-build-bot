@@ -92,6 +92,17 @@ class ReadersTest(unittest.TestCase):
         R.fill_copies([rec], [dataclasses.replace(build(1407, 2, 1), outfit_icon="outfit.png")])
         self.assertEqual(rec.teams[0].members[0].icon_url, "outfit.png")
 
+    def test_season_dates(self):
+        self.assertEqual(R.hsr_moc(F.moc()).season, "Lupine Moon · 6 Oct – 17 Nov")
+        self.assertEqual(R.gi_abyss(F.abyss()).season, "Floor 12 · 9 / 9★ · 16 Sep – 16 Oct")
+        self.assertEqual(R.zzz_da(F.da()).season, "13 Oct – 27 Oct")
+        self.assertEqual(R.gi_theater(F.theater()).season, "1 Oct – 1 Nov")
+        # An Asia 4:00 reset is 20:00 UTC the day before, and still shows as its own day
+        self.assertEqual(R._dates(1760126400, 1762718400), "11 Oct – 10 Nov")  # 2025-10-10/11-09 20:00 UTC
+        data = F.stygian()
+        del data[0].season.start_at
+        self.assertEqual(R.gi_stygian(data).season, "Season 3")  # no dates: just the name
+
 
 class DrawTest(unittest.TestCase):
     def test_draws_every_game(self):

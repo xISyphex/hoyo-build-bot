@@ -10,6 +10,7 @@ the build cards use), when HoYoLAB shares it.
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import logging
 import re
 from dataclasses import dataclass, field
@@ -30,6 +31,7 @@ class Member:
     rarity: int = 0  # 4 / 5 (ZZZ: A = 4, S = 5)
     copies: int | None = None  # eidolon / constellation / mindscape
     weapon_copies: int | None = None  # superimposition / refinement / phase
+    weapon_rarity: int | None = None  # 3 / 4 / 5 (ZZZ: B = 3, A = 4, S = 5)
 
 
 @dataclass
@@ -129,6 +131,9 @@ def fill_copies(records: list[Record], builds: list[CharacterBuild]) -> None:
                     m.copies = build.constellation
                 if build.weapon and m.weapon_copies is None:
                     m.weapon_copies = build.weapon.refinement
+                if build.weapon and m.weapon_rarity is None and build.weapon.rarity:
+                    # ZZZ's game data counts S as 4 and A as 3; the others count stars
+                    m.weapon_rarity = build.weapon.rarity + (1 if build.game == "zzz" else 0)
                 if build.outfit_icon:  # HoYoLAB's record shows the default look; the build knows the outfit
                     m.icon_url = build.outfit_icon
 
@@ -197,6 +202,60 @@ def _season(seasons, fallback: str = "") -> str:
     return fallback
 
 
+def _day(when) -> dt.date | None:
+    """A season's start or end as the date it shows in game. HoYoLAB's calendar-style times (Star Rail, ZZZ) are
+    already the server's own clock; Unix times are moved 8 hours on, which lands every server's 4:00 reset on its
+    own date."""
+    if when is None:
+        return None
+    if isinstance(when, (int, float, str)):
+        when = dt.datetime.fromtimestamp(int(when), tz=dt.timezone.utc)
+    if not isinstance(when, dt.datetime):  # Star Rail's PartialTime
+        return dt.date(when.year, when.month, when.day)
+    if when.utcoffset() == dt.timedelta(0):
+        when = when + dt.timedelta(hours=8)
+    return when.date()
+
+
+def _dates(start, end) -> str:
+    """'6 Oct – 17 Nov', the season's rotation; empty when HoYoLAB leaves it out."""
+    try:
+        a, b = _day(start), _day(end)
+    except Exception:  # an odd shape; better no dates than no record
+        log.exception("couldn't read season dates %r - %r", start, end)
+        return ""
+    if not (a and b) or a.year < 2000:
+        return ""
+    return f"{a.day} {a:%b} – {b.day} {b:%b}"
+
+
+def _with_dates(rec: Record, start, end) -> Record:
+    """Puts the rotation's dates in the season line, after its name."""
+    if dates := _dates(start, end):
+        rec.season = f"{rec.season} · {dates}" if rec.season else dates
+    return rec
+
+
+def _dated(span: Callable[[Any], tuple[Any, Any]]):
+    """A reader whose record gets its rotation's dates, from span(data) -> (start, end)."""
+    def wrap(read: Callable[[Any], Record]) -> Callable[[Any], Record]:
+        def reader(data) -> Record:
+            rec = read(data)
+            try:
+                start, end = span(data)
+            except Exception:  # missing in this answer
+                return rec
+            return _with_dates(rec, start, end)
+        reader.__name__ = read.__name__
+        return reader
+    return wrap
+
+
+def _first_season(data):
+    season = next(iter(data.seasons or ()), None)
+    return (season.begin_time, season.end_time) if season else (None, None)
+
+
 def _starward(rec: Record, data, floor=None) -> None:
     """Starward Mode's stars: the shown floor's own count, else the season's."""
     floor_stars, total = getattr(floor, "starward_stars", 0) or 0, getattr(data, "starward_stars", 0) or 0
@@ -208,6 +267,7 @@ def _starward(rec: Record, data, floor=None) -> None:
 # Star Rail -----------------------------------------------------------------------------------------------------
 
 
+@_dated(_first_season)
 def hsr_moc(data) -> Record:
     rec = Record("moc", "Memory of Chaos", _season(data.seasons, data.name))
     if not data.has_data or not (floor := _top_floor(data.floors)):
@@ -220,6 +280,7 @@ def hsr_moc(data) -> Record:
     return rec
 
 
+@_dated(_first_season)
 def hsr_pf(data) -> Record:
     rec = Record("pf", "Pure Fiction", _season(data.seasons))
     if not data.has_data or not (floor := _top_floor(data.floors)):
@@ -234,6 +295,7 @@ def hsr_pf(data) -> Record:
     return rec
 
 
+@_dated(_first_season)
 def hsr_apoc(data) -> Record:
     rec = Record("apoc", "Apocalyptic Shadow", _season(data.seasons))
     if not data.has_data or not (floor := _top_floor(data.floors)):
@@ -249,6 +311,7 @@ def hsr_apoc(data) -> Record:
     return rec
 
 
+@_dated(lambda d: (lambda r: (r.season.begin_time, r.season.end_time))(next(r for r in d.records if r.has_data)))
 def hsr_aa(data) -> Record:
     rec = Record("aa", "Anomaly Arbitration")
     record = next((r for r in data.records if r.has_data), None)
@@ -285,6 +348,7 @@ def _clock(seconds: int | None) -> str:
     return f"{seconds // 60}:{seconds % 60:02d}" if seconds else ""
 
 
+@_dated(lambda d: (d.begin_time, d.end_time))
 def zzz_sd(data) -> Record:
     rec = Record("sd", "Shiyu Defense")
     brief = getattr(data, "brief_info", None)
@@ -322,6 +386,7 @@ def _da_team(c, stage: str = "") -> Team:
                 stage=stage, art=getattr(c.boss, "icon", None), bangboo=_bangboo(c))
 
 
+@_dated(lambda d: (d.start_time, d.end_time))
 def zzz_da(data) -> Record:
     rec = Record("da", "Deadly Assault")
     if not data.has_data or not data.challenges:
@@ -345,6 +410,7 @@ def zzz_da(data) -> Record:
 # Genshin Impact ------------------------------------------------------------------------------------------------
 
 
+@_dated(lambda d: (d.start_time, d.end_time))
 def gi_abyss(data) -> Record:
     rec = Record("abyss", "Spiral Abyss")
     floors = [f for f in data.floors if f.chambers]
@@ -365,6 +431,7 @@ def gi_abyss(data) -> Record:
 THEATER_MODES = {1: "Easy", 2: "Normal", 3: "Hard", 4: "Visionary", 5: "Lunar"}
 
 
+@_dated(lambda d: (lambda r: (r.schedule.start_time, r.schedule.end_time))(next(x for x in d.datas if x.has_data)))
 def gi_theater(data) -> Record:
     rec = Record("theater", "Imaginarium Theater")
     run = next((d for d in data.datas if d.has_data), None)
@@ -380,6 +447,7 @@ def gi_theater(data) -> Record:
     return rec
 
 
+@_dated(lambda d: (lambda s: (s.season.start_at, s.season.end_at))(next(x for x in d if x.single_player.has_data)))
 def gi_stygian(data) -> Record:
     rec = Record("stygian", "Stygian Onslaught")
     season = next((s for s in data if s.single_player.has_data), None)
