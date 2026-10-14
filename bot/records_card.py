@@ -104,7 +104,7 @@ def _tile(card: Image.Image, game: str, record: Record, label: str, value: str, 
     elif key == "time":
         icon = icons.clock(26, colour)
     elif key == "rating":
-        icon, text = icons.rating(value, 40, f.main), ""
+        icon, text = icons.rating(value, 48, f.main), ""
     elif key in ("top", "adversity top"):
         flames, offset = icons.rank_badge(value, 28, f.main)
         icon, text = Image.new("RGBA", (flames.width - 2 * offset[0] - round(28 * 0.6 * icons._heat(value)), 28)), ""
@@ -112,8 +112,10 @@ def _tile(card: Image.Image, game: str, record: Record, label: str, value: str, 
     elif key == "medal":
         icon = _rank_piece(record, value, 40, images)
     text_w = draw.textlength(text, font=f.main) + (draw.textlength(suffix, font=f.small) + 2 if suffix else 0)
-    label_w = draw.textlength(label.upper(), font=f.label) * 1.15
+    shown = key not in ICON_ONLY.get(game, ())  # some numbers speak for themselves with their icon
+    label_w = draw.textlength(label.upper(), font=f.label) * 1.15 if shown else 0
     inner = max((icon.width + 8 if icon else 0) + text_w, label_w)
+    vy = y + 38 if shown else y + 29  # the value row; centred when there's no label
     left = right - inner - 24
     if from_left:
         left, right = right, right + inner + 24
@@ -123,21 +125,26 @@ def _tile(card: Image.Image, game: str, record: Record, label: str, value: str, 
     draw = ImageDraw.Draw(card)
     x = left + 12 + (inner - (icon.width + 8 if icon else 0) - text_w) / 2
     if flames is not None:  # the ranking badge burns past its spot
-        card.alpha_composite(flames, (round(x - offset[0]), round(y + 38 - 14 - offset[1])))
+        card.alpha_composite(flames, (round(x - offset[0]), round(vy - 14 - offset[1])))
         draw = ImageDraw.Draw(card)
         x += icon.width + 8
     elif icon:
-        x += _paste(card, icon, x, y + 38) + 8
+        x += _paste(card, icon, x, vy) + 8
     if text:
-        draw.text((x, y + 38), text, font=f.main, fill=c.TEXT, anchor="lm")
+        draw.text((x, vy), text, font=f.main, fill=c.TEXT, anchor="lm")
         x += draw.textlength(text, font=f.main) + 2
     if suffix:
-        draw.text((x, y + 41), suffix, font=f.small, fill=c.DIM, anchor="lm")
-    c._spaced(draw, (left + 12 + (inner - label_w) / 2, y + 14), label.upper(), f.label, c.DIM, 1.2)
+        draw.text((x, vy + 3), suffix, font=f.small, fill=c.DIM, anchor="lm")
+    if shown:
+        c._spaced(draw, (left + 12 + (inner - label_w) / 2, y + 14), label.upper(), f.label, c.DIM, 1.2)
     return right if from_left else left
 
 
 SIDE_W = 170  # a tall tile beside the King / Adversity Mode box
+# Numbers shown with their icon alone, no label over them (Syphex's picks)
+ICON_ONLY = {"hsr": {"stars", "score", "starward"},
+             "zzz": {"stars", "score", "rating", "top", "adversity top", "time"},
+             "genshin": {"time", "medals", "mode", "stars"}}
 
 
 def _rank_piece(record: Record, kind: str, height: int, images: dict) -> Image.Image:
@@ -162,32 +169,41 @@ def _side_tile(card: Image.Image, game: str, record: Record, label: str, value: 
     mid = (x0 + x1) / 2
     key = label.lower()
     label = "Ranking" if key == "top" else label
+    shown = key not in ICON_ONLY.get(game, ())
     lw = draw.textlength(label.upper(), font=f.label) * 1.15
-    c._spaced(draw, (mid - lw / 2, y0 + 22), label.upper(), f.label, c.DIM, 1.2)
+    if shown:
+        c._spaced(draw, (mid - lw / 2, y0 + 22), label.upper(), f.label, c.DIM, 1.2)
+    top = y0 + 40 if shown else y0 + 8  # where the content area starts
     icon, text = None, value
     if key == "stars":  # every star there is to earn, the missing ones greyed out
         got, _, of = value.partition("/")
         got, of = int(got), int(of or got)
-        size = min(46, (x1 - x0 - 24 - 6 * (of - 1)) // max(1, of))
-        icon = Image.new("RGBA", (of * size + (of - 1) * 6, size), (0, 0, 0, 0))
-        for i in range(of):
-            icon.alpha_composite(icons.star(game, size, i < got), (i * (size + 6), 0))
+        if of == 3:  # a triangle: one on top, two below
+            size = 54
+            icon = Image.new("RGBA", (2 * size + 8, 2 * size + 2), (0, 0, 0, 0))
+            spots = [(size // 2 + 4, 0), (0, size + 2), (size + 8, size + 2)]
+            for i, spot in enumerate(spots):
+                icon.alpha_composite(icons.star(game, size, i < got), spot)
+        else:
+            size = min(46, (x1 - x0 - 24 - 6 * (of - 1)) // max(1, of))
+            icon = Image.new("RGBA", (of * size + (of - 1) * 6, size), (0, 0, 0, 0))
+            for i in range(of):
+                icon.alpha_composite(icons.star(game, size, i < got), (i * (size + 6), 0))
         text = ""
     elif key == "top":
         flames, (ox, oy) = icons.rank_badge(value, 40, f.main)
         bw = flames.width - 2 * ox - round(40 * 0.6 * icons._heat(value))
-        cy = (y0 + 40 + y1) / 2
+        cy = (top + y1) / 2
         card.alpha_composite(flames, (round(mid - bw / 2 - ox), round(cy - 20 - oy)))
-        c._spaced(ImageDraw.Draw(card), (mid - lw / 2, y0 + 22), label.upper(), f.label, c.DIM, 1.2)  # over the flames
         return
     elif key in ("medal", "rank"):
         icon = _rank_piece(record, value, 92, images)
         text = ""
     big = f.name[56]
     if icon is None:  # just the number, very large (cycles)
-        draw.text((mid, (y0 + 40 + y1) / 2), text, font=big, fill=c.TEXT, anchor="mm")
+        draw.text((mid, (top + y1) / 2), text, font=big, fill=c.TEXT, anchor="mm")
         return
-    iy = y0 + 40 + (y1 - y0 - 40 - (44 if text else 0)) / 2
+    iy = top + (y1 - top - (44 if text else 0)) / 2
     card.alpha_composite(icon, (round(mid - icon.width / 2), round(iy - icon.height / 2)))
     if text:
         draw.text((mid, y1 - 28), text, font=f.name[38], fill=c.TEXT, anchor="mm")
