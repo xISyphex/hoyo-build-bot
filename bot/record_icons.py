@@ -1,6 +1,6 @@
 """Small game-style icons for the battle records image, drawn with Pillow so they never depend on a download:
-Star Rail's orange stars and blue Starward star, Genshin's gold stars, ZZZ's comic stars and S / A / B rating
-plates, cycle and clock marks, and medals. Each is drawn four times larger and scaled down for smooth edges."""
+Star Rail's orange stars and blue Starward star, Genshin's gold stars, ZZZ's round badges and S / A / B rating
+plates, clock and gem marks, chess pieces and burning ranking badges. Each is drawn four times larger and scaled down for smooth edges."""
 
 from __future__ import annotations
 
@@ -81,12 +81,59 @@ def gi_star(size: int, lit: bool = True) -> Image.Image:
 
 @lru_cache(maxsize=None)
 def zzz_star(size: int, lit: bool = True) -> Image.Image:
-    """ZZZ's chunky comic star: yellow with a thick black rim."""
+    """ZZZ's round orange badge with a dark three-bladed mark (grey when not earned)."""
     b = size * SS
-    poly = _star_points(b / 2, b * 0.54, b * 0.4, 5, 0.5)
-    if not lit:
-        return _shape(size, poly, (80, 80, 80), (60, 60, 60), outline=(10, 10, 10), outline_w=max(1, size // 10))
-    return _shape(size, poly, (255, 236, 80), (250, 190, 20), outline=(10, 10, 10), outline_w=max(1, size // 10))
+    img = Image.new("RGBA", (b, b), (0, 0, 0, 0))
+    mask = Image.new("L", (b, b), 0)
+    ImageDraw.Draw(mask).ellipse((SS, SS, b - SS, b - SS), fill=255)
+    top, bottom, ink = ((255, 222, 70), (246, 128, 8), (70, 34, 0)) if lit else ((128, 128, 132), (82, 82, 88), (34, 34, 38))
+    img.paste(Image.new("RGBA", (b, b), (16, 12, 8, 255)), (0, 0), mask)
+    inner = mask.filter(ImageFilter.MinFilter(SS * 2 + 1 if size < 40 else SS * 3 + 1))
+    img.paste(_gradient((b, b), top, bottom), (0, 0), inner)
+    d = ImageDraw.Draw(img)
+    c, r = b / 2, b * 0.3
+    w = round(b * 0.07)
+    d.ellipse((c - r, c - r, c + r, c + r), outline=ink + (255,), width=w)
+    for k in range(3):  # three curved blades turning round the middle
+        a0 = math.radians(-90 + 120 * k)
+        pts = []
+        for t in range(9):
+            ang = a0 + t / 8 * math.radians(70)
+            rad = b * (0.08 + 0.2 * t / 8)
+            pts.append((c + rad * math.cos(ang), c + rad * math.sin(ang)))
+        for t in range(8, -1, -1):
+            ang = a0 + t / 8 * math.radians(70) + math.radians(28)
+            rad = b * (0.08 + 0.2 * t / 8)
+            pts.append((c + rad * math.cos(ang), c + rad * math.sin(ang)))
+        d.polygon(pts, fill=ink + (255,))
+    return img.resize((size, size), Image.LANCZOS)
+
+
+CHESS_COLOURS = {"gold": ((255, 232, 150), (214, 150, 40)), "silver": ((236, 240, 252), (150, 160, 190)),
+                 "bronze": ((236, 184, 140), (160, 96, 56))}
+
+
+@lru_cache(maxsize=None)
+def chess(height: int, kind: str) -> Image.Image:
+    """A chess piece standing in for Anomaly Arbitration's rank piece, when HoYoLAB's own picture can't be had."""
+    top, bottom = next((v for k, v in CHESS_COLOURS.items() if k in kind.lower()), ((206, 196, 255), (120, 100, 220)))
+    w, h = round(height * 0.55) * SS, height * SS
+    mask = Image.new("L", (w, h), 0)
+    d = ImageDraw.Draw(mask)
+    cx = w / 2
+    d.polygon([(cx, 0), (cx + w * 0.16, h * 0.16), (cx, h * 0.3), (cx - w * 0.16, h * 0.16)], fill=255)  # the crest
+    d.ellipse((cx - w * 0.2, h * 0.24, cx + w * 0.2, h * 0.46), fill=255)  # head
+    d.polygon([(cx - w * 0.13, h * 0.42), (cx + w * 0.13, h * 0.42), (cx + w * 0.22, h * 0.78), (cx - w * 0.22, h * 0.78)], fill=255)
+    d.rounded_rectangle((cx - w * 0.3, h * 0.48, cx + w * 0.3, h * 0.54), radius=w * 0.03, fill=255)  # collar
+    d.rounded_rectangle((cx - w * 0.42, h * 0.78, cx + w * 0.42, h * 0.9), radius=w * 0.04, fill=255)  # base
+    d.rounded_rectangle((cx - w * 0.48, h * 0.88, cx + w * 0.48, h - SS), radius=w * 0.04, fill=255)
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    img.paste(Image.new("RGBA", (w, h), (20, 16, 34, 255)), (0, 0), mask.filter(ImageFilter.MaxFilter(SS * 2 + 1)))
+    img.paste(_gradient((w, h), top, bottom), (0, 0), mask)
+    shine = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    ImageDraw.Draw(shine).ellipse((cx - w * 0.1, h * 0.28, cx - w * 0.02, h * 0.38), fill=(255, 255, 255, 170))
+    img.alpha_composite(shine)
+    return img.resize((w // SS, height), Image.LANCZOS)
 
 
 def star(game: str, size: int, lit: bool = True) -> Image.Image:
@@ -144,29 +191,6 @@ def score(size: int, color: tuple[int, int, int]) -> Image.Image:
     return img.resize((size, size), Image.LANCZOS)
 
 
-MEDAL_COLOURS = {"gold": ((255, 226, 140), (214, 150, 40)), "silver": ((236, 240, 248), (150, 160, 180)),
-                 "bronze": ((236, 176, 128), (160, 92, 50))}
-
-
-@lru_cache(maxsize=None)
-def medal(size: int, kind: str) -> Image.Image:
-    """A round medal on a ribbon, gold / silver / bronze."""
-    top, bottom = MEDAL_COLOURS.get(kind.lower(), MEDAL_COLOURS["bronze"])
-    b = size * SS
-    img = Image.new("RGBA", (b, b), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    d.polygon([(b * 0.28, 0), (b * 0.44, 0), (b * 0.56, b * 0.4), (b * 0.4, b * 0.4)], fill=(196, 64, 84, 255))
-    d.polygon([(b * 0.56, 0), (b * 0.72, 0), (b * 0.6, b * 0.4), (b * 0.44, b * 0.4)], fill=(80, 96, 200, 255))
-    r = b * 0.32
-    cx, cy = b / 2, b * 0.64
-    mask = Image.new("L", (b, b), 0)
-    ImageDraw.Draw(mask).ellipse((cx - r, cy - r, cx + r, cy + r), fill=255)
-    img.paste(_gradient((b, b), top, bottom), (0, 0), mask)
-    d.ellipse((cx - r * 0.72, cy - r * 0.72, cx + r * 0.72, cy + r * 0.72), outline=bottom + (255,), width=round(b * 0.04))
-    d.polygon(_star_points(cx, cy, r * 0.48, 5, 0.45), fill=top + (255,))
-    return img.resize((size, size), Image.LANCZOS)
-
-
 RATING_COLOURS = {"S+": ((255, 210, 70), (255, 120, 30)), "S": ((255, 210, 70), (255, 140, 30)),
                   "A": ((220, 120, 255), (140, 60, 230)), "B": ((90, 200, 255), (40, 120, 230))}
 
@@ -196,14 +220,68 @@ def rating(letter: str, height: int, font: ImageFont.FreeTypeFont) -> Image.Imag
     return img
 
 
-def top_tag(text: str, height: int, font: ImageFont.FreeTypeFont, fill=(250, 196, 40)) -> Image.Image:
-    """A ZZZ-style slanted tag for a ranking, e.g. 'TOP 4.21%'."""
-    f = font.font_variant(size=round(height * 0.7))
-    width = round(f.getlength(text) + height * 1.1)
-    b = (width * SS, height * SS)
-    slant = b[1] * 0.3
-    img = Image.new("RGBA", b, (0, 0, 0, 0))
-    ImageDraw.Draw(img).polygon([(slant, 0), (b[0], 0), (b[0] - slant, b[1]), (0, b[1])], fill=fill + (255,))
-    img = img.resize((width, height), Image.LANCZOS)
-    ImageDraw.Draw(img).text((width / 2, height / 2 + 1), text, font=f, fill=(12, 12, 12, 255), anchor="mm")
-    return img
+def _heat(percent: str) -> float:
+    """How fiery a ranking is: 1 for the top 1%, fading out by the top 25%."""
+    try:
+        p = float(percent.strip().rstrip("%"))
+    except ValueError:
+        return 0.0
+    return 1.0 if p <= 1 else 0.8 if p <= 5 else 0.55 if p <= 10 else 0.3 if p <= 25 else 0.0
+
+
+def rank_badge(percent: str, height: int, font: ImageFont.FreeTypeFont, seed: int = 7) -> tuple[Image.Image, tuple[int, int]]:
+    """A round ranking badge, 'TOP 2.8%'; the better the ranking the more it burns, flames licking from left to
+    right across it. Returns the picture and where the badge itself sits in it (its top left)."""
+    import random
+    heat = _heat(percent)
+    f = font.font_variant(size=round(height * 0.56))
+    text = f"TOP {percent}"
+    pw = round(f.getlength(text) + height * 1.1)
+    m = round(height * 0.5)  # room for the glow
+    mt = round(height * (0.6 + 1.6 * heat)) if heat else m  # and above, for the flames
+    W, H = pw + 2 * m + round(height * 0.6 * heat), height + mt + m
+    out = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    if heat:
+        rnd = random.Random(seed)
+        fire = Image.new("RGBA", (W * SS, H * SS), (0, 0, 0, 0))
+        fd = ImageDraw.Draw(fire)
+        tongues = round(5 + 12 * heat)
+        layers = (((220, 40, 16), 1.0), ((255, 120, 20), 0.68), ((255, 214, 90), 0.36))  # red rim, orange, yellow core
+        flames = []
+        for i in range(tongues):
+            t = i / max(1, tongues - 1)
+            x = (m + height * 0.2 + t * pw * 0.9) * SS  # along the badge, from its left end
+            y = (mt + height * rnd.uniform(0.2, 0.6)) * SS
+            length = height * (0.55 + 0.9 * heat) * (1.25 - 0.55 * t) * rnd.uniform(0.75, 1.1) * SS  # tallest at the left
+            width = height * rnd.uniform(0.3, 0.45) * SS
+            flames.append((x, y, length, width, rnd.uniform(0, math.tau), rnd.uniform(0.25, 0.55)))
+        for colour, scale in layers:
+            for x, y, length, width, phase, lean in flames:
+                left, right = [], []
+                for k in range(13):  # a tongue rising up and leaning right, wavering, tapering to a point
+                    u = k / 12
+                    cx = x + length * lean * u ** 1.4 + width * 0.18 * math.sin(phase + u * 5)
+                    cy = y - length * scale ** 0.3 * u
+                    half = width * scale * 0.5 * (1 - u) ** 0.8 * (0.6 + 0.4 * math.sin(math.pi * min(1, u * 1.6 + 0.3)))
+                    left.append((cx - half, cy))
+                    right.append((cx + half, cy))
+                fd.polygon(left + right[::-1], fill=colour + (235,))
+        fire = fire.resize((W, H), Image.LANCZOS)
+        glow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        ImageDraw.Draw(glow).rounded_rectangle((m - 4, mt - 4, m + pw + 4, mt + height + 4), height, fill=(255, 96, 20, round(200 * heat)))
+        out.alpha_composite(glow.filter(ImageFilter.GaussianBlur(height * 0.35)))
+        out.alpha_composite(fire.filter(ImageFilter.GaussianBlur(1.2)))
+        out.alpha_composite(fire.filter(ImageFilter.GaussianBlur(height * 0.12)))
+    b = (pw * SS, height * SS)
+    pill = Image.new("RGBA", b, (0, 0, 0, 0))
+    pd = ImageDraw.Draw(pill)
+    top = (255, 214, 80) if heat else (250, 196, 40)
+    bottom = (255, 120, 20) if heat >= 0.55 else (240, 170, 30)
+    mask = Image.new("L", b, 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, b[0] - 1, b[1] - 1), b[1] / 2, fill=255)
+    pill.paste(Image.new("RGBA", b, (16, 12, 8, 255)), (0, 0), mask)
+    pill.paste(_gradient(b, top, bottom), (0, 0), mask.filter(ImageFilter.MinFilter(SS * 2 + 1)))
+    pill = pill.resize((pw, height), Image.LANCZOS)
+    ImageDraw.Draw(pill).text((pw / 2, height / 2 + 1), text, font=f, fill=(16, 12, 8, 255), anchor="mm")
+    out.alpha_composite(pill, (m, mt))
+    return out, (m, mt)

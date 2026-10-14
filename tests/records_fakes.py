@@ -83,7 +83,7 @@ def da() -> NS:
         NS(boss=boss("Notorious - Dead End Butcher"), score=20480, star=3, agents=ZZZ_A, bangboo=BANGBOO),
         NS(boss=boss("Notorious - Marionette"), score=20110, star=3, agents=ZZZ_B),
         NS(boss=boss("Notorious - Pompey"), score=19530, star=3, agents=ZZZ_A[::-1]),
-    ], hard_challenges=[NS(boss=boss("Notorious - Miasma Priest"), score=24860, star=3, agents=ZZZ_B[::-1])],
+    ], hard_challenges=[NS(boss=boss("Notorious - Miasma Priest"), score=24860, star=2, agents=ZZZ_B[::-1])],
         hard_rank_percent="11.3%")
 
 

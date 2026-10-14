@@ -90,7 +90,7 @@ def _tile(card: Image.Image, game: str, record: Record, label: str, value: str, 
     f = c.FONTS
     draw = ImageDraw.Draw(card)
     key = label.lower()
-    icon, text, suffix = None, value, ""
+    icon, text, suffix, flames = None, value, "", None
     if key in ("stars", "adversity stars"):
         icon = icons.star(game, 30)
         text, _, rest = value.partition(" / ")
@@ -106,15 +106,11 @@ def _tile(card: Image.Image, game: str, record: Record, label: str, value: str, 
     elif key == "rating":
         icon, text = icons.rating(value, 30, f.main), ""
     elif key in ("top", "adversity top"):
-        icon, text = icons.top_tag(f"TOP {value}", 26, f.main), ""
+        flames, offset = icons.rank_badge(value, 28, f.main)
+        icon, text = Image.new("RGBA", (flames.width - 2 * offset[0] - round(28 * 0.6 * icons._heat(value)), 28)), ""
         label = "Adversity rank" if key == "adversity top" else "Ranking"
     elif key == "medal":
-        pic = images.get(record.medal or "")
-        if pic is not None:
-            pic = pic.convert("RGBA")
-            icon = pic.resize((round(pic.width * 36 / pic.height), 36), Image.LANCZOS)
-        else:
-            icon = icons.medal(34, value)
+        icon = _rank_piece(record, value, 40, images)
     text_w = draw.textlength(text, font=f.main) + (draw.textlength(suffix, font=f.small) + 2 if suffix else 0)
     label_w = draw.textlength(label.upper(), font=f.label) * 1.15
     inner = max((icon.width + 8 if icon else 0) + text_w, label_w)
@@ -126,7 +122,11 @@ def _tile(card: Image.Image, game: str, record: Record, label: str, value: str, 
     card.alpha_composite(layer)
     draw = ImageDraw.Draw(card)
     x = left + 12 + (inner - (icon.width + 8 if icon else 0) - text_w) / 2
-    if icon:
+    if flames is not None:  # the ranking badge burns past its spot
+        card.alpha_composite(flames, (round(x - offset[0]), round(y + 38 - 14 - offset[1])))
+        draw = ImageDraw.Draw(card)
+        x += icon.width + 8
+    elif icon:
         x += _paste(card, icon, x, y + 38) + 8
     if text:
         draw.text((x, y + 38), text, font=f.main, fill=c.TEXT, anchor="lm")
@@ -138,6 +138,17 @@ def _tile(card: Image.Image, game: str, record: Record, label: str, value: str, 
 
 
 SIDE_W = 170  # a tall tile beside the King / Adversity Mode box
+
+
+def _rank_piece(record: Record, kind: str, height: int, images: dict) -> Image.Image:
+    """Anomaly Arbitration's rank: HoYoLAB's own chess piece picture, or a drawn piece when it couldn't be had."""
+    pic = images.get(record.medal or "")
+    if pic is not None:
+        pic = pic.convert("RGBA")
+        box = pic.getbbox()  # trim empty margins so the piece fills its spot
+        pic = pic.crop(box) if box else pic
+        return pic.resize((max(1, round(pic.width * height / pic.height)), height), Image.LANCZOS)
+    return icons.chess(height, kind)
 
 
 def _side_tile(card: Image.Image, game: str, record: Record, label: str, value: str, box, colour, images: dict) -> None:
@@ -154,17 +165,24 @@ def _side_tile(card: Image.Image, game: str, record: Record, label: str, value: 
     lw = draw.textlength(label.upper(), font=f.label) * 1.15
     c._spaced(draw, (mid - lw / 2, y0 + 22), label.upper(), f.label, c.DIM, 1.2)
     icon, text = None, value
-    if key == "stars":
-        icon = icons.star(game, 64)
+    if key == "stars":  # every star there is to earn, the missing ones greyed out
+        got, _, of = value.partition("/")
+        got, of = int(got), int(of or got)
+        size = min(46, (x1 - x0 - 24 - 6 * (of - 1)) // max(1, of))
+        icon = Image.new("RGBA", (of * size + (of - 1) * 6, size), (0, 0, 0, 0))
+        for i in range(of):
+            icon.alpha_composite(icons.star(game, size, i < got), (i * (size + 6), 0))
+        text = ""
     elif key == "top":
-        icon, text = icons.top_tag(f"TOP {value}", 40, f.main), ""
-    elif key == "medal":
-        pic = images.get(record.medal or "")
-        if pic is not None:
-            pic = pic.convert("RGBA")
-            icon = pic.resize((round(pic.width * 76 / pic.height), 76), Image.LANCZOS)
-        else:
-            icon = icons.medal(76, value)
+        flames, (ox, oy) = icons.rank_badge(value, 40, f.main)
+        bw = flames.width - 2 * ox - round(40 * 0.6 * icons._heat(value))
+        cy = (y0 + 40 + y1) / 2
+        card.alpha_composite(flames, (round(mid - bw / 2 - ox), round(cy - 20 - oy)))
+        c._spaced(ImageDraw.Draw(card), (mid - lw / 2, y0 + 22), label.upper(), f.label, c.DIM, 1.2)  # over the flames
+        return
+    elif key in ("medal", "rank"):
+        icon = _rank_piece(record, value, 92, images)
+        text = ""
     big = f.name[56]
     if icon is None:  # just the number, very large (cycles)
         draw.text((mid, (y0 + 40 + y1) / 2), text, font=big, fill=c.TEXT, anchor="mm")
@@ -281,29 +299,9 @@ def _hsr_portrait(card: Image.Image, member, icon, x: int, y: int, accent) -> No
     _copies(card, "hsr", member, x, y - 4, accent)
 
 
-ZZZ_RANK = {5: ("S", (255, 132, 20)), 4: ("A", (196, 92, 255))}
-
-
-def _zzz_rank(card: Image.Image, rarity: int, x: int, y: int, size: int) -> None:
-    """ZZZ's rank mark: a slanted S (or A) over a small RANK plate."""
-    f = c.FONTS
-    letter, colour = ZZZ_RANK.get(rarity, ("B", (64, 160, 255)))
-    s = size
-    layer = Image.new("RGBA", (s, s), (0, 0, 0, 0))
-    ld = ImageDraw.Draw(layer)
-    big = f.name[32].font_variant(size=round(s * 0.78))
-    ld.text((s / 2, s * 0.4), letter, font=big, fill=colour + (255,), anchor="mm", stroke_width=max(1, s // 14), stroke_fill=(12, 12, 12, 255))
-    layer = layer.transform(layer.size, Image.AFFINE, (1, 0.2, -0.1 * s, 0, 1, 0), Image.BICUBIC)
-    ld = ImageDraw.Draw(layer)
-    ld.rectangle((s * 0.12, s * 0.74, s * 0.88, s * 0.98), fill=colour + (255,))
-    tiny = f.label.font_variant(size=max(7, round(s * 0.24)))
-    ld.text((s / 2, s * 0.86), "RANK", font=tiny, fill=(255, 255, 255, 255), anchor="mm")
-    card.alpha_composite(layer, (x, y))
-
-
 def _zzz_portrait(card: Image.Image, member, icon, x: int, y: int, accent, size: int, copies: bool = True) -> None:
     """HoYoLAB's ZZZ portrait: the agent's square picture (with the outfit they wear) in a thick dark rounded frame,
-    the rank mark at the top left and the copies at the top right."""
+    the copies at the top right."""
     frame = 5 if size > 80 else 4
     tile = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     td = ImageDraw.Draw(tile)
@@ -316,7 +314,6 @@ def _zzz_portrait(card: Image.Image, member, icon, x: int, y: int, accent, size:
     ImageDraw.Draw(mask).rounded_rectangle((0, 0, inner * 4 - 1, inner * 4 - 1), (13 if size > 80 else 10) * 4, fill=255)
     tile.alpha_composite(_masked(pic, mask.resize((inner, inner), Image.LANCZOS)), (frame, frame))
     card.alpha_composite(tile, (x, y))
-    _zzz_rank(card, member.rarity, x + frame + 2, y + frame + 1, 30 if size > 80 else 22)
     if copies:
         label = copies_label("zzz", member)
         if label:

@@ -257,7 +257,7 @@ def hsr_aa(data) -> Record:
                     left=[("Cycles", str(boss.cycles_used))], plight=bool(boss.is_hard_mode))
         medal_type = getattr(boss, "medal_type", "") or (data.summary.medal_type if data.summary else "")
         if medal_type:
-            king.right = [("Medal", medal_type.replace("_", " ").title())]
+            king.right = [("Rank", medal_type.replace("_", " ").title())]
             rec.medal = getattr(boss, "medal_icon", None) or getattr(data.summary, "medal_icon", None) or None
         rec.teams.append(king)
     return rec
@@ -320,7 +320,7 @@ def zzz_da(data) -> Record:
     for c in getattr(data, "hard_challenges", None) or ():  # Adversity Mode, the extra boss
         team = _da_team(c, "Adversity Mode")
         team.chips = [("score", _num(c.score))]
-        team.left = [("Stars", str(c.star))]
+        team.left = [("Stars", f"{c.star}/3")]
         if getattr(data, "hard_rank_percent", None):
             team.right = [("Top", data.hard_rank_percent)]
         rec.teams.append(team)
