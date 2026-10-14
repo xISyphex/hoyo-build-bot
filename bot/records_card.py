@@ -20,7 +20,9 @@ COLS = 3  # teams per row
 BANGBOO = 64  # ZZZ's Bangboo, smaller beside the agents
 TEAM_W = 4 * PORTRAIT + 3 * PORTRAIT_GAP + 32
 W = 2 * PAD + COLS * TEAM_W + (COLS - 1) * GAP  # as wide as three teams of four need
-TEAM_H = 66 + PORTRAIT + 18  # title and result rows, portraits, padding
+TAB_H = 36  # the box's title, as a tab clipped to its top-left corner
+PORTRAIT_TOP = 96  # under the title tab and the results row
+TEAM_H = PORTRAIT_TOP + PORTRAIT + 20  # title and result rows, portraits, padding
 STAGE_HEAD = 30  # the header over a stage in its own row (the King, Adversity Mode)
 GAME_ACCENT = {"genshin": (232, 178, 92), "hsr": (150, 128, 255), "zzz": (250, 196, 40)}
 GAME_TITLE = {"genshin": "Genshin Impact", "hsr": "Honkai: Star Rail", "zzz": "Zenless Zone Zero"}
@@ -362,14 +364,13 @@ def _zzz_portrait(card: Image.Image, member, icon, x: int, y: int, accent, size:
     pic = Image.new("RGBA", (inner, inner), (58, 58, 64, 255))
     if icon is not None:
         pic.alpha_composite(_cover(icon, inner, inner, top=False))
+    label = copies_label("zzz", member) if copies else ""
+    if label:  # part of the picture, so the frame's rounded corner trims it too
+        _slant_plate(pic, label, -3, 0, accent)
     mask = Image.new("L", (inner * 4, inner * 4), 0)
     ImageDraw.Draw(mask).rounded_rectangle((0, 0, inner * 4 - 1, inner * 4 - 1), (13 if size > 80 else 10) * 4, fill=255)
     tile.alpha_composite(_masked(pic, mask.resize((inner, inner), Image.LANCZOS)), (frame, frame))
     card.alpha_composite(tile, (x, y))
-    if copies:
-        label = copies_label("zzz", member)
-        if label:
-            _slant_plate(card, label, x + frame - 2, y + frame, accent)
 
 
 def _slant_plate(card: Image.Image, label: str, x: float, y: float, accent) -> None:
@@ -378,7 +379,7 @@ def _slant_plate(card: Image.Image, label: str, x: float, y: float, accent) -> N
     draw = ImageDraw.Draw(card)
     w = draw.textlength(label, font=f.small_b) + 22
     sl = 7
-    draw.polygon([(x + sl, y), (x + w + sl, y), (x + w, y + 24), (x, y + 24)], fill=(14, 12, 24, 230))
+    draw.polygon([(x + sl, y), (x + w + sl, y), (x + w, y + 24), (x, y + 24)], fill=(14, 12, 24, 240))
     draw.polygon([(x + sl, y), (x + 6 + sl, y), (x + 6, y + 24), (x, y + 24)], fill=accent + (255,))
     draw.text((x + 10 + (w - 10) / 2 + sl / 2, y + 12), label, font=f.small_b, fill=c.TEXT, anchor="mm")
 
@@ -465,23 +466,33 @@ def _team(card: Image.Image, game: str, team: Team, images: dict, box, accent, c
     if art is not None:
         _art(card, art, box)
     draw = ImageDraw.Draw(card)
-    x = x0 + 14
-    if team.label == "Starward":
-        x += _paste(card, icons.starward(24), x - 2, y0 + 21) + 4
-    draw.text((x, y0 + 20), c._fit_text(draw, team.label, f.stat_s, x1 - x - 14), font=f.stat_s, fill=c.TEXT, anchor="lm")
+    star = icons.starward(24) if team.label == "Starward" else None
+    title = c._fit_text(draw, team.label, f.stat_s, x1 - x0 - 80)
+    tab_w = round(16 + (star.width + 6 if star else 0) + draw.textlength(title, font=f.stat_s) + 18)
+    tab = Image.new("RGBA", card.size, (0, 0, 0, 0))  # dark, tinted with the mode's colour, clipped to the corner
+    ImageDraw.Draw(tab).rounded_rectangle((x0, y0, x0 + tab_w, y0 + TAB_H), 15, fill=c._mix(colour, (12, 12, 18), 0.78) + (235,),
+                                          corners=(True, False, True, False))
+    ImageDraw.Draw(tab).line((x0 + 15, y0 + TAB_H, x0 + tab_w - 15, y0 + TAB_H), fill=colour + (150,), width=2)
+    card.alpha_composite(tab)
+    draw = ImageDraw.Draw(card)
+    x = x0 + 16
+    if star:
+        x += _paste(card, star, x - 2, y0 + TAB_H / 2) + 6
+    draw.text((x, y0 + TAB_H / 2), title, font=f.stat_s, fill=c.TEXT, anchor="lm")
     if team.chips:  # this node's own stars / cycles / points, under its title
-        _chips(card, game, team.chips, x0 + 10, y0 + 47, colour, light)
+        _chips(card, game, team.chips, x0 + 10, y0 + TAB_H + 20, colour, light)
     members = team.members[:4]
+    top = y0 + PORTRAIT_TOP if team.chips else round(y0 + TAB_H + (y1 - y0 - TAB_H - PORTRAIT) / 2)  # no results row: centred
     row_w = len(members) * PORTRAIT + max(0, len(members) - 1) * PORTRAIT_GAP
     if team.bangboo:
         row_w += PORTRAIT_GAP + BANGBOO
     x = x0 + (x1 - x0 - row_w) // 2
     for m in members:
-        _portrait(card, game, m, images.get(m.icon_url or ""), x, y0 + 68, accent)
+        _portrait(card, game, m, images.get(m.icon_url or ""), x, top, accent)
         x += PORTRAIT + PORTRAIT_GAP
     if team.bangboo:  # smaller, sitting on the same bottom line
         b = team.bangboo
-        _zzz_portrait(card, b, images.get(b.icon_url or ""), x, y0 + 68 + PORTRAIT - BANGBOO, accent, BANGBOO, copies=False)
+        _zzz_portrait(card, b, images.get(b.icon_url or ""), x, top + PORTRAIT - BANGBOO, accent, BANGBOO, copies=False)
 
 
 def _band(card: Image.Image, box, colour) -> None:
