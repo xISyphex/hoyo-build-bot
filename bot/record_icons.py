@@ -232,15 +232,9 @@ def _rating_mark(letter: str, height: int, font_path: str) -> Image.Image:
     top, bottom, rim = RATING_COLOURS.get(letter, ((190, 190, 190), (110, 110, 110), (230, 230, 230)))
     h = height * SS
     big = _shape_text(letter, font.font_variant(size=round(h * 0.95)), round(h * 0.035))
-    small = _shape_text("RANK", font.font_variant(size=round(h * 0.3)), round(h * 0.012))
     big = big.resize((round(h * 0.86 * len(letter)), round(h * 0.7)), Image.LANCZOS)  # wide and squat, like the game's
-    small = small.resize((round(big.width * 0.96), round(h * 0.2)), Image.LANCZOS)  # RANK as wide as the letter
-    gap = round(h * 0.05)
-    w = max(big.width, small.width)
-    hh = big.height + gap + small.height
-    shape = Image.new("L", (w, hh), 0)
-    shape.paste(big, ((w - big.width) // 2, 0), big)
-    shape.paste(small, ((w - small.width) // 2, big.height + gap), small)
+    w, hh = big.width, big.height
+    shape = big
     out = Image.new("RGBA", (w, hh), (0, 0, 0, 0))
     out.paste(Image.new("RGBA", (w, hh), rim + (255,)), (0, 0), shape)
     inner = shape.filter(ImageFilter.MinFilter(max(3, SS * 2 + 1)))
@@ -249,7 +243,7 @@ def _rating_mark(letter: str, height: int, font_path: str) -> Image.Image:
 
 
 def rating(letter: str, height: int, font: ImageFont.FreeTypeFont) -> Image.Image:
-    """ZZZ's rank mark: a big chunky letter in the rank's colour over a small RANK, no outline or backing."""
+    """ZZZ's rank mark: a big chunky letter in the rank's colour, no outline or backing."""
     return _rating_mark(letter, height, font.path)
 
 
