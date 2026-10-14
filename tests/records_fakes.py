@@ -24,22 +24,26 @@ def gi_char(cid: int, name: str, level: int = 90, rarity: int = 5, constellation
 
 TEAM_A = [hsr_char(1407, 2), hsr_char(1313, 0), hsr_char(1403, 1), hsr_char(1217, 0)]
 TEAM_B = [hsr_char(1310, 1), hsr_char(1303, 0), hsr_char(1306, 0), hsr_char(1304, 0, 80, 5)]
+TEAM_C = [hsr_char(1212, 0), hsr_char(1308, 1), hsr_char(1301, 0), hsr_char(1309, 0)]
 
 
 def moc() -> NS:
-    floor = NS(name="Memory of Chaos (12)", star_num=3, round_num=7, node_1=NS(avatars=TEAM_A), node_2=NS(avatars=TEAM_B))
+    floor = NS(name="Memory of Chaos (12)", star_num=3, round_num=7, node_1=NS(avatars=TEAM_A), node_2=NS(avatars=TEAM_B),
+               node_3=NS(avatars=TEAM_C))
     return NS(name="", has_data=True, floors=[floor], seasons=[NS(name="Lupine Moon")], total_stars=36,
-              max_floor="Memory of Chaos (12)", total_battles=14)
+              max_floor="Memory of Chaos (12)", total_battles=14, starward_stars=3)
 
 
 def pf() -> NS:
-    floor = NS(name="Pure Fiction (4)", star_num=3, node_1=NS(avatars=TEAM_A, score=40000), node_2=NS(avatars=TEAM_B, score=38512))
+    floor = NS(name="Pure Fiction (4)", star_num=3, node_1=NS(avatars=TEAM_A, score=40000), node_2=NS(avatars=TEAM_B, score=38512),
+               node_3=NS(avatars=TEAM_C, score=36120))
     return NS(has_data=True, floors=[floor], seasons=[NS(name="Lone Wanderer")], total_stars=12, total_battles=5)
 
 
 def apoc() -> NS:
     floor = NS(name="Apocalyptic Shadow (4)", star_num=3,
-               node_1=NS(avatars=TEAM_A, score=4000, boss_defeated=True), node_2=NS(avatars=TEAM_B, score=3720, boss_defeated=True))
+               node_1=NS(avatars=TEAM_A, score=4000, boss_defeated=True), node_2=NS(avatars=TEAM_B, score=3720, boss_defeated=True),
+               node_3=NS(avatars=TEAM_C, score=3405, boss_defeated=True))
     return NS(has_data=True, floors=[floor], seasons=[NS(name="Dawn's Tremor")], total_stars=12, total_battles=4)
 
 

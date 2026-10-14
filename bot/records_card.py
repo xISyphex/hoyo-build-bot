@@ -128,8 +128,8 @@ def draw_records(game: str, uid: str, records: list[Record], images: dict[str, I
             _starry(draw, (PAD + 8, y + 50), c._fit_text(draw, record.season, f.small, 560), f.small, c.DIM)
         x = W - PAD - 8
         for label, value in reversed(record.headline):  # numbers on the right, label above value
-            w = max(draw.textlength(value, font=f.main), draw.textlength(label.upper(), font=f.label) * 1.15) + 8
-            draw.text((x, y + 24), value, font=f.main, fill=light, anchor="rm")
+            w = max(_starry_width(draw, value, f.main), draw.textlength(label.upper(), font=f.label) * 1.15) + 8
+            _starry(draw, (x, y + 24), value, f.main, light, anchor="rm")
             c._spaced(draw, (x - w + 8, y + 50), label.upper(), f.label, c.DIM, 1.2)
             x -= w + 22
         if record.empty or not record.teams:

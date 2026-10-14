@@ -141,7 +141,11 @@ def _gi_member(c, copies: int | None = None) -> Member:
     return Member(str(c.id), c.icon, getattr(c, "level", 0), c.rarity, copies)
 
 
-def _nodes(floor, count: int = 2) -> list:
+def _node_label(i: int) -> str:
+    return "Starward" if i == 3 else f"Node {i}"  # the third node is Starward mode, when it was played
+
+
+def _nodes(floor, count: int = 3) -> list:
     return [n for n in (getattr(floor, f"node_{i}", None) for i in range(1, count + 1)) if n is not None]
 
 
@@ -164,6 +168,11 @@ def _season(seasons, fallback: str = "") -> str:
     return fallback
 
 
+def _starward(rec: Record, data) -> None:
+    if getattr(data, "starward_stars", 0):
+        rec.headline.insert(1, ("Starward", f"{data.starward_stars}★"))
+
+
 # Star Rail -----------------------------------------------------------------------------------------------------
 
 
@@ -173,9 +182,10 @@ def hsr_moc(data) -> Record:
         rec.empty = "No Memory of Chaos runs this season yet."
         return rec
     rec.headline = [("Stars", _stars(data.total_stars, 36)), ("Floor", _floor_no(floor.name)), ("Cycles", str(floor.round_num))]
+    _starward(rec, data)
     rec.season = f"Floor {_floor_no(floor.name)} · {floor.star_num}★ · {floor.round_num} cycles" + (f"  ·  {rec.season}" if rec.season else "")
     for i, node in enumerate(_nodes(floor), 1):
-        rec.teams.append(Team(f"Node {i}", "", [_hsr_member(c) for c in node.avatars]))
+        rec.teams.append(Team(_node_label(i), "", [_hsr_member(c) for c in node.avatars]))
     return rec
 
 
@@ -187,9 +197,10 @@ def hsr_pf(data) -> Record:
     nodes = _nodes(floor)
     total = sum(n.score for n in nodes)
     rec.headline = [("Stars", _stars(data.total_stars, 12)), ("Floor", _floor_no(floor.name)), ("Score", _num(total))]
+    _starward(rec, data)
     rec.season = f"Floor {_floor_no(floor.name)} · {floor.star_num}★" + (f"  ·  {rec.season}" if rec.season else "")
     for i, node in enumerate(nodes, 1):
-        rec.teams.append(Team(f"Node {i}", f"{_num(node.score)} pts", [_hsr_member(c) for c in node.avatars]))
+        rec.teams.append(Team(_node_label(i), f"{_num(node.score)} pts", [_hsr_member(c) for c in node.avatars]))
     return rec
 
 
@@ -201,10 +212,11 @@ def hsr_apoc(data) -> Record:
     nodes = _nodes(floor)
     total = sum(n.score for n in nodes)
     rec.headline = [("Stars", _stars(data.total_stars, 12)), ("Floor", _floor_no(floor.name)), ("Score", _num(total))]
+    _starward(rec, data)
     rec.season = f"Floor {_floor_no(floor.name)} · {floor.star_num}★" + (f"  ·  {rec.season}" if rec.season else "")
     for i, node in enumerate(nodes, 1):
         killed = "" if node.boss_defeated else " · boss not defeated"
-        rec.teams.append(Team(f"Node {i}", f"{_num(node.score)} pts{killed}", [_hsr_member(c) for c in node.avatars]))
+        rec.teams.append(Team(_node_label(i), f"{_num(node.score)} pts{killed}", [_hsr_member(c) for c in node.avatars]))
     return rec
 
 
@@ -263,7 +275,7 @@ def zzz_sd(data) -> Record:
     rec.headline = [("Deepest", str(data.max_floor)), ("S ratings", str(data.ratings.get("S", 0)))]
     rec.season = f"{floor.name} · {floor.rating}"
     for i, node in enumerate((floor.node_1, floor.node_2), 1):
-        rec.teams.append(Team(f"Node {i}", _clock(getattr(node, "battle_time", None) and int(node.battle_time.total_seconds())),
+        rec.teams.append(Team(_node_label(i), _clock(getattr(node, "battle_time", None) and int(node.battle_time.total_seconds())),
                               [_zzz_member(c) for c in node.characters]))
     return rec
 

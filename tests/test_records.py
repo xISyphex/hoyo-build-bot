@@ -35,12 +35,17 @@ class ModesTest(unittest.TestCase):
 class ReadersTest(unittest.TestCase):
     def test_memory_of_chaos(self):
         rec = R.hsr_moc(F.moc())
-        self.assertEqual(dict(rec.headline), {"Stars": "36 / 36", "Floor": "12", "Cycles": "7"})
-        self.assertEqual([t.label for t in rec.teams], ["Node 1", "Node 2"])
+        self.assertEqual(dict(rec.headline), {"Stars": "36 / 36", "Starward": "3★", "Floor": "12", "Cycles": "7"})
+        self.assertEqual([t.label for t in rec.teams], ["Node 1", "Node 2", "Starward"])
         self.assertEqual(rec.teams[0].members[0].copies, 2)
 
+    def test_two_nodes_without_starward(self):
+        data = F.pf()
+        data.floors[0].node_3 = None
+        self.assertEqual([t.label for t in R.hsr_pf(data).teams], ["Node 1", "Node 2"])
+
     def test_scores(self):
-        self.assertEqual(dict(R.hsr_pf(F.pf()).headline)["Score"], "78,512")
+        self.assertEqual(dict(R.hsr_pf(F.pf()).headline)["Score"], "114,632")
         self.assertEqual(R.hsr_apoc(F.apoc()).teams[1].result, "3,720 pts")
 
     def test_anomaly_arbitration_knights_then_king(self):
