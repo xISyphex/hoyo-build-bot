@@ -369,18 +369,19 @@ def _rarity_tile(w: int, h: int, rarity: int) -> Image.Image:
     return Image.composite(Image.new("RGBA", (w, h), bottom + (255,)), Image.new("RGBA", (w, h), top + (255,)), grad)
 
 
+LEVEL_SHADE = 130  # how dark the band behind a portrait's level is (of 255)
 HSR_H = PORTRAIT + 8  # Star Rail's portraits are a little taller than wide, like HoYoLAB's
 
 
 def _hsr_portrait(card: Image.Image, member, icon, x: int, y: int, accent) -> None:
     """HoYoLAB's Star Rail portrait: rarity colour behind the art, square corners but a rounded top right, and a
-    black level band across the bottom."""
+    see-through black level band across the bottom."""
     f = c.FONTS
     w, h = PORTRAIT, HSR_H
     tile = _rarity_tile(w, h, member.rarity)
     if icon is not None:
-        tile.alpha_composite(_cover(icon, w, h - 22))
-    band = Image.new("RGBA", (w, 24), (0, 0, 0, 225))
+        tile.alpha_composite(_cover(icon, w, h))
+    band = Image.new("RGBA", (w, 24), (0, 0, 0, LEVEL_SHADE))
     tile.alpha_composite(band, (0, h - 24))
     ImageDraw.Draw(tile).text((w / 2, h - 12), f"Lv. {member.level}" if member.level else "", font=f.slot, fill=c.TEXT, anchor="mm")
     mask = Image.new("L", (w * 4, h * 4), 0)
@@ -402,6 +403,10 @@ def _zzz_portrait(card: Image.Image, member, icon, x: int, y: int, accent, size:
     pic = Image.new("RGBA", (inner, inner), (58, 58, 64, 255))
     if icon is not None:
         pic.alpha_composite(_cover(icon, inner, inner, top=False))
+    if member.level:  # a see-through level band along the bottom of the picture
+        band_h = 22 if size > 80 else 18
+        pic.alpha_composite(Image.new("RGBA", (inner, band_h), (0, 0, 0, LEVEL_SHADE)), (0, inner - band_h))
+        ImageDraw.Draw(pic).text((inner / 2, inner - band_h / 2), f"Lv. {member.level}", font=c.FONTS.slot, fill=c.TEXT, anchor="mm")
     mask = Image.new("L", (inner * 4, inner * 4), 0)
     ImageDraw.Draw(mask).rounded_rectangle((0, 0, inner * 4 - 1, inner * 4 - 1), (13 if size > 80 else 10) * 4, fill=255)
     tile.alpha_composite(_masked(pic, mask.resize((inner, inner), Image.LANCZOS)), (frame, frame))
@@ -495,7 +500,7 @@ def _gi_portrait(card: Image.Image, game: str, member, icon, x: int, y: int, acc
     _copies(card, game, member, x, y, accent)
     if member.level:
         shade = Image.new("RGBA", (PORTRAIT, 26), (0, 0, 0, 0))
-        ImageDraw.Draw(shade).rounded_rectangle((0, 0, PORTRAIT - 1, 25), 10, fill=(0, 0, 0, 130))
+        ImageDraw.Draw(shade).rounded_rectangle((0, 0, PORTRAIT - 1, 25), 10, fill=(0, 0, 0, LEVEL_SHADE))
         card.alpha_composite(shade, (x, y + PORTRAIT - 26))
         draw.text((x + PORTRAIT / 2, y + PORTRAIT - 13), f"Lv. {member.level}", font=f.slot, fill=c.TEXT, anchor="mm")
 
