@@ -39,7 +39,7 @@ def _team_h(game: str, chips: bool = True) -> int:
 def _has_chips(record: Record) -> bool:
     """Whether the section's boxes have a results row; without one (Memory of Chaos) they're shorter."""
     return any(t.chips for t in record.teams)
-STAGE_HEAD = 30  # the header over a stage in its own row (the King, Adversity Mode)
+STAGE_HEAD = 44  # the header over a stage in its own row (the King, Adversity Mode)
 GAME_ACCENT = {"genshin": (232, 178, 92), "hsr": (150, 128, 255), "zzz": (250, 196, 40)}
 GAME_TITLE = {"genshin": "Genshin Impact", "hsr": "Honkai: Star Rail", "zzz": "Zenless Zone Zero"}
 RARITY_BG = {5: ((176, 120, 52), (98, 60, 30)), 4: ((128, 92, 196), (64, 44, 110))}
@@ -298,6 +298,28 @@ def _art(card: Image.Image, pic: Image.Image, box) -> None:
     alpha = Image.composite(fade, Image.new("L", (w, h), 0), rounded.crop((x1 - x0 - w, 0, x1 - x0, h)))
     pic.putalpha(ImageChops.multiply(pic.getchannel("A"), alpha))
     card.alpha_composite(pic, (x1 - w, y0))
+
+
+STAGE_FONT = c._font("Bold", 22)
+CROWN = 28  # the crowns either side of "KING"
+
+
+def _stage_head(card: Image.Image, head: str, y: int, colour, light) -> None:
+    """A stage's header: its name in big spaced capitals across a line, the King's between two crowns."""
+    draw = ImageDraw.Draw(card)
+    text = head.upper()
+    tw = sum(draw.textlength(ch, font=STAGE_FONT) + 3 for ch in text) - 3
+    crowned = head == "King"
+    side = (CROWN + 12) if crowned else 0
+    mid = W / 2
+    half = tw / 2 + side
+    draw.line((PAD + 8, y, mid - half - 16, y), fill=colour + (140,), width=1)
+    draw.line((mid + half + 16, y, W - PAD - 8, y), fill=colour + (140,), width=1)
+    c._spaced(draw, (mid - tw / 2, y), text, STAGE_FONT, light, 3)
+    if crowned:
+        crown = icons.crown(CROWN)
+        card.alpha_composite(crown, (int(mid - half), int(y - CROWN / 2 - 2)))
+        card.alpha_composite(crown, (int(mid + tw / 2 + 12), int(y - CROWN / 2 - 2)))
 
 
 def _rows(record: Record) -> list[tuple[str, list[Team]]]:
@@ -627,12 +649,7 @@ def draw_records(game: str, uid: str, records: list[Record], images: dict[str, I
             team_h = _team_h(game, _has_chips(record))
             for head, row in _rows(record):
                 if head:  # a stage of its own: a header line across the section, the team centred under it
-                    draw = ImageDraw.Draw(card)
-                    tw = draw.textlength(head.upper(), font=f.label) * 1.15
-                    mid = W / 2
-                    draw.line((PAD + 8, by + 12, mid - tw / 2 - 14, by + 12), fill=colour + (140,), width=1)
-                    draw.line((mid + tw / 2 + 14, by + 12, W - PAD - 8, by + 12), fill=colour + (140,), width=1)
-                    c._spaced(draw, (mid - tw / 2, by + 12), head.upper(), f.label, mode_light, 1.2)
+                    _stage_head(card, head, by + 18, colour, mode_light)
                     by += STAGE_HEAD
                 row_w = len(row) * col_w + (len(row) - 1) * GAP
                 bx = PAD + (W - 2 * PAD - row_w) // 2  # a short row sits in the middle
