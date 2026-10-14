@@ -10,6 +10,7 @@ import math
 import os
 import random
 import re
+import time
 
 import aiohttp
 import discord
@@ -340,24 +341,35 @@ def make_records_command(game: str) -> app_commands.Command:
                 )
                 return
         await interaction.response.defer(thinking=True)
-        try:
-            found = await bot.hoyolab.records(game, uid, picked)
-        except HoyolabError as exc:
-            await interaction.followup.send(str(exc))
-            return
-        # Weapon copies come from the player's characters: HoYoLAB's list if it shares it, else their showcase.
-        builds: list[CharacterBuild] = []
-        try:
-            builds += await bot.hoyolab.fetch(game, uid)
-        except HoyolabError:
-            pass
-        # The in-game name (and showcase builds) from Enka; a recent lookup is reused
-        profile = bot.enka.cached(game, uid)
-        if profile is None:
+        # The records, the player's characters (for weapon copies: HoYoLAB's list if it shares it, else their
+        # showcase) and the in-game name from Enka are read at the same time; a recent Enka lookup is reused
+        started = time.perf_counter()
+
+        async def hoyolab_builds() -> list[CharacterBuild]:
             try:
-                profile = await bot.enka.fetch(game, uid)
+                return await bot.hoyolab.fetch(game, uid)
+            except HoyolabError:
+                return []
+
+        async def enka_profile():
+            if (cached := bot.enka.cached(game, uid)) is not None:
+                return cached
+            try:
+                return await bot.enka.fetch(game, uid)
             except Exception as exc:
                 log.info("No Enka profile for %s %s: %s", game, uid, exc)
+                return None
+
+        found, builds, profile = await asyncio.gather(bot.hoyolab.records(game, uid, picked), hoyolab_builds(),
+                                                      enka_profile(), return_exceptions=True)
+        if isinstance(found, HoyolabError):
+            await interaction.followup.send(str(found))
+            return
+        if isinstance(found, BaseException):
+            raise found
+        builds = list(builds) if isinstance(builds, list) else []
+        profile = None if isinstance(profile, BaseException) else profile
+        read = time.perf_counter()
         if profile:
             builds += profile.characters
         records.fill_copies(found, builds)
@@ -368,6 +380,7 @@ def make_records_command(game: str) -> app_commands.Command:
             await interaction.followup.send("Something went wrong drawing the battle records. Try again later.")
             return
         await interaction.followup.send(file=discord.File(io.BytesIO(png), filename="records.png"))
+        log.info("%s records for %s: read in %.1fs, drawn and sent in %.1fs", game, uid, read - started, time.perf_counter() - read)
 
     @command.autocomplete("modes")
     async def modes_autocomplete(interaction: discord.Interaction, current: str):

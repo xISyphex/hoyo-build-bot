@@ -112,8 +112,8 @@ def _chips(card: Image.Image, game: str, chips, x: float, cy: float, colour, lig
     for left, right in spans:
         pd.rounded_rectangle((left, cy - CHIP_H / 2, right, cy + CHIP_H / 2), CHIP_H // 2,
                              fill=(10, 10, 16, 200), outline=colour + (110,), width=1)
-    card.alpha_composite(pills)
-    card.alpha_composite(fg)
+    c._layer_onto(card, pills)
+    c._layer_onto(card, fg)
 
 
 def _tile(card: Image.Image, game: str, record: Record, label: str, value: str, right: float, y: int, colour, light,
@@ -154,7 +154,7 @@ def _tile(card: Image.Image, game: str, record: Record, label: str, value: str, 
         left, right = right, right + inner + 24
     layer = Image.new("RGBA", card.size, (0, 0, 0, 0))
     ImageDraw.Draw(layer).rounded_rectangle((left, y, right, y + 58), 12, fill=colour + (22,), outline=colour + (70,))
-    card.alpha_composite(layer)
+    c._layer_onto(card, layer)
     draw = ImageDraw.Draw(card)
     x = left + 12 + (inner - (icon.width + 8 if icon else 0) - text_w) / 2
     if flames is not None:  # the ranking badge burns past its spot
@@ -231,7 +231,7 @@ def _side_tile(card: Image.Image, game: str, record: Record, label: str, value: 
         box = (box[0], round(mid_y - h / 2), box[0] + hug.width + 2 * HUG_PAD, round(mid_y + h / 2))
         layer = Image.new("RGBA", card.size, (0, 0, 0, 0))
         ImageDraw.Draw(layer).rounded_rectangle(box, h // 2, fill=colour + (26,), outline=colour + (90,), width=2)
-        card.alpha_composite(layer)
+        c._layer_onto(card, layer)
         card.alpha_composite(hug, (box[0] + HUG_PAD, box[1] + HUG_PAD))
         return
     if key in SNUG:  # a snug square, level with the middle of the stage's box
@@ -239,7 +239,7 @@ def _side_tile(card: Image.Image, game: str, record: Record, label: str, value: 
     x0, y0, x1, y1 = box
     layer = Image.new("RGBA", card.size, (0, 0, 0, 0))
     ImageDraw.Draw(layer).rounded_rectangle(box, 16, fill=colour + (26,), outline=colour + (90,), width=2)
-    card.alpha_composite(layer)
+    c._layer_onto(card, layer)
     draw = ImageDraw.Draw(card)
     mid = (x0 + x1) / 2
     label = "Ranking" if key == "top" else label
@@ -579,7 +579,7 @@ def _team(card: Image.Image, game: str, team: Team, images: dict, box, accent, c
     ImageDraw.Draw(tab).rounded_rectangle((x0, y0, x0 + tab_w, y0 + TAB_H), 15, fill=c._mix(colour, (12, 12, 18), 0.78) + (235,),
                                           corners=(True, False, True, False))
     ImageDraw.Draw(tab).line((x0 + 15, y0 + TAB_H, x0 + tab_w - 15, y0 + TAB_H), fill=colour + (150,), width=2)
-    card.alpha_composite(tab)
+    c._layer_onto(card, tab)
     draw = ImageDraw.Draw(card)
     x = x0 + 16
     if star:
@@ -681,5 +681,5 @@ def draw_records(game: str, uid: str, records: list[Record], images: dict[str, I
         y += h + GAP
 
     out = io.BytesIO()
-    card.convert("RGB").save(out, "PNG", optimize=True)
+    card.convert("RGB").save(out, "PNG", compress_level=3)  # quick to pack; optimize=True took longer than the drawing
     return out.getvalue()
