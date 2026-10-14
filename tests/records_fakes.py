@@ -49,10 +49,11 @@ def apoc() -> NS:
 
 def aa() -> NS:
     record = NS(
-        has_data=True, season=NS(name="Knights of the Scale"), boss_stars=3, mini_boss_stars=6, cycles_used=9,
-        mini_bosses=[NS(id=1, name="Wolf Knight"), NS(id=2, name="Lion Knight")],
+        has_data=True, season=NS(name="Knights of the Scale"), boss_stars=3, mini_boss_stars=9, cycles_used=11,
+        mini_bosses=[NS(id=1, name="Wolf Knight"), NS(id=2, name="Lion Knight"), NS(id=3, name="Stag Knight")],
         mini_boss_records=[NS(id=1, has_data=True, stars=3, cycles_used=2, characters=TEAM_B),
-                           NS(id=2, has_data=True, stars=3, cycles_used=3, characters=TEAM_A[::-1])],
+                           NS(id=2, has_data=True, stars=3, cycles_used=3, characters=TEAM_A[::-1]),
+                           NS(id=3, has_data=True, stars=3, cycles_used=2, characters=TEAM_C)],
         boss=NS(name="Sovereign of Thrones", game_mode_name="Hard Mode"),
         boss_record=NS(has_data=True, is_hard_mode=True, stars=3, cycles_used=4, characters=TEAM_A),
     )
@@ -79,7 +80,8 @@ def da() -> NS:
         NS(boss=boss("Notorious - Dead End Butcher"), score=20480, star=3, agents=ZZZ_A),
         NS(boss=boss("Notorious - Marionette"), score=20110, star=3, agents=ZZZ_B),
         NS(boss=boss("Notorious - Pompey"), score=19530, star=3, agents=ZZZ_A[::-1]),
-    ])
+    ], hard_challenges=[NS(boss=boss("Notorious - Miasma Priest"), score=24860, star=3, agents=ZZZ_B[::-1])],
+        hard_rank_percent="11.3%")
 
 
 GI_A = [gi_char(10000089, "Furina", constellation=2), gi_char(10000073, "Nahida"), gi_char(10000052, "Shougun"),

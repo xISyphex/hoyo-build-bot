@@ -288,6 +288,12 @@ def zzz_da(data) -> Record:
     rec.headline = [("Score", _num(data.total_score)), ("Stars", str(data.total_star)), ("Top", data.rank_percent)]
     for c in data.challenges:
         rec.teams.append(Team(c.boss.name, f"{_num(c.score)} pts · {c.star}★", [_zzz_member(a) for a in c.agents]))
+    hard = list(getattr(data, "hard_challenges", None) or ())  # Adversity Mode, the extra boss
+    for c in hard:
+        rec.teams.append(Team(f"Adversity · {c.boss.name}", f"{_num(c.score)} pts · {c.star}★",
+                              [_zzz_member(a) for a in c.agents]))
+    if hard and getattr(data, "hard_rank_percent", None):
+        rec.headline.append(("Adversity top", data.hard_rank_percent))
     return rec
 
 
