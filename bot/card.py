@@ -904,8 +904,8 @@ def _cons_marks(card: Image.Image, build: CharacterBuild, accent, light, images:
     """The six constellation / eidolon / mindscape marks down the left of the art, owned ones lit. With SHOW_BADGE the
     old round badge with the number sits above them (BADGE_FILL picks what's in its disc)."""
     n = max(0, min(build.constellation, 6))
-    if not SHOW_BADGE:
-        _cons_column(card, build, n, accent, light, images, PAD + 26, CONS_TOP - 14)
+    if build.game != "zzz" and not SHOW_BADGE:  # ZZZ's mindscapes have no icons, so it keeps the badge
+        _cons_column(card, build, n, accent, light, images, PAD + 26, CONS_TOP + 14)
         return
     icon = None
     if BADGE_FILL == "face":
@@ -926,11 +926,13 @@ def _cons_marks(card: Image.Image, build: CharacterBuild, accent, light, images:
         _zzz_marks(img, n, accent, light, icon)
     img = img.resize((round(img.width / SS * BADGE_SCALE), round(img.height / SS * BADGE_SCALE)), Image.LANCZOS)
     card.alpha_composite(img, (PAD - 14, CONS_TOP - 8))
+    if build.game == "zzz":  # the badge alone
+        return
     badge_bottom = CONS_TOP - 8 + (CONS_W / 2 + 6 + CONS_W * 0.36 * 1.35) * BADGE_SCALE  # under the ring's outer orbit
     _cons_column(card, build, n, accent, light, images, PAD - 14 + img.width / 2, badge_bottom)
 
 
-SHOW_BADGE = False  # the round badge with the number above the column (Syphex chose the column alone, 2026-10-14)
+SHOW_BADGE = False  # Genshin and Star Rail: the round badge above the column (Syphex chose the column alone, 2026-10-14)
 CONS_ICON = 40  # each constellation icon in the column
 
 
