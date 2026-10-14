@@ -476,13 +476,13 @@ def make_patch_command(game: str) -> app_commands.Command:
     async def command(interaction: discord.Interaction, uid: str | None = None) -> None:
         bot: HoyoBot = interaction.client  # type: ignore[assignment]
         uid = resolve_uid(bot.claims, interaction.user.id, game, uid)
-        # Read with the caller's own HoYoLAB login if they linked one for this game, else with the server's
+        # The calendar is the same for everyone, so it's always the server login's, read ahead of time; the times
+        # are then moved to the player's server (their own linked account's when no UID is given)
         mine = (bot.links.uids(interaction.user.id) or {}).get(game) or []
-        linked = uid if uid in mine else (mine[0] if mine else None)
-        uid = uid or linked
+        uid = uid or (mine[0] if mine else None)
         await interaction.response.defer(thinking=True)
         try:
-            info = await bot.hoyolab.patch(game, linked)
+            info = await bot.hoyolab.patch(game)
         except HoyolabError as exc:
             await interaction.followup.send(str(exc))
             return
