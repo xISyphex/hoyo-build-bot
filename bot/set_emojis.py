@@ -76,3 +76,20 @@ class SetEmojis:
                 return None
             self.emojis[name] = str(emoji)
             return self.emojis[name]
+
+    async def from_file(self, name: str, path) -> str | None:
+        """An emoji made from a picture shipped with the bot (uploaded once, like the gear pictures)."""
+        if name in self.emojis:
+            return self.emojis[name]
+        async with self.lock:
+            if not self.loaded:
+                await self._load()
+            if name in self.emojis:
+                return self.emojis[name]
+            try:
+                emoji = await self.client.create_application_emoji(name=name, image=path.read_bytes())
+            except Exception:
+                log.exception("Could not make the %s emoji", name)
+                return None
+            self.emojis[name] = str(emoji)
+            return self.emojis[name]
