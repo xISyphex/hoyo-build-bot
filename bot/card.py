@@ -180,7 +180,7 @@ def _info_row(card: Image.Image, build: CharacterBuild, f, accent, light, y: int
     bd.polygon([(x0 - 8, y), (x0 + total + sl, y), (x0 + total, y + h), (x0 - 8, y + h)], fill=dark + (175,))
     bd.polygon([(x0 - 8, y), (x0 + 2, y), (x0 + 2, y + h), (x0 - 8, y + h)], fill=accent + (255,))
     bd.line((x0 - 8, y + h, x0 + total, y + h), fill=accent + (255,), width=2)
-    card.alpha_composite(band)
+    _layer_onto(card, band)
     draw = ImageDraw.Draw(card)
     x = x0 + 16
     sx = x
@@ -259,10 +259,18 @@ def _spaced(draw: ImageDraw.ImageDraw, xy, text: str, font, fill, spacing: float
         x += draw.textlength(ch, font=font) + spacing
 
 
+def _layer_onto(card: Image.Image, layer: Image.Image) -> None:
+    """Puts a card-sized drawing layer onto the card, blending only the part that has something drawn on it
+    (blending the whole card for a small shape is most of the drawing time)."""
+    box = layer.getbbox()
+    if box:
+        card.alpha_composite(layer.crop(box), box[:2])
+
+
 def _panel(card: Image.Image, box, radius: int = 16, fill=PANEL) -> None:
     layer = Image.new("RGBA", card.size, (0, 0, 0, 0))
     ImageDraw.Draw(layer).rounded_rectangle(box, radius, fill=fill, outline=(255, 255, 255, 20))
-    card.alpha_composite(layer)
+    _layer_onto(card, layer)
 
 
 def _icon(card: Image.Image, img: Image.Image | None, box) -> None:
@@ -400,7 +408,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
         if i % 2 == 0:
             bd.rounded_rectangle((box[0] + 8, y + 1, box[2] - 8, y + row_h - 1), 8, fill=(255, 255, 255, 10))
         y += row_h
-    card.alpha_composite(bands)
+    _layer_onto(card, bands)
     draw = ImageDraw.Draw(card)
     y = top
     for s in stats:
@@ -449,7 +457,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
         ImageDraw.Draw(card).text((W - 8, H - 5), foot, font=f.stamp, fill=TEXT, anchor="rd")
 
     out = io.BytesIO()
-    card.convert("RGB").save(out, "PNG", optimize=True)
+    card.convert("RGB").save(out, "PNG", compress_level=3)  # quick to pack; optimize=True took longer than the drawing
     return out.getvalue()
 
 
@@ -1012,6 +1020,16 @@ class CardMaker:
         loaded = await asyncio.gather(*(self._image(u, big=False) for u in urls), *(self._image(u, big=True) for u in art))
         images = {u: img for u, img in zip(urls + art, loaded) if img is not None}
         return await asyncio.to_thread(draw_records, game, uid, records, images, nickname)
+
+    async def render_patch(self, info) -> bytes:
+        """The /<game>-patch image (see patch_card)."""
+        from .patch_card import draw_patch, image_urls
+
+        now = info.now
+        urls = image_urls(info, now)
+        loaded = await asyncio.gather(*(self._image(u, big=False) for u in urls))
+        images = {u: img for u, img in zip(urls, loaded) if img is not None}
+        return await asyncio.to_thread(draw_patch, info, images, now)
 
     async def _image(self, url: str, big: bool) -> Image.Image | None:
         path = self.dir / (hashlib.sha1(url.encode()).hexdigest() + ".png")

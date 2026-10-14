@@ -183,18 +183,6 @@ def _floor_no(name: str) -> str:
     return found[-1] if found else name
 
 
-ROMAN = ("", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII")
-
-
-def _floor_name(name: str, season: str = "") -> str:
-    """The floor's own name, e.g. 'Crossing the Afterlife (XII)'. A bare number ('04') becomes the season's name
-    with the floor in Roman numerals, like the game writes it."""
-    name = re.sub(r"\s*Starward Mode\s*$", "", (name or "").strip(), flags=re.I).strip()
-    if re.fullmatch(r"(?:[A-Za-z]+\s*)?0*(\d+)", name or "0") and (n := int(re.findall(r"\d+", name or "0")[-1])):
-        return f"{season} ({ROMAN[n] if n < len(ROMAN) else n})" if season else str(n)
-    return name
-
-
 def _season(seasons, fallback: str = "") -> str:
     for s in seasons or ():
         if getattr(s, "name", ""):
@@ -273,7 +261,7 @@ def hsr_moc(data) -> Record:
     if not data.has_data or not (floor := _top_floor(data.floors)):
         rec.empty = "No Memory of Chaos runs this season yet."
         return rec
-    rec.headline = [("Stars", _stars(data.total_stars, 36)), ("Floor", _floor_name(floor.name, rec.season)), ("Cycles", str(floor.round_num))]
+    rec.headline = [("Stars", _stars(data.total_stars, 36)), ("Cycles", str(floor.round_num))]
     _starward(rec, data, floor)
     for i, node in enumerate(_nodes(floor), 1):
         rec.teams.append(Team(_node_label(i), [], [_hsr_member(c) for c in node.avatars]))
@@ -288,7 +276,7 @@ def hsr_pf(data) -> Record:
         return rec
     nodes = _nodes(floor)
     total = sum(n.score for n in nodes)
-    rec.headline = [("Stars", _stars(data.total_stars, 12)), ("Floor", _floor_name(floor.name, rec.season)), ("Score", _num(total))]
+    rec.headline = [("Stars", _stars(data.total_stars, 12)), ("Score", _num(total))]
     _starward(rec, data, floor)
     for i, node in enumerate(nodes, 1):
         rec.teams.append(Team(_node_label(i), [("score", _num(node.score))], [_hsr_member(c) for c in node.avatars]))
@@ -303,7 +291,7 @@ def hsr_apoc(data) -> Record:
         return rec
     nodes = _nodes(floor)
     total = sum(n.score for n in nodes)
-    rec.headline = [("Stars", _stars(data.total_stars, 12)), ("Floor", _floor_name(floor.name, rec.season)), ("Score", _num(total))]
+    rec.headline = [("Stars", _stars(data.total_stars, 12)), ("Score", _num(total))]
     _starward(rec, data, floor)
     for i, node in enumerate(nodes, 1):
         chips = [("score", _num(node.score))] + ([] if node.boss_defeated else [("text", "boss not defeated")])

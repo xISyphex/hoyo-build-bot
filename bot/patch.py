@@ -38,6 +38,7 @@ class Banner:
     end: dt.datetime
     icon: str | None = None
     version: str = ""
+    items: list[tuple[str, bool, str | None]] = dataclasses.field(default_factory=list)  # (name, 5-star / S, icon)
 
 
 @dataclasses.dataclass
@@ -58,6 +59,12 @@ def _real(when: dt.datetime) -> dt.datetime:
     """genshin.py reads Star Rail's Unix times as UTC and then swaps in China's time zone without converting, which
     puts them 8 hours early; this puts the UTC back."""
     return when.replace(tzinfo=dt.timezone.utc)
+
+
+def version_start(patch: Patch) -> dt.datetime | None:
+    """When the version came out: its first banners' start."""
+    starts = [b.start for b in patch.banners if b.version == patch.version]
+    return min(starts) if starts else None
 
 
 def _running(banners: list[Banner], now: dt.datetime) -> list[Banner]:
@@ -92,7 +99,8 @@ def hsr_patch(calendar) -> Patch:
             items = list(warp.characters) if kind == "Character warps" else list(warp.light_cones)
             top = [i for i in items if i.rarity >= 5]
             banners.append(Banner(kind, [i.name for i in top], [i.name for i in items if i.rarity < 5],
-                                  _real(t.start), _real(t.end), top[0].icon if top else None, str(warp.version)))
+                                  _real(t.start), _real(t.end), top[0].icon if top else None, str(warp.version),
+                                  [(i.name, i.rarity >= 5, i.icon) for i in items]))
     spans = [(_real(e.time_info.start), _real(e.time_info.end)) for e in calendar.events
              if e.time_info and e.time_type != HSREventTimeType.LONG and str(e.version) == version]
     return _finish("hsr", version, now, banners, spans)
@@ -110,7 +118,7 @@ def genshin_patch(calendar, now: dt.datetime | None = None) -> Patch:
             top = [i for i in items if i.rarity >= 5]
             banners.append(Banner(kind, [i.name for i in top], [i.name for i in items if i.rarity < 5],
                                   _utc(pool.start_timestamp), _utc(pool.end_timestamp), top[0].icon if top else None,
-                                  str(pool.version)))
+                                  str(pool.version), [(i.name, i.rarity >= 5, i.icon) for i in items]))
     spans = [(_utc(e.start_timestamp), _utc(e.end_timestamp)) for e in calendar.events if e.end_timestamp]
     return _finish("genshin", _version(banners, now), now, banners, spans)
 
@@ -136,7 +144,7 @@ def zzz_patch(gacha, events, weapon_name, now: dt.datetime | None = None) -> Pat
             items = [(weapon_name(w.id) or w.skill_name, w.rarity, w.icon) for w in pool.weapons]
         top = [i for i in items if i[1] == "S"]
         banners.append(Banner(kind, [i[0] for i in top], [i[0] for i in items if i[1] != "S"], pool.start, pool.end,
-                              top[0][2] if top else None, str(pool.version)))
+                              top[0][2] if top else None, str(pool.version), [(i[0], i[1] == "S", i[2]) for i in items]))
     spans = [(e.start, e.end) for e in events]
     return _finish("zzz", _version(banners, now), now, banners, spans)
 
@@ -153,8 +161,7 @@ def for_server(patch: Patch, read_on: str | None, server: str | None) -> Patch:
     shift = dt.timedelta(hours=SERVER_UTC[read_on] - SERVER_UTC[server])
     if not shift:
         return dataclasses.replace(patch, server=server)
-    starts = [b.start for b in patch.banners if b.version == patch.version]
-    update = min(starts) if starts else None
+    update = version_start(patch)
     near = dt.timedelta(hours=1)
 
     def move(when: dt.datetime) -> dt.datetime:

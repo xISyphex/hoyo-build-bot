@@ -153,3 +153,15 @@ class ZzzPatchTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PatchCardTest(unittest.TestCase):
+    def test_draws_without_pictures(self):
+        import io
+        from PIL import Image
+        from bot.patch_card import draw_patch
+        info = patch.hsr_patch(calendar([_event(NOW - 10 * DAY, NOW + 30 * DAY, "3.6")]))
+        info.server = "Europe"
+        png = draw_patch(info, {}, info.now)
+        self.assertEqual(Image.open(io.BytesIO(png)).width, 1200)
+        self.assertEqual(info.banners[0].items[0][:2], ("Cyrene", True))

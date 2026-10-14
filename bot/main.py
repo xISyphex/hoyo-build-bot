@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import datetime as dt
 import io
 import logging
 import math
 import os
 import random
 import re
+import time
 
 import aiohttp
 import discord
@@ -94,6 +96,7 @@ class HoyoBot(discord.Client):
         else:
             self.assets.load()
         self.refresh_assets.start()
+        self.warm_calendars.start()
 
         # The bot's owner (or its team on the Developer Portal) always has access and manages the list.
         app = await self.application_info()
@@ -126,7 +129,13 @@ class HoyoBot(discord.Client):
             await self.effective.refresh(self.session)
             await self.hoyolab.learn_own()
 
+    @tasks.loop(minutes=30)
+    async def warm_calendars(self) -> None:
+        """The patch commands' calendars, read ahead so the commands answer at once."""
+        await self.hoyolab.warm_calendars(GAME_NAMES)
+
     @refresh_assets.before_loop
+    @warm_calendars.before_loop
     async def _wait_ready(self) -> None:
         await self.wait_until_ready()
 
@@ -340,24 +349,35 @@ def make_records_command(game: str) -> app_commands.Command:
                 )
                 return
         await interaction.response.defer(thinking=True)
-        try:
-            found = await bot.hoyolab.records(game, uid, picked)
-        except HoyolabError as exc:
-            await interaction.followup.send(str(exc))
-            return
-        # Weapon copies come from the player's characters: HoYoLAB's list if it shares it, else their showcase.
-        builds: list[CharacterBuild] = []
-        try:
-            builds += await bot.hoyolab.fetch(game, uid)
-        except HoyolabError:
-            pass
-        # The in-game name (and showcase builds) from Enka; a recent lookup is reused
-        profile = bot.enka.cached(game, uid)
-        if profile is None:
+        # The records, the player's characters (for weapon copies: HoYoLAB's list if it shares it, else their
+        # showcase) and the in-game name from Enka are read at the same time; a recent Enka lookup is reused
+        started = time.perf_counter()
+
+        async def hoyolab_builds() -> list[CharacterBuild]:
             try:
-                profile = await bot.enka.fetch(game, uid)
+                return await bot.hoyolab.fetch(game, uid)
+            except HoyolabError:
+                return []
+
+        async def enka_profile():
+            if (cached := bot.enka.cached(game, uid)) is not None:
+                return cached
+            try:
+                return await bot.enka.fetch(game, uid)
             except Exception as exc:
                 log.info("No Enka profile for %s %s: %s", game, uid, exc)
+                return None
+
+        found, builds, profile = await asyncio.gather(bot.hoyolab.records(game, uid, picked), hoyolab_builds(),
+                                                      enka_profile(), return_exceptions=True)
+        if isinstance(found, HoyolabError):
+            await interaction.followup.send(str(found))
+            return
+        if isinstance(found, BaseException):
+            raise found
+        builds = list(builds) if isinstance(builds, list) else []
+        profile = None if isinstance(profile, BaseException) else profile
+        read = time.perf_counter()
         if profile:
             builds += profile.characters
         records.fill_copies(found, builds)
@@ -368,6 +388,7 @@ def make_records_command(game: str) -> app_commands.Command:
             await interaction.followup.send("Something went wrong drawing the battle records. Try again later.")
             return
         await interaction.followup.send(file=discord.File(io.BytesIO(png), filename="records.png"))
+        log.info("%s records for %s: read in %.1fs, drawn and sent in %.1fs", game, uid, read - started, time.perf_counter() - read)
 
     @command.autocomplete("modes")
     async def modes_autocomplete(interaction: discord.Interaction, current: str):
@@ -455,13 +476,13 @@ def make_patch_command(game: str) -> app_commands.Command:
     async def command(interaction: discord.Interaction, uid: str | None = None) -> None:
         bot: HoyoBot = interaction.client  # type: ignore[assignment]
         uid = resolve_uid(bot.claims, interaction.user.id, game, uid)
-        # Read with the caller's own HoYoLAB login if they linked one for this game, else with the server's
+        # The calendar is the same for everyone, so it's always the server login's, read ahead of time; the times
+        # are then moved to the player's server (their own linked account's when no UID is given)
         mine = (bot.links.uids(interaction.user.id) or {}).get(game) or []
-        linked = uid if uid in mine else (mine[0] if mine else None)
-        uid = uid or linked
+        uid = uid or (mine[0] if mine else None)
         await interaction.response.defer(thinking=True)
         try:
-            info = await bot.hoyolab.patch(game, linked)
+            info = await bot.hoyolab.patch(game)
         except HoyolabError as exc:
             await interaction.followup.send(str(exc))
             return
@@ -471,8 +492,15 @@ def make_patch_command(game: str) -> app_commands.Command:
             return
         # Mid-version banner switches happen at the same local time on every server, so move them to the player's
         server = server_name(game, uid) if uid else None
-        info = patch.for_server(info, info.server, server)
-        await interaction.followup.send(embed=patch.patch_embed(info))
+        info = dataclasses.replace(patch.for_server(info, info.server, server), now=dt.datetime.now(dt.timezone.utc))
+        try:
+            png = await bot.cards.render_patch(info)
+        except Exception:
+            log.exception("Could not draw the %s patch card", game)
+            await interaction.followup.send(embed=patch.patch_embed(info))
+            return
+        text = f"Version {info.version} ends <t:{int(info.end.timestamp())}:f> (<t:{int(info.end.timestamp())}:R>)" if info.end else ""
+        await interaction.followup.send(text, file=discord.File(io.BytesIO(png), filename="patch.png"))
 
     return command
 
