@@ -82,7 +82,7 @@ MODES: dict[str, tuple[Mode, ...]] = {
         Mode("stygian", "Stygian Onslaught", ("so", "onslaught")),
     ),
 }
-COPY_LETTERS = {"hsr": ("E", "S"), "genshin": ("C", "R"), "zzz": ("M", "P")}
+COPY_LETTERS = {"hsr": ("E", "S"), "genshin": ("C", "R"), "zzz": ("M", "W")}  # ZZZ: Mindscape, W-Engine
 
 
 def parse_modes(game: str, text: str | None) -> tuple[list[str], list[str]]:

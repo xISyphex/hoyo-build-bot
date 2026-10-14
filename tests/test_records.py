@@ -29,7 +29,7 @@ class ModesTest(unittest.TestCase):
     def test_copies_label(self):
         self.assertEqual(R.copies_label("hsr", R.Member("1", None, copies=2, weapon_copies=1)), "E2S1")
         self.assertEqual(R.copies_label("genshin", R.Member("1", None, copies=0)), "C0")
-        self.assertEqual(R.copies_label("zzz", R.Member("1", None, copies=6, weapon_copies=1)), "M6P1")
+        self.assertEqual(R.copies_label("zzz", R.Member("1", None, copies=6, weapon_copies=1)), "M6W1")
 
 
 class ReadersTest(unittest.TestCase):

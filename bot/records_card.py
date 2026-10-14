@@ -455,7 +455,7 @@ def _team(card: Image.Image, game: str, team: Team, images: dict, box, accent, c
         x += _paste(card, icons.starward(24), x - 2, y0 + 21) + 4
     draw.text((x, y0 + 20), c._fit_text(draw, team.label, f.stat_s, x1 - x - 14), font=f.stat_s, fill=c.TEXT, anchor="lm")
     if team.chips:  # this node's own stars / cycles / points, under its title
-        _chips(card, game, team.chips, x0 + 14, y0 + 45, colour, light)
+        _chips(card, game, team.chips, x0 + 14, y0 + (49 if game == "zzz" else 45), colour, light)  # ZZZ's rank marks need room
     members = team.members[:4]
     row_w = len(members) * PORTRAIT + max(0, len(members) - 1) * PORTRAIT_GAP
     if team.bangboo:
