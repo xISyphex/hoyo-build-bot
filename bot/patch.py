@@ -1,7 +1,9 @@
-"""/hsr-patch: the current Star Rail version, how long it has left, and the warps running now.
+"""/genshin-patch, /hsr-patch, /zzz-patch: the game's current version, how long it has left, and the banners running now.
 
-Everything comes from HoYoLAB's event calendar, read with the bot's own HoYoLAB login (HOYOLAB_COOKIES). HoYoLAB
-doesn't say when a version ends, so the end is taken as the last end time of the current version's warps.
+Everything comes from HoYoLAB's calendars, read with the bot's own HoYoLAB login (HOYOLAB_COOKIES). HoYoLAB doesn't
+say when a version ends, so the end is taken as the last end time of the current version's banners, or of its main
+event (the one that runs the whole version, 30-42 days) when that is later, e.g. while only the first half's banners
+are listed.
 """
 
 from __future__ import annotations
@@ -9,61 +11,133 @@ from __future__ import annotations
 import dataclasses
 import datetime as dt
 import logging
+from collections import Counter
 
 import discord
+from genshin.models import HSREventTimeType, ZZZGachaEventType
 
 log = logging.getLogger(__name__)
 
-HSR_COLOUR = 0x8F7CF0
+TITLES = {"genshin": "Genshin Impact", "hsr": "Honkai: Star Rail", "zzz": "Zenless Zone Zero"}
+COLOURS = {"genshin": 0xE8B25C, "hsr": 0x9680FF, "zzz": 0xFAC428}
+# The headings banners are grouped under, in this order
+KINDS = {
+    "genshin": ("Character event wishes", "Weapon event wish", "Chronicled wish"),
+    "hsr": ("Character warps", "Light cone warps"),
+    "zzz": ("Exclusive channels", "W-Engine channels", "Exclusive rescreening", "W-Engine reverberation"),
+}
+MAIN_EVENT = dt.timedelta(days=28)  # an event this long runs the whole version
 
 
 @dataclasses.dataclass
 class Banner:
-    kind: str  # "character" or "light cone"
-    featured: list[str]  # the 5-star(s)
-    others: list[str]  # the 4-stars
+    kind: str  # one of KINDS[game]
+    featured: list[str]  # the 5-star / S-rank items
+    others: list[str]  # the 4-star / A-rank ones
     start: dt.datetime
     end: dt.datetime
     icon: str | None = None
+    version: str = ""
 
 
 @dataclasses.dataclass
 class Patch:
+    game: str
     version: str
     now: dt.datetime
     end: dt.datetime | None
     banners: list[Banner]
 
 
+def _utc(stamp: int) -> dt.datetime:
+    return dt.datetime.fromtimestamp(int(stamp), tz=dt.timezone.utc)
+
+
 def _real(when: dt.datetime) -> dt.datetime:
-    """genshin.py reads HoYoLAB's Unix times as UTC and then swaps in China's time zone without converting, which
+    """genshin.py reads Star Rail's Unix times as UTC and then swaps in China's time zone without converting, which
     puts them 8 hours early; this puts the UTC back."""
     return when.replace(tzinfo=dt.timezone.utc)
 
 
-def _ends(items, version: str) -> list[dt.datetime]:
-    return [_real(i.time_info.end) for i in items
-            if getattr(i, "time_info", None) and str(getattr(i, "version", "")) == version]
+def _running(banners: list[Banner], now: dt.datetime) -> list[Banner]:
+    return [b for b in banners if b.start <= now < b.end]
+
+
+def _version(banners: list[Banner], now: dt.datetime) -> str:
+    """The version the running banners belong to (Genshin and ZZZ don't say which version is current)."""
+    pool = _running(banners, now) or banners
+    return Counter(b.version for b in pool).most_common(1)[0][0] if pool else "?"
+
+
+def _finish(game: str, version: str, now: dt.datetime, banners: list[Banner], event_spans) -> Patch:
+    version_ends = [b.end for b in banners if b.version == version]
+    main = [end for start, end in event_spans if start <= now < end and end - start >= MAIN_EVENT]
+    ends = version_ends + main
+    log.info("%s %s: banner ends %s, main event ends %s", game, version,
+             sorted({e.isoformat() for e in version_ends}), sorted({e.isoformat() for e in main}))
+    return Patch(game, version, now, max(ends) if ends else None, _running(banners, now))
 
 
 def hsr_patch(calendar) -> Patch:
-    """Turns HoYoLAB's HSR event calendar into the version, its end and the warps running now."""
+    """Star Rail: HoYoLAB's event calendar (warps, events, the current version)."""
     version = str(calendar.cur_game_version)
     now = _real(calendar.now)
-    warps = list(calendar.character_warps) + list(calendar.light_cone_warps)
-    ends = _ends(warps, version)  # a version ends when its last warp does (its second half's, if HoYoLAB lists it)
-    log.info("HSR %s: warp ends %s", version, sorted({e.isoformat() for e in ends}))
     banners = []
-    for kind, pools in (("character", calendar.character_warps), ("light cone", calendar.light_cone_warps)):
+    for kind, pools in (("Character warps", calendar.character_warps), ("Light cone warps", calendar.light_cone_warps)):
         for warp in pools:
             t = warp.time_info
-            if t is None or not (_real(t.start) <= now < _real(t.end)):
+            if t is None:
                 continue
-            items = list(warp.characters) if kind == "character" else list(warp.light_cones)
+            items = list(warp.characters) if kind == "Character warps" else list(warp.light_cones)
             top = [i for i in items if i.rarity >= 5]
-            banners.append(Banner(kind, [i.name for i in top], [i.name for i in items if i.rarity < 5], _real(t.start), _real(t.end),
-                                  top[0].icon if top else None))
-    return Patch(version, now, max(ends) if ends else None, banners)
+            banners.append(Banner(kind, [i.name for i in top], [i.name for i in items if i.rarity < 5],
+                                  _real(t.start), _real(t.end), top[0].icon if top else None, str(warp.version)))
+    spans = [(_real(e.time_info.start), _real(e.time_info.end)) for e in calendar.events
+             if e.time_info and e.time_type != HSREventTimeType.LONG and str(e.version) == version]
+    return _finish("hsr", version, now, banners, spans)
+
+
+def genshin_patch(calendar, now: dt.datetime | None = None) -> Patch:
+    """Genshin: HoYoLAB's event calendar (wishes and events)."""
+    now = now or dt.datetime.now(dt.timezone.utc)
+    banners = []
+    groups = (("Character event wishes", calendar.character_banners), ("Weapon event wish", calendar.weapon_banners),
+              ("Chronicled wish", calendar.chronicled_banners))
+    for kind, pools in groups:
+        for pool in pools:
+            items = list(pool.characters) + list(pool.weapons)
+            top = [i for i in items if i.rarity >= 5]
+            banners.append(Banner(kind, [i.name for i in top], [i.name for i in items if i.rarity < 5],
+                                  _utc(pool.start_timestamp), _utc(pool.end_timestamp), top[0].icon if top else None,
+                                  str(pool.version)))
+    spans = [(_utc(e.start_timestamp), _utc(e.end_timestamp)) for e in calendar.events if e.end_timestamp]
+    return _finish("genshin", _version(banners, now), now, banners, spans)
+
+
+ZZZ_KINDS = {
+    ZZZGachaEventType.CHARACTER: "Exclusive channels", ZZZGachaEventType.EXCLUSIVE_RESCREENING: "Exclusive rescreening",
+    ZZZGachaEventType.WEAPON: "W-Engine channels", ZZZGachaEventType.REVERBERATION: "W-Engine reverberation",
+}
+
+
+def zzz_patch(gacha, events, weapon_name, now: dt.datetime | None = None) -> Patch:
+    """ZZZ: HoYoLAB's channel calendar and event calendar. W-Engines come without names, so weapon_name(id) looks
+    them up in the game data."""
+    now = now or dt.datetime.now(dt.timezone.utc)
+    banners = []
+    for pool in list(gacha.characters) + list(gacha.weapons):
+        kind = ZZZ_KINDS.get(pool.type)
+        if kind is None:  # the standard and Bangboo channels
+            continue
+        if hasattr(pool, "characters"):
+            items = [(c.name or c.full_name, c.rarity, c.icon) for c in pool.characters]
+        else:
+            items = [(weapon_name(w.id) or w.skill_name, w.rarity, w.icon) for w in pool.weapons]
+        top = [i for i in items if i[1] == "S"]
+        banners.append(Banner(kind, [i[0] for i in top], [i[0] for i in items if i[1] != "S"], pool.start, pool.end,
+                              top[0][2] if top else None, str(pool.version)))
+    spans = [(e.start, e.end) for e in events]
+    return _finish("zzz", _version(banners, now), now, banners, spans)
 
 
 def time_left(delta: dt.timedelta) -> str:
@@ -89,25 +163,24 @@ def _line(b: Banner) -> str:
 
 
 def patch_embed(patch: Patch) -> discord.Embed:
-    now = patch.now
-    embed = discord.Embed(title=f"Honkai: Star Rail · Version {patch.version}", colour=HSR_COLOUR)
+    embed = discord.Embed(title=f"{TITLES[patch.game]} · Version {patch.version}", colour=COLOURS[patch.game])
     if patch.end:
-        embed.description = f"Ends in **{time_left(patch.end - now)}** · <t:{int(patch.end.timestamp())}:f>"
-    for kind, title in (("character", "Character warps"), ("light cone", "Light cone warps")):
+        embed.description = f"Ends in **{time_left(patch.end - patch.now)}** · <t:{int(patch.end.timestamp())}:f>"
+    for kind in KINDS[patch.game]:
         group = [b for b in patch.banners if b.kind == kind]
         if not group:
             continue
-        lines = [_line(b) for b in group]
         ends = {int(b.end.timestamp()) for b in group}
         if len(ends) == 1:
-            lines.append(f"Until <t:{ends.pop()}:f> (<t:{int(group[0].end.timestamp())}:R>)")
+            end = ends.pop()
+            lines = [_line(b) for b in group] + [f"Until <t:{end}:f> (<t:{end}:R>)"]
         else:
-            lines = [f"{_line(b)} · until <t:{int(b.end.timestamp())}:R>" for b in group]
-        embed.add_field(name=title, value="\n".join(lines)[:1024], inline=False)
+            lines = [f"{_line(b)}\nuntil <t:{int(b.end.timestamp())}:R>" for b in group]
+        embed.add_field(name=kind, value="\n".join(lines)[:1024], inline=False)
     if not patch.banners:
-        embed.add_field(name="Warps", value="No warps are running right now.", inline=False)
-    icon = next((b.icon for b in patch.banners if b.kind == "character" and b.icon), None)
+        embed.add_field(name="Banners", value="No banners are running right now.", inline=False)
+    icon = next((b.icon for b in patch.banners if b.icon), None)
     if icon:
         embed.set_thumbnail(url=icon)
-    embed.set_footer(text="From HoYoLAB's event calendar")
+    embed.set_footer(text="From HoYoLAB's calendar")
     return embed
