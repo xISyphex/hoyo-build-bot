@@ -10,13 +10,14 @@ from PIL import Image, ImageDraw, ImageFilter
 from . import card as c
 from .records import Record, Team, copies_label
 
-W = 1200
 PAD = 28
 GAP = 16
-PORTRAIT = 80
-PORTRAIT_GAP = 8
+PORTRAIT = 104
+PORTRAIT_GAP = 12
 COLS = 3  # teams per row
-TEAM_H = 62 + PORTRAIT + 14  # title and result rows, portraits, padding
+TEAM_W = 4 * PORTRAIT + 3 * PORTRAIT_GAP + 32
+W = 2 * PAD + COLS * TEAM_W + (COLS - 1) * GAP  # as wide as three teams of four need
+TEAM_H = 66 + PORTRAIT + 18  # title and result rows, portraits, padding
 STAGE_HEAD = 30  # the header over a stage in its own row (the King, Adversity Mode)
 GAME_ACCENT = {"genshin": (232, 178, 92), "hsr": (150, 128, 255), "zzz": (250, 196, 40)}
 GAME_TITLE = {"genshin": "Genshin Impact", "hsr": "Honkai: Star Rail", "zzz": "Zenless Zone Zero"}
@@ -79,15 +80,15 @@ def _portrait(card: Image.Image, game: str, member, icon: Image.Image | None, x:
     draw = ImageDraw.Draw(card)
     label = copies_label(game, member)
     if label:  # copies at the top left
-        w = draw.textlength(label, font=f.label) + 12
-        draw.rounded_rectangle((x - 4, y - 6, x - 4 + w, y + 14), 8, fill=(14, 12, 24, 235), outline=accent + (255,), width=1)
-        draw.text((x - 4 + w / 2, y + 4), label, font=f.label, fill=c.TEXT, anchor="mm")
+        w = draw.textlength(label, font=f.small_b) + 14
+        draw.rounded_rectangle((x - 4, y - 6, x - 4 + w, y + 20), 9, fill=(14, 12, 24, 235), outline=accent + (255,), width=1)
+        draw.text((x - 4 + w / 2, y + 7), label, font=f.small_b, fill=c.TEXT, anchor="mm")
     if member.level:
         lv = f"Lv. {member.level}"
-        shade = Image.new("RGBA", (PORTRAIT, 20), (0, 0, 0, 0))
-        ImageDraw.Draw(shade).rounded_rectangle((0, 0, PORTRAIT - 1, 19), 8, fill=(0, 0, 0, 140))
-        card.alpha_composite(shade, (x, y + PORTRAIT - 20))
-        draw.text((x + PORTRAIT / 2, y + PORTRAIT - 10), lv, font=f.stamp, fill=c.TEXT, anchor="mm")
+        shade = Image.new("RGBA", (PORTRAIT, 26), (0, 0, 0, 0))
+        ImageDraw.Draw(shade).rounded_rectangle((0, 0, PORTRAIT - 1, 25), 10, fill=(0, 0, 0, 130))
+        card.alpha_composite(shade, (x, y + PORTRAIT - 26))
+        draw.text((x + PORTRAIT / 2, y + PORTRAIT - 13), lv, font=f.slot, fill=c.TEXT, anchor="mm")
 
 
 def _team(card: Image.Image, game: str, team: Team, images: dict, box, accent, light) -> None:
@@ -102,7 +103,7 @@ def _team(card: Image.Image, game: str, team: Team, images: dict, box, accent, l
     row_w = len(members) * PORTRAIT + max(0, len(members) - 1) * PORTRAIT_GAP
     x = x0 + (x1 - x0 - row_w) // 2
     for m in members:
-        _portrait(card, game, m, images.get(m.icon_url or ""), x, y0 + 64, accent)
+        _portrait(card, game, m, images.get(m.icon_url or ""), x, y0 + 68, accent)
         x += PORTRAIT + PORTRAIT_GAP
 
 
@@ -144,7 +145,7 @@ def draw_records(game: str, uid: str, records: list[Record], images: dict[str, I
             draw.text((PAD + 8, y + 86), record.empty or "Nothing to show.", font=f.stat_s, fill=c.DIM, anchor="lm")
         else:
             by = y + 76
-            col_w = (W - 2 * PAD - (COLS - 1) * GAP) // COLS
+            col_w = TEAM_W
             for head, row in _rows(record):
                 if head:  # a stage of its own: a header line across the section, the team centred under it
                     draw = ImageDraw.Draw(card)

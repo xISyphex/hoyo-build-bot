@@ -6,7 +6,7 @@ from PIL import Image
 import records_fakes as F
 from bot import records as R
 from bot.models import CharacterBuild, Weapon
-from bot.records_card import draw_records
+from bot.records_card import W, draw_records
 
 
 def build(cid, cons, refinement):
@@ -89,7 +89,7 @@ class DrawTest(unittest.TestCase):
             ("genshin", [R.gi_abyss(F.abyss())]),
         ):
             img = Image.open(io.BytesIO(draw_records(game, "800069903", recs, {})))
-            self.assertEqual(img.width, 1200)
+            self.assertEqual(img.width, W)
             self.assertGreater(img.height, 300)
 
 
