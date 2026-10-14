@@ -455,9 +455,13 @@ def make_patch_command(game: str) -> app_commands.Command:
     async def command(interaction: discord.Interaction, uid: str | None = None) -> None:
         bot: HoyoBot = interaction.client  # type: ignore[assignment]
         uid = resolve_uid(bot.claims, interaction.user.id, game, uid)
+        # Read with the caller's own HoYoLAB login if they linked one for this game, else with the server's
+        mine = (bot.links.uids(interaction.user.id) or {}).get(game) or []
+        linked = uid if uid in mine else (mine[0] if mine else None)
+        uid = uid or linked
         await interaction.response.defer(thinking=True)
         try:
-            info = await bot.hoyolab.patch(game)
+            info = await bot.hoyolab.patch(game, linked)
         except HoyolabError as exc:
             await interaction.followup.send(str(exc))
             return
@@ -467,7 +471,7 @@ def make_patch_command(game: str) -> app_commands.Command:
             return
         # Mid-version banner switches happen at the same local time on every server, so move them to the player's
         server = server_name(game, uid) if uid else None
-        info = patch.for_server(info, bot.hoyolab.own_server(game), server)
+        info = patch.for_server(info, info.server, server)
         await interaction.followup.send(embed=patch.patch_embed(info))
 
     return command

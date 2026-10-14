@@ -47,7 +47,7 @@ class Patch:
     now: dt.datetime
     end: dt.datetime | None
     banners: list[Banner]  # every banner HoYoLAB lists; the running ones are picked when shown
-    server: str | None = None  # whose server the mid-version times are for
+    server: str | None = None  # the server whose clock the mid-version times follow
 
 
 def _utc(stamp: int) -> dt.datetime:
@@ -149,7 +149,7 @@ def for_server(patch: Patch, read_on: str | None, server: str | None) -> Patch:
     """The patch with its mid-version times moved from the server it was read on to the player's. The version's
     start and end (the updates) happen at the same moment everywhere, so those stay."""
     if not (read_on and server) or SERVER_UTC.get(read_on) is None or SERVER_UTC.get(server) is None:
-        return patch
+        return patch  # unknown: left as read (the footer then names the server it was read on)
     shift = dt.timedelta(hours=SERVER_UTC[read_on] - SERVER_UTC[server])
     if not shift:
         return dataclasses.replace(patch, server=server)
