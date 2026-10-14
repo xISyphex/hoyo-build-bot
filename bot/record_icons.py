@@ -7,7 +7,7 @@ from __future__ import annotations
 import math
 from functools import lru_cache
 
-from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 SS = 4  # supersampling
 
@@ -213,17 +213,13 @@ def _rating_mark(letter: str, height: int, font_path: str) -> Image.Image:
     small = _shape_text("RANK", font.font_variant(size=round(h * 0.3)), round(h * 0.012))
     big = big.resize((round(h * 0.86 * len(letter)), round(h * 0.7)), Image.LANCZOS)  # wide and squat, like the game's
     small = small.resize((round(big.width * 0.96), round(h * 0.2)), Image.LANCZOS)  # RANK as wide as the letter
-    o = round(h * 0.06)  # the black outline
-    gap = round(h * 0.0)
-    w = max(big.width, small.width) + 2 * o
-    hh = big.height + gap + small.height + 2 * o
+    gap = round(h * 0.05)
+    w = max(big.width, small.width)
+    hh = big.height + gap + small.height
     shape = Image.new("L", (w, hh), 0)
-    shape.paste(big, ((w - big.width) // 2, o), big)
-    shape.paste(small, ((w - small.width) // 2, o + big.height + gap), small)
+    shape.paste(big, ((w - big.width) // 2, 0), big)
+    shape.paste(small, ((w - small.width) // 2, big.height + gap), small)
     out = Image.new("RGBA", (w, hh), (0, 0, 0, 0))
-    outline = shape.filter(ImageFilter.MaxFilter(o * 2 + 1 if o * 2 + 1 <= 99 else 99))
-    outline = outline.filter(ImageFilter.GaussianBlur(o * 0.6)).point(lambda v: 255 if v > 60 else 0)  # one blob
-    out.paste(Image.new("RGBA", (w, hh), (8, 8, 8, 255)), (0, 0), outline)
     out.paste(Image.new("RGBA", (w, hh), rim + (255,)), (0, 0), shape)
     inner = shape.filter(ImageFilter.MinFilter(max(3, SS * 2 + 1)))
     out.paste(_gradient((w, hh), top, bottom), (0, 0), inner)
@@ -231,7 +227,7 @@ def _rating_mark(letter: str, height: int, font_path: str) -> Image.Image:
 
 
 def rating(letter: str, height: int, font: ImageFont.FreeTypeFont) -> Image.Image:
-    """ZZZ's rank mark: a big chunky letter in the rank's colour over a small RANK, both outlined in black."""
+    """ZZZ's rank mark: a big chunky letter in the rank's colour over a small RANK, no outline or backing."""
     return _rating_mark(letter, height, font.path)
 
 

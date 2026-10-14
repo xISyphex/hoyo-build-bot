@@ -141,8 +141,36 @@ def _tile(card: Image.Image, game: str, record: Record, label: str, value: str, 
 
 
 SIDE_W = 170  # a tall tile beside the King / Adversity Mode box
+RANK_PIECE = 92  # Anomaly Arbitration's rank piece; its tile is just big enough to hold it
+RANK_TILE = RANK_PIECE + 2 * 18
+SNUG = ("medal", "rank", "cycles")  # side tiles kept to that same small square
+
+
+HUG_PAD = 14  # padding round a side tile that hugs what's in it
+
+
+def _hugged(game: str, label: str, value: str) -> Image.Image | None:
+    """What sits in a side tile that wraps itself round its content: the stars in a row, or the ranking badge."""
+    key = label.lower()
+    if key == "stars":  # every star there is to earn, the missing ones greyed out
+        got, _, of = value.partition("/")
+        got, of = int(got), int(of or got)
+        size, gap = 46, 8
+        pic = Image.new("RGBA", (of * size + (of - 1) * gap, size), (0, 0, 0, 0))
+        for i in range(of):
+            pic.alpha_composite(icons.star(game, size, i < got), (i * (size + gap), 0))
+        return pic
+    if key == "top":
+        return icons.rank_badge(value, 40, c.FONTS.main)[0]
+    return None
+
+
+def _side_w(game: str, label: str, value: str) -> int:
+    if (pic := _hugged(game, label, value)) is not None:
+        return pic.width + 2 * HUG_PAD
+    return RANK_TILE if label.lower() in SNUG else SIDE_W
 # Numbers shown with their icon alone, no label over them (Syphex's picks)
-ICON_ONLY = {"hsr": {"stars", "score", "starward"},
+ICON_ONLY = {"hsr": {"stars", "score", "starward", "floor", "rank"},
              "zzz": {"stars", "score", "rating", "top", "adversity top", "time"},
              "genshin": {"time", "medals", "mode", "stars"}}
 
@@ -154,20 +182,33 @@ def _rank_piece(record: Record, kind: str, height: int, images: dict) -> Image.I
         pic = pic.convert("RGBA")
         box = pic.getbbox()  # trim empty margins so the piece fills its spot
         pic = pic.crop(box) if box else pic
-        return pic.resize((max(1, round(pic.width * height / pic.height)), height), Image.LANCZOS)
+        scale = height / max(pic.width, pic.height)  # fits a height x height square, however wide the piece is
+        return pic.resize((max(1, round(pic.width * scale)), max(1, round(pic.height * scale))), Image.LANCZOS)
     return icons.chess(height, kind)
 
 
 def _side_tile(card: Image.Image, game: str, record: Record, label: str, value: str, box, colour, images: dict) -> None:
     """A stage's own number, big: label on top, a large icon, the value under it."""
     f = c.FONTS
+    key = label.lower()
+    mid_y = (box[1] + box[3]) / 2
+    hug = _hugged(game, label, value)
+    if hug is not None:  # a pill wrapped round its content, level with the middle of the stage's box
+        h = hug.height + 2 * HUG_PAD
+        box = (box[0], round(mid_y - h / 2), box[0] + hug.width + 2 * HUG_PAD, round(mid_y + h / 2))
+        layer = Image.new("RGBA", card.size, (0, 0, 0, 0))
+        ImageDraw.Draw(layer).rounded_rectangle(box, h // 2, fill=colour + (26,), outline=colour + (90,), width=2)
+        card.alpha_composite(layer)
+        card.alpha_composite(hug, (box[0] + HUG_PAD, box[1] + HUG_PAD))
+        return
+    if key in SNUG:  # a snug square, level with the middle of the stage's box
+        box = (box[0], round(mid_y - RANK_TILE / 2), box[2], round(mid_y + RANK_TILE / 2))
     x0, y0, x1, y1 = box
     layer = Image.new("RGBA", card.size, (0, 0, 0, 0))
     ImageDraw.Draw(layer).rounded_rectangle(box, 16, fill=colour + (26,), outline=colour + (90,), width=2)
     card.alpha_composite(layer)
     draw = ImageDraw.Draw(card)
     mid = (x0 + x1) / 2
-    key = label.lower()
     label = "Ranking" if key == "top" else label
     shown = key not in ICON_ONLY.get(game, ())
     lw = draw.textlength(label.upper(), font=f.label) * 1.15
@@ -175,33 +216,13 @@ def _side_tile(card: Image.Image, game: str, record: Record, label: str, value: 
         c._spaced(draw, (mid - lw / 2, y0 + 22), label.upper(), f.label, c.DIM, 1.2)
     top = y0 + 40 if shown else y0 + 8  # where the content area starts
     icon, text = None, value
-    if key == "stars":  # every star there is to earn, the missing ones greyed out
-        got, _, of = value.partition("/")
-        got, of = int(got), int(of or got)
-        if of == 3:  # a triangle: one on top, two below
-            size = 54
-            icon = Image.new("RGBA", (2 * size + 8, 2 * size + 2), (0, 0, 0, 0))
-            spots = [(size // 2 + 4, 0), (0, size + 2), (size + 8, size + 2)]
-            for i, spot in enumerate(spots):
-                icon.alpha_composite(icons.star(game, size, i < got), spot)
-        else:
-            size = min(46, (x1 - x0 - 24 - 6 * (of - 1)) // max(1, of))
-            icon = Image.new("RGBA", (of * size + (of - 1) * 6, size), (0, 0, 0, 0))
-            for i in range(of):
-                icon.alpha_composite(icons.star(game, size, i < got), (i * (size + 6), 0))
-        text = ""
-    elif key == "top":
-        flames, (ox, oy) = icons.rank_badge(value, 40, f.main)
-        bw = flames.width - 2 * ox - round(40 * 0.6 * icons._heat(value))
-        cy = (top + y1) / 2
-        card.alpha_composite(flames, (round(mid - bw / 2 - ox), round(cy - 20 - oy)))
+    if key in ("medal", "rank"):
+        icon = _rank_piece(record, value, RANK_PIECE, images)
+        card.alpha_composite(icon, (round(mid - icon.width / 2), round((y0 + y1) / 2 - icon.height / 2)))
         return
-    elif key in ("medal", "rank"):
-        icon = _rank_piece(record, value, 92, images)
-        text = ""
     big = f.name[56]
     if icon is None:  # just the number, very large (cycles)
-        draw.text((mid, (top + y1) / 2), text, font=big, fill=c.TEXT, anchor="mm")
+        draw.text((mid, (top + y1 - 6) / 2), text, font=big, fill=c.TEXT, anchor="mm")
         return
     iy = top + (y1 - top - (44 if text else 0)) / 2
     card.alpha_composite(icon, (round(mid - icon.width / 2), round(iy - icon.height / 2)))
@@ -434,7 +455,7 @@ def _team(card: Image.Image, game: str, team: Team, images: dict, box, accent, c
         x += _paste(card, icons.starward(24), x - 2, y0 + 21) + 4
     draw.text((x, y0 + 20), c._fit_text(draw, team.label, f.stat_s, x1 - x - 14), font=f.stat_s, fill=c.TEXT, anchor="lm")
     if team.chips:  # this node's own stars / cycles / points, under its title
-        _chips(card, game, team.chips, x0 + 14, y0 + 45, colour, light)
+        _chips(card, game, team.chips, x0 + 14, y0 + (49 if game == "zzz" else 45), colour, light)  # ZZZ's rank marks need room
     members = team.members[:4]
     row_w = len(members) * PORTRAIT + max(0, len(members) - 1) * PORTRAIT_GAP
     if team.bangboo:
@@ -517,13 +538,13 @@ def draw_records(game: str, uid: str, records: list[Record], images: dict[str, I
                     _team(card, game, team, images, (bx, by, bx + col_w, by + TEAM_H), accent, colour, mode_light)
                     edge = bx - 2 * GAP  # the stage's own numbers, as tall tiles beside its box
                     for label, value in reversed(team.left):
-                        edge -= SIDE_W
-                        _side_tile(card, game, record, label, value, (edge, by, edge + SIDE_W, by + TEAM_H), colour, images)
+                        edge -= _side_w(game, label, value)
+                        _side_tile(card, game, record, label, value, (edge, by, edge + _side_w(game, label, value), by + TEAM_H), colour, images)
                         edge -= 12
                     edge = bx + col_w + 2 * GAP
                     for label, value in team.right:
-                        _side_tile(card, game, record, label, value, (edge, by, edge + SIDE_W, by + TEAM_H), colour, images)
-                        edge += SIDE_W + 12
+                        _side_tile(card, game, record, label, value, (edge, by, edge + _side_w(game, label, value), by + TEAM_H), colour, images)
+                        edge += _side_w(game, label, value) + 12
                     bx += col_w + GAP
                 by += TEAM_H + GAP
         y += h + GAP

@@ -29,13 +29,13 @@ class ModesTest(unittest.TestCase):
     def test_copies_label(self):
         self.assertEqual(R.copies_label("hsr", R.Member("1", None, copies=2, weapon_copies=1)), "E2S1")
         self.assertEqual(R.copies_label("genshin", R.Member("1", None, copies=0)), "C0")
-        self.assertEqual(R.copies_label("zzz", R.Member("1", None, copies=6, weapon_copies=1)), "M6P1")
+        self.assertEqual(R.copies_label("zzz", R.Member("1", None, copies=6, weapon_copies=1)), "M6W1")
 
 
 class ReadersTest(unittest.TestCase):
     def test_memory_of_chaos(self):
         rec = R.hsr_moc(F.moc())
-        self.assertEqual(dict(rec.headline), {"Stars": "36 / 36", "Starward": "3★", "Floor": "12", "Cycles": "7"})
+        self.assertEqual(dict(rec.headline), {"Stars": "36 / 36", "Starward": "3", "Floor": "Crossing the Afterlife (XII)", "Cycles": "7"})
         self.assertEqual([t.label for t in rec.teams], ["Node 1", "Node 2", "Starward"])
         self.assertEqual(rec.teams[0].members[0].copies, 2)
 
@@ -47,6 +47,7 @@ class ReadersTest(unittest.TestCase):
     def test_scores(self):
         self.assertEqual(dict(R.hsr_pf(F.pf()).headline)["Score"], "114,632")
         self.assertEqual(R.hsr_apoc(F.apoc()).teams[1].chips, [("score", "3,720")])
+        self.assertEqual(dict(R.hsr_apoc(F.apoc()).headline)["Floor"], "Dawn's Tremor (IV)")  # a bare number gets a name
 
     def test_anomaly_arbitration_knights_then_king(self):
         rec = R.hsr_aa(F.aa())
