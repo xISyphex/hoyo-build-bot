@@ -8,6 +8,7 @@ import io
 import logging
 import math
 import os
+import random
 import re
 
 import aiohttp
@@ -24,7 +25,7 @@ from .card import CardMaker
 from .embeds import build_embed
 from .effective import EffectiveStats
 from .enka import ERRORS, EnkaClient, EnkaError
-from .guide import OpenGuideButton, PageButton, guide_message, open_guide_view
+from .guide import ART, OpenGuideButton, PageButton, guide_message, open_guide_view
 from .hoyolab import HoyolabClient, HoyolabError
 from .hoyolab_links import LinkStore, cookie_string, games_of, load_key
 from .models import CharacterBuild, PlayerProfile
@@ -104,6 +105,7 @@ class HoyoBot(discord.Client):
         self.tree.add_command(AccessGroup())
         self.tree.add_command(HoyolabGroup())
         self.tree.add_command(help_command)
+        self.tree.add_command(pat_command)
         self.add_dynamic_items(PageButton, OpenGuideButton)  # the guide's buttons, also on old messages
         guild_id = os.environ.get("DEV_GUILD_ID")
         if guild_id:
@@ -363,6 +365,29 @@ async def help_command(interaction: discord.Interaction) -> None:
     embeds, files, view = guide_message(bot.user.name if bot.user else "the bot", bot.lookups.per_hour,
                                         bot.application_id, welcome=False, owner=bot.access.is_owner(interaction.user.id))
     await interaction.response.send_message(embeds=embeds, files=files, view=view, ephemeral=True)
+
+
+PAT_LINES = (
+    "Th-thank you, Proxy. That was... acceptable. You may continue.",
+    "Thank you for the pat, Proxy. My processing efficiency just went up by 12%.",
+    "Hmph. Thank you, Proxy. I'll pretend I didn't enjoy that.",
+    "Thank you, Proxy~ Fairy will remember this kindness.",
+)
+
+
+@app_commands.command(name="pat", description="Pat Fairy")
+async def pat_command(interaction: discord.Interaction) -> None:
+    """Fairy enjoys it: her happy face (alone in its message, so Discord shows the emoji big), then her thanks."""
+    bot: HoyoBot = interaction.client  # type: ignore[assignment]
+    emojis = bot.set_emojis
+    if emojis and "fairy_happy" not in emojis.emojis:
+        await interaction.response.defer()  # the first pat uploads the emoji, which can take a moment
+    emoji = await emojis.from_file("fairy_happy", ART / "fairy-happy.png") if emojis else None
+    if interaction.response.is_done():
+        await interaction.followup.send(emoji or "(*^▽^*)")
+    else:
+        await interaction.response.send_message(emoji or "(*^▽^*)")
+    await interaction.followup.send(random.choice(PAT_LINES))
 
 
 GAME_SHORT = {"genshin": "Genshin", "hsr": "Star Rail", "zzz": "ZZZ"}

@@ -14,7 +14,7 @@ import discord
 
 from bot.access import PRIVATE, AccessList
 from bot.guide import OpenGuideButton, PageButton
-from bot.main import AccessGroup, CharacterView, PrivateTree, help_command
+from bot.main import AccessGroup, CharacterView, PrivateTree, help_command, pat_command
 
 OWNER, FRIEND, STRANGER = 1, 2, 3
 
@@ -238,3 +238,46 @@ class _User:
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PatTest(unittest.TestCase):
+    def test_pat_answers_with_fairys_happy_emoji_uploaded_once(self):
+        from bot.set_emojis import SetEmojis
+
+        uploads = []
+
+        async def fetch():
+            return []
+
+        async def create(name, image):
+            uploads.append((name, len(image)))
+            return f"<:{name}:1>"
+
+        client = SimpleNamespace(fetch_application_emojis=fetch, create_application_emoji=create)
+        emojis = SetEmojis(client, None)
+        for _ in range(2):
+            sent = []
+
+            class Response:
+                done = False
+
+                async def defer(self):
+                    self.done = True
+
+                def is_done(self):
+                    return self.done
+
+                async def send_message(self, content):
+                    sent.append(content)
+
+            async def followup(content):
+                sent.append(content)
+
+            it = SimpleNamespace(client=SimpleNamespace(set_emojis=emojis), response=Response(),
+                                 followup=SimpleNamespace(send=followup))
+            asyncio.run(pat_command.callback(it))
+            self.assertEqual(sent[0], "<:fairy_happy:1>")  # alone, so Discord shows it big
+            self.assertIn("Proxy", sent[1])  # then her thanks
+        self.assertEqual([name for name, _ in uploads], ["fairy_happy"])
+        self.assertLess(uploads[0][1], 256 * 1024)  # Discord's emoji size limit
+
