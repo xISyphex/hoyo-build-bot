@@ -141,7 +141,7 @@ def zzz_patch(gacha, events, weapon_name, now: dt.datetime | None = None) -> Pat
         if hasattr(pool, "characters"):
             items = [(c.name or c.full_name, c.rarity, c.icon) for c in pool.characters]
         else:
-            items = [(weapon_name(w.id) or w.skill_name, w.rarity, w.icon) for w in pool.weapons]
+            items = [(weapon_name(w.id) or w.skill_name or "New W-Engine", w.rarity, w.icon) for w in pool.weapons]
         top = [i for i in items if i[1] == "S"]
         banners.append(Banner(kind, [i[0] for i in top], [i[0] for i in items if i[1] != "S"], pool.start, pool.end,
                               top[0][2] if top else None, str(pool.version), [(i[0], i[1] == "S", i[2]) for i in items]))
