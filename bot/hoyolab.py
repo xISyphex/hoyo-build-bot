@@ -433,6 +433,13 @@ class HoyolabClient:
             self.effective.learn_genshin(raw)
         return genshin.models.GenshinDetailCharacters(**raw)
 
+    def own_server(self, game: str) -> str | None:
+        """The server of the account the calendars are read for (its mid-version times are that server's)."""
+        from .card import server_name
+
+        uid = self._own_uids.get(game)
+        return server_name(game, str(uid)) if uid else None
+
     async def patch(self, game: str):
         """The game's current version, its end and its banners, from HoYoLAB's calendars read with the server's own
         login (for its own account in that game). Kept for 10 minutes."""

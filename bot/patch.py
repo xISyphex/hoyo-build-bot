@@ -46,7 +46,8 @@ class Patch:
     version: str
     now: dt.datetime
     end: dt.datetime | None
-    banners: list[Banner]
+    banners: list[Banner]  # every banner HoYoLAB lists; the running ones are picked when shown
+    server: str | None = None  # whose server the mid-version times are for
 
 
 def _utc(stamp: int) -> dt.datetime:
@@ -75,7 +76,7 @@ def _finish(game: str, version: str, now: dt.datetime, banners: list[Banner], ev
     ends = version_ends + main
     log.info("%s %s: banner ends %s, main event ends %s", game, version,
              sorted({e.isoformat() for e in version_ends}), sorted({e.isoformat() for e in main}))
-    return Patch(game, version, now, max(ends) if ends else None, _running(banners, now))
+    return Patch(game, version, now, max(ends) if ends else None, banners)
 
 
 def hsr_patch(calendar) -> Patch:
@@ -140,6 +141,30 @@ def zzz_patch(gacha, events, weapon_name, now: dt.datetime | None = None) -> Pat
     return _finish("zzz", _version(banners, now), now, banners, spans)
 
 
+# Each game server runs on its own fixed clock; mid-version banner switches happen at the same local time on each
+SERVER_UTC = {"America": -5, "Europe": 1, "Asia": 8, "TW/HK/MO": 8, "China": 8}
+
+
+def for_server(patch: Patch, read_on: str | None, server: str | None) -> Patch:
+    """The patch with its mid-version times moved from the server it was read on to the player's. The version's
+    start and end (the updates) happen at the same moment everywhere, so those stay."""
+    if not (read_on and server) or SERVER_UTC.get(read_on) is None or SERVER_UTC.get(server) is None:
+        return patch
+    shift = dt.timedelta(hours=SERVER_UTC[read_on] - SERVER_UTC[server])
+    if not shift:
+        return dataclasses.replace(patch, server=server)
+    starts = [b.start for b in patch.banners if b.version == patch.version]
+    update = min(starts) if starts else None
+    near = dt.timedelta(hours=1)
+
+    def move(when: dt.datetime) -> dt.datetime:
+        fixed = [m for m in (update, patch.end) if m is not None]
+        return when if any(abs(when - m) <= near for m in fixed) else when + shift
+
+    banners = [dataclasses.replace(b, start=move(b.start), end=move(b.end)) for b in patch.banners]
+    return dataclasses.replace(patch, banners=banners, server=server)
+
+
 def time_left(delta: dt.timedelta) -> str:
     """'12 days 4 hours', or under a day '5 hours 12 minutes'."""
     total = max(0, int(delta.total_seconds()))
@@ -166,8 +191,9 @@ def patch_embed(patch: Patch) -> discord.Embed:
     embed = discord.Embed(title=f"{TITLES[patch.game]} · Version {patch.version}", colour=COLOURS[patch.game])
     if patch.end:
         embed.description = f"Ends in **{time_left(patch.end - patch.now)}** · <t:{int(patch.end.timestamp())}:f>"
+    running = _running(patch.banners, patch.now)
     for kind in KINDS[patch.game]:
-        group = [b for b in patch.banners if b.kind == kind]
+        group = [b for b in running if b.kind == kind]
         if not group:
             continue
         ends = {int(b.end.timestamp()) for b in group}
@@ -177,10 +203,11 @@ def patch_embed(patch: Patch) -> discord.Embed:
         else:
             lines = [f"{_line(b)}\nuntil <t:{int(b.end.timestamp())}:R>" for b in group]
         embed.add_field(name=kind, value="\n".join(lines)[:1024], inline=False)
-    if not patch.banners:
+    if not running:
         embed.add_field(name="Banners", value="No banners are running right now.", inline=False)
-    icon = next((b.icon for b in patch.banners if b.icon), None)
+    icon = next((b.icon for b in running if b.icon), None)
     if icon:
         embed.set_thumbnail(url=icon)
-    embed.set_footer(text="From HoYoLAB's calendar")
+    embed.set_footer(text=f"From HoYoLAB's calendar · Times for {patch.server} servers" if patch.server
+                     else "From HoYoLAB's calendar")
     return embed

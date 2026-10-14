@@ -61,8 +61,23 @@ class PatchTest(unittest.TestCase):
         info = patch.hsr_patch(calendar())
         self.assertEqual(info.version, "3.6")
         self.assertEqual(int(info.end.timestamp()), NOW + 12 * DAY + 4 * 3600)
-        self.assertEqual([(b.kind, b.featured, b.others) for b in info.banners], [
+        self.assertEqual([(b.kind, b.featured, b.others) for b in patch._running(info.banners, info.now)], [
             ("Character warps", ["Cyrene"], ["Bronya", "Seele"]), ("Character warps", ["Acheron"], []), ("Light cone warps", ["A Cone"], [])])
+
+    def test_mid_version_times_move_to_the_players_server(self):
+        update, half, end = NOW - 5 * DAY, NOW + 2 * DAY, NOW + 20 * DAY
+        cal = genshin.models.HSREventCalendar(**{
+            "avatar_card_pool_list": [_warp(update, half, "3.6", [_item(1, "First", 5)]),
+                                      _warp(half, end, "3.6", [_item(2, "Second", 5)])],
+            "equip_card_pool_list": [], "act_list": [], "challenge_list": [], "cur_game_version": "3.6", "now": str(NOW)})
+        info = patch.for_server(patch.hsr_patch(cal), "Europe", "Asia")  # Asia's clock is 7 hours ahead
+        first, second = info.banners
+        self.assertEqual(int(first.start.timestamp()), update)  # the update: the same moment everywhere
+        self.assertEqual(int(first.end.timestamp()), half - 7 * 3600)
+        self.assertEqual(int(second.start.timestamp()), half - 7 * 3600)
+        self.assertEqual(int(second.end.timestamp()), end)
+        self.assertIn("Asia servers", patch.patch_embed(info).footer.text)
+        self.assertIs(patch.for_server(info, "Europe", None), info)
 
     def test_time_left(self):
         self.assertEqual(patch.time_left(dt.timedelta(days=12, hours=4, minutes=30)), "12 days 4 hours")
