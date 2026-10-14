@@ -11,6 +11,7 @@ GAMES = (("genshin", "Genshin Impact"), ("hsr", "Honkai: Star Rail"), ("zzz", "Z
 ART = Path(__file__).parent / "guide_art"
 OPENING, CLOSING = "fairy-guide.jpg", "fairy-goodbye.jpg"
 COLOR = 0x4FA3E0  # Fairy's blue
+EXAMPLE_UID = "812345678"  # made up, only to show the format
 GOODBYE = "I am looking forward to working with you, Proxy~"
 CREDITS = (("Guide book art", "nobawns"), ("Goodbye art", "yasiro_hayate"))  # both on x.com
 
@@ -62,7 +63,7 @@ def guide_message(bot_name: str, per_hour: int, app_id: int | None = None, welco
     def section(page: int, title: str, text: str) -> None:
         nonlocal step
         step += 1
-        pages[page].add_field(name=f"{'①②③④⑤⑥⑦'[step - 1]} {title}", value=text, inline=False)
+        pages[page].add_field(name=f"{'①②③④⑤⑥⑦⑧⑨'[step - 1]} {title}", value=text, inline=False)
 
     if app_id:
         section(
@@ -77,14 +78,16 @@ def guide_message(bot_name: str, per_hour: int, app_id: int | None = None, welco
         0,
         "Look up a character",
         "\n".join(f"`/{cmd}` for {name}" for cmd, name in GAMES)
-        + "\nPick the `character` from the list, then give me the player's `uid`. I'll handle the rest.",
+        + "\nPick the `character` from the list, then give me the player's `uid`. I'll handle the rest."
+        f"\nExample: `/genshin character:Furina uid:{EXAMPLE_UID}`",
     )
     section(
         0,
         "Register your UID",
         " ".join(f"`/{cmd}-claim`" for cmd, _ in GAMES)
         + "\nRegister your UID once per game, and you may leave `uid` out to see your own characters."
-        " Registering again simply overwrites the old record. I do keep good records, Proxy.",
+        " Registering again simply overwrites the old record. I do keep good records, Proxy."
+        f"\nExample: `/hsr-claim uid:{EXAMPLE_UID}`, then `/hsr character:Acheron`",
     )
     section(
         1,
@@ -97,7 +100,8 @@ def guide_message(bot_name: str, per_hour: int, app_id: int | None = None, welco
         "Your showcase only holds a few characters. `/hoyolab link` lets me see all of yours, Proxy."
         " On hoyolab.com on a PC, log in, press **Ctrl+Shift+I**, open **Application → Cookies**,"
         " and copy `ltuid_v2`, `ltoken_v2` and `ltmid_v2` into the form. They are a login to your HoYoLAB account,"
-        " so only share them if you trust this bot's owner. `/hoyolab unlink` makes me forget them.",
+        " so only share them if you trust this bot's owner. `/hoyolab status` shows what is linked,"
+        " and `/hoyolab unlink` makes me forget them.\nExample: `/hoyolab link`, then fill in the form.",
     )
     section(
         1,
@@ -106,12 +110,19 @@ def guide_message(bot_name: str, per_hour: int, app_id: int | None = None, welco
         " After changing the showcase, give the data a few minutes to update. Even I can't rush that.\n"
         f"You may look up **{per_hour}** characters per hour. Please don't overwork me, Proxy.",
     )
+    section(
+        1,
+        "Other commands",
+        "`/help` opens this guide again. And `/pat`... pats me. Not that I asked for it, Proxy."
+        "\nExample: `/pat`",
+    )
     if owner:
         section(
             1,
             "Administrator commands",
             "For you alone, Proxy. `/access add` grants someone access and sends them this guide,"
-            " `/access remove` revokes it, and `/access list` shows everyone with access. You have no lookup limit.",
+            " `/access remove` revokes it, and `/access list` shows everyone with access. You have no lookup limit."
+            "\nExample: `/access add user:@Proxy`",
         )
 
     goodbye = discord.Embed(description=f"**{GOODBYE}**", color=COLOR)
