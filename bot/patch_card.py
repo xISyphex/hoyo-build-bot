@@ -243,14 +243,14 @@ def draw_patch(patch: Patch, images: dict[str, Image.Image], now: dt.datetime | 
         for b in upcoming:
             top = next((i for i in b.items if i[1]), (b.featured[0], True, b.icon))
             name = c._fit_text(draw, top[0], f.small_b, 150)
-            w = round(64 + 12 + max(draw.textlength(name, font=f.small_b), draw.textlength("from 00 Mmm", font=f.small)) + 18)
+            w = round(64 + 12 + max(draw.textlength(name, font=f.small_b), draw.textlength("00 Mmm", font=f.small)) + 18)
             if x + w > W - PAD:
                 break
             c._panel(card, (x, y, x + w, y + 84), 14, (255, 255, 255, 12))
             _tile(card, images.get(top[2] or ""), (x + 10, y + 10, x + 74, y + 74), True, b.kind in WEAPON_KINDS, 10)
             draw = ImageDraw.Draw(card)
             draw.text((x + 86, y + 30), name, font=f.small_b, fill=c.TEXT, anchor="lm")
-            draw.text((x + 86, y + 56), f"from {_day(b.start, server)}", font=f.small, fill=c.DIM, anchor="lm")
+            draw.text((x + 86, y + 56), _day(b.start, server), font=f.small, fill=c.DIM, anchor="lm")
             x += w + 12
 
     out = io.BytesIO()
