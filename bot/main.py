@@ -23,6 +23,7 @@ from . import matching, patch, records
 from .access import PRIVATE, AccessList
 from .assets import Assets
 from .claims import ClaimStore
+from .gacha import GachaStore
 from .card import CardMaker, server_name
 from .embeds import build_embed
 from .effective import EffectiveStats
@@ -30,6 +31,7 @@ from .enka import ERRORS, EnkaClient, EnkaError
 from .guide import ART, OpenGuideButton, PageButton, guide_message, open_guide_view
 from .hoyolab import HoyolabClient, HoyolabError
 from .hoyolab_links import LinkStore, cookie_string, games_of, load_key
+from .minigame import daily_command, make_box_command, make_pull_command
 from .models import CharacterBuild, PlayerProfile
 from .ratelimit import LookupLimit
 from .set_emojis import SetEmojis
@@ -68,6 +70,8 @@ class HoyoBot(discord.Client):
         self.assets = Assets(cache_dir)
         # Lives next to the game data, which the VM setup script and the Docker volume keep across updates.
         self.claims = ClaimStore(os.environ.get("CLAIMS_FILE", os.path.join(cache_dir, "claims.json")))
+        # The pull minigame's pulls, pity and boxes
+        self.gacha = GachaStore(os.environ.get("GACHA_FILE", os.path.join(cache_dir, "gacha.json")))
         self.access = AccessList(os.environ.get("ACCESS_FILE", os.path.join(cache_dir, "access.json")))
         # New lookups per person per hour (the owner has no limit); the dropdown and buttons don't count.
         self.lookups = LookupLimit(int(os.environ.get("LOOKUPS_PER_HOUR", "15")))
@@ -107,10 +111,13 @@ class HoyoBot(discord.Client):
             self.tree.add_command(make_claim_command(game))
             self.tree.add_command(make_records_command(game))
             self.tree.add_command(make_patch_command(game))
+            self.tree.add_command(make_pull_command(game))
+            self.tree.add_command(make_box_command(game))
         self.tree.add_command(AccessGroup())
         self.tree.add_command(HoyolabGroup())
         self.tree.add_command(help_command)
         self.tree.add_command(pat_command)
+        self.tree.add_command(daily_command)
         self.add_dynamic_items(PageButton, OpenGuideButton)  # the guide's buttons, also on old messages
         guild_id = os.environ.get("DEV_GUILD_ID")
         if guild_id:
