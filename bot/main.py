@@ -350,7 +350,13 @@ def make_records_command(game: str) -> app_commands.Command:
             builds += await bot.hoyolab.fetch(game, uid)
         except HoyolabError:
             pass
+        # The in-game name (and showcase builds) from Enka; a recent lookup is reused
         profile = bot.enka.cached(game, uid)
+        if profile is None:
+            try:
+                profile = await bot.enka.fetch(game, uid)
+            except Exception as exc:
+                log.info("No Enka profile for %s %s: %s", game, uid, exc)
         if profile:
             builds += profile.characters
         records.fill_copies(found, builds)
