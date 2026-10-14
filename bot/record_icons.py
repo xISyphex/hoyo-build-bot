@@ -7,7 +7,7 @@ from __future__ import annotations
 import math
 from functools import lru_cache
 
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 SS = 4  # supersampling
 
@@ -232,8 +232,10 @@ def _heat(percent: str) -> float:
     return 0.0
 
 
-HOLO = ((255, 150, 210), (150, 212, 255), (255, 240, 150), (140, 255, 210), (206, 166, 255), (255, 176, 222))
-GOLD = ((255, 236, 150), (250, 196, 60), (232, 150, 30))
+# Sampled from the in-game top-ranking badge Syphex shared: sky blue, periwinkle, pearl pink, white, mint, butter, peach
+HOLO = ((150, 228, 248), (135, 212, 240), (149, 196, 253), (148, 160, 240), (222, 196, 220), (248, 240, 250), (255, 255, 255),
+        (229, 255, 238), (255, 255, 204), (254, 214, 190), (232, 230, 196), (200, 244, 212))
+GOLD = ((255, 240, 168), (252, 204, 72), (238, 160, 36), (252, 214, 96))
 
 
 def _bands(size: tuple[int, int], stops, angle: float = 25) -> Image.Image:
@@ -246,9 +248,11 @@ def _bands(size: tuple[int, int], stops, angle: float = 25) -> Image.Image:
         i = min(int(t), len(stops) - 2)
         a, b = stops[i], stops[i + 1]
         px[x, 0] = tuple(round(a[k] + (b[k] - a[k]) * (t - i)) for k in range(3))
-    D = 2 * max(w, h)
-    big = strip.resize((D, D), Image.BILINEAR).rotate(angle, resample=Image.BILINEAR)
-    return big.crop(((D - w) // 2, (D - h) // 2, (D - w) // 2 + w, (D - h) // 2 + h)).convert("RGBA")
+    lean = math.tan(math.radians(angle))  # the bands lean like "/" by this much
+    span = w + round(h * abs(lean))
+    grad = strip.resize((span, h), Image.BILINEAR)
+    out = grad.transform((w, h), Image.AFFINE, (1, -lean, h * abs(lean), 0, 1, 0), Image.BILINEAR)
+    return out.convert("RGBA")
 
 
 def _curve(p0, p1, p2, steps: int = 12) -> list[tuple[float, float]]:
@@ -258,39 +262,43 @@ def _curve(p0, p1, p2, steps: int = 12) -> list[tuple[float, float]]:
 
 
 def rank_badge(percent: str, height: int, font: ImageFont.FreeTypeFont) -> tuple[Image.Image, tuple[int, int]]:
-    """The ranking as a badge whose right end burns out into a flame: holographic for the top 1% and better (with a
-    bigger flame), gold otherwise. Returns the picture and where the badge's left edge and top sit in it."""
+    """The ranking as a badge whose right end burns out into a flame, like the game's own: a round left end, a nick
+    in the top corner, a flame tongue licking right, a round bite under it and a hooked lower lip. Holographic for the
+    top 1% and better, gold (with a smaller flame) otherwise. Returns the picture and where the badge's top left is."""
     p = _percent(percent)
     holo = p is not None and p <= 1
-    f = font.font_variant(size=round(height * 0.66))
-    pw = round(f.getlength(percent) + height * 0.9)  # the round-ended body holding the number
-    tail = round(height * (1.5 if holo else 0.9))
-    pad = round(height * (0.45 if holo else 0.3))  # the big tongue's tip rises above the body
-    W, H, P = (pw + tail) * SS, height * SS, pad * SS
-    mask = Image.new("L", (W, H + P), 0)
+    f = font.font_variant(size=round(height * 0.76))
+    pw = round(f.getlength(percent) + height * 0.85)  # the body holding the number
+    k = 1.0 if holo else 0.72  # how far the flame reaches
+    tail = round(height * 1.08 * k) + 2
+    W, H = (pw + tail) * SS, height * SS
+    X = pw * SS  # where the flame starts
+    T = tail * SS
+    mask = Image.new("L", (W, H), 0)
     d = ImageDraw.Draw(mask)
-    r = H / 2
-    d.rounded_rectangle((0, P, pw * SS, P + H - 1), r, fill=255)
-    x0, L = pw * SS - r, tail * SS + r - SS * 2  # the flame: from the body's right end, two tongues curling up and right
-    big, notch, small, bottom = (x0 + L, SS), (x0 + L * 0.5, P + H * 0.42), (x0 + L * 0.9, P + H * 0.46), (x0, P + H - 1)
-    pts = [(x0, P)]
-    pts += _curve((x0, P), (x0 + L * 0.6, P + H * 0.05), big)
-    pts += _curve(big, (x0 + L * 0.66, P + H * 0.12), notch)
-    pts += _curve(notch, (x0 + L * 0.75, P + H * 0.34), small)
-    pts += _curve(small, (x0 + L * 0.7, P + H * 1.02), bottom)
-    d.polygon(pts, fill=255)
-    mask = mask.filter(ImageFilter.GaussianBlur(SS * 0.8)).point(lambda v: 255 if v > 110 else 0)  # soften the joins
-    img = Image.new("RGBA", (W, H + P), (0, 0, 0, 0))
-    img.paste(Image.new("RGBA", (W, H + P), (16, 12, 8, 255)), (0, 0), mask)
-    inner = mask.filter(ImageFilter.MinFilter(SS * 2 + 1))
-    fill = _bands((W, H + P), HOLO if holo else GOLD, 25 if holo else 90)
-    if holo:  # a pale sheen across, like foil
-        sheen = Image.new("RGBA", (W, H + P), (0, 0, 0, 0))
-        ImageDraw.Draw(sheen).polygon([(W * 0.25, 0), (W * 0.42, 0), (W * 0.3, H + P), (W * 0.13, H + P)], fill=(255, 255, 255, 120))
-        fill.alpha_composite(sheen.filter(ImageFilter.GaussianBlur(SS * 3)))
-    img.paste(fill, (0, 0), inner)
-    img = img.resize((pw + tail, height + pad), Image.LANCZOS)
-    ImageDraw.Draw(img).text((pw / 2 + height * 0.05, pad + height / 2 + 1), percent, font=f, fill=(16, 12, 8, 255), anchor="mm")
-    return img, (0, pad)
+    d.ellipse((0, 0, H - 1, H - 1), fill=255)  # the round left end
+    d.rectangle((H / 2, 0, X, H - 1), fill=255)
+    u = H * k  # flame unit: the flame's shapes scale with it
+    tip = (X + u * 1.05, H * 0.34)
+    path = [(X, 0)]
+    path += _curve((X, 0), (X + u * 0.1, H * 0.04), (X + u * 0.14, H * 0.28))  # the nick dipping into the top edge
+    path += _curve((X + u * 0.14, H * 0.28), (X + u * 0.42, -H * 0.04), tip)  # the tongue's back, out to its tip
+    path += _curve(tip, (X + u * 0.7, H * 0.52), (X + u * 0.44, H * 0.5))  # its underside, curling back
+    path += [(X + u * 0.88, H * 0.74)]  # the lower lip's point
+    path += _curve((X + u * 0.88, H * 0.74), (X + u * 0.6, H * 1.02), (X, H - 1))
+    d.polygon(path, fill=255)
+    r = H * 0.17  # the round bite between tongue and lip, open to the right
+    c = (X + u * 0.4, H * 0.66)
+    d.ellipse((c[0] - r, c[1] - r, c[0] + r, c[1] + r), fill=0)
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    fill = _bands((W, H), HOLO if holo else GOLD, 35 if holo else 20)
+    if holo:  # a bright sheen across, like foil catching the light
+        sheen = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        ImageDraw.Draw(sheen).polygon([(W * 0.42, 0), (W * 0.62, 0), (W * 0.5, H), (W * 0.3, H)], fill=(255, 255, 255, 110))
+        fill.alpha_composite(sheen.filter(ImageFilter.GaussianBlur(SS * 4)))
+    img.paste(fill, (0, 0), mask)
+    img = img.resize((pw + tail, height), Image.LANCZOS)
+    ImageDraw.Draw(img).text((pw / 2 + height * 0.06, height / 2 + 1), percent, font=f, fill=(10, 8, 8, 255), anchor="mm")
+    return img, (0, 0)
 
 
