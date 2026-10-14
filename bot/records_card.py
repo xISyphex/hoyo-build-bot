@@ -400,7 +400,7 @@ def _zzz_portrait(card: Image.Image, member, icon, x: int, y: int, accent, size:
     td = ImageDraw.Draw(tile)
     td.rounded_rectangle((0, 0, size - 1, size - 1), 18 if size > 80 else 14, fill=(40, 40, 44, 255), outline=(70, 70, 76, 255), width=1)
     inner = size - 2 * frame
-    pic = Image.new("RGBA", (inner, inner), (58, 58, 64, 255))
+    pic = _rarity_tile(inner, inner, member.rarity)  # gold S, purple A, like the other games
     if icon is not None:
         pic.alpha_composite(_cover(icon, inner, inner, top=False))
     if member.level:  # a see-through level band along the bottom of the picture
