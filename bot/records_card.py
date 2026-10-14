@@ -141,8 +141,14 @@ def _tile(card: Image.Image, game: str, record: Record, label: str, value: str, 
 
 
 SIDE_W = 170  # a tall tile beside the King / Adversity Mode box
+RANK_PIECE = 92  # Anomaly Arbitration's rank piece; its tile is just big enough to hold it
+RANK_TILE = RANK_PIECE + 2 * 18
+
+
+def _side_w(label: str) -> int:
+    return RANK_TILE if label.lower() in ("medal", "rank") else SIDE_W
 # Numbers shown with their icon alone, no label over them (Syphex's picks)
-ICON_ONLY = {"hsr": {"stars", "score", "starward"},
+ICON_ONLY = {"hsr": {"stars", "score", "starward", "floor", "rank"},
              "zzz": {"stars", "score", "rating", "top", "adversity top", "time"},
              "genshin": {"time", "medals", "mode", "stars"}}
 
@@ -154,20 +160,24 @@ def _rank_piece(record: Record, kind: str, height: int, images: dict) -> Image.I
         pic = pic.convert("RGBA")
         box = pic.getbbox()  # trim empty margins so the piece fills its spot
         pic = pic.crop(box) if box else pic
-        return pic.resize((max(1, round(pic.width * height / pic.height)), height), Image.LANCZOS)
+        scale = height / max(pic.width, pic.height)  # fits a height x height square, however wide the piece is
+        return pic.resize((max(1, round(pic.width * scale)), max(1, round(pic.height * scale))), Image.LANCZOS)
     return icons.chess(height, kind)
 
 
 def _side_tile(card: Image.Image, game: str, record: Record, label: str, value: str, box, colour, images: dict) -> None:
     """A stage's own number, big: label on top, a large icon, the value under it."""
     f = c.FONTS
+    key = label.lower()
+    if key in ("medal", "rank"):  # a snug square, level with the middle of the stage's box
+        mid_y = (box[1] + box[3]) / 2
+        box = (box[0], round(mid_y - RANK_TILE / 2), box[2], round(mid_y + RANK_TILE / 2))
     x0, y0, x1, y1 = box
     layer = Image.new("RGBA", card.size, (0, 0, 0, 0))
     ImageDraw.Draw(layer).rounded_rectangle(box, 16, fill=colour + (26,), outline=colour + (90,), width=2)
     card.alpha_composite(layer)
     draw = ImageDraw.Draw(card)
     mid = (x0 + x1) / 2
-    key = label.lower()
     label = "Ranking" if key == "top" else label
     shown = key not in ICON_ONLY.get(game, ())
     lw = draw.textlength(label.upper(), font=f.label) * 1.15
@@ -197,8 +207,9 @@ def _side_tile(card: Image.Image, game: str, record: Record, label: str, value: 
         card.alpha_composite(flames, (round(mid - bw / 2 - ox), round(cy - 20 - oy)))
         return
     elif key in ("medal", "rank"):
-        icon = _rank_piece(record, value, 92, images)
-        text = ""
+        icon = _rank_piece(record, value, RANK_PIECE, images)
+        card.alpha_composite(icon, (round(mid - icon.width / 2), round((y0 + y1) / 2 - icon.height / 2)))
+        return
     big = f.name[56]
     if icon is None:  # just the number, very large (cycles)
         draw.text((mid, (top + y1) / 2), text, font=big, fill=c.TEXT, anchor="mm")
@@ -517,13 +528,13 @@ def draw_records(game: str, uid: str, records: list[Record], images: dict[str, I
                     _team(card, game, team, images, (bx, by, bx + col_w, by + TEAM_H), accent, colour, mode_light)
                     edge = bx - 2 * GAP  # the stage's own numbers, as tall tiles beside its box
                     for label, value in reversed(team.left):
-                        edge -= SIDE_W
-                        _side_tile(card, game, record, label, value, (edge, by, edge + SIDE_W, by + TEAM_H), colour, images)
+                        edge -= _side_w(label)
+                        _side_tile(card, game, record, label, value, (edge, by, edge + _side_w(label), by + TEAM_H), colour, images)
                         edge -= 12
                     edge = bx + col_w + 2 * GAP
                     for label, value in team.right:
-                        _side_tile(card, game, record, label, value, (edge, by, edge + SIDE_W, by + TEAM_H), colour, images)
-                        edge += SIDE_W + 12
+                        _side_tile(card, game, record, label, value, (edge, by, edge + _side_w(label), by + TEAM_H), colour, images)
+                        edge += _side_w(label) + 12
                     bx += col_w + GAP
                 by += TEAM_H + GAP
         y += h + GAP

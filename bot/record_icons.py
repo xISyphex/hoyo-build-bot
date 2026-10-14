@@ -213,17 +213,21 @@ def _rating_mark(letter: str, height: int, font_path: str) -> Image.Image:
     small = _shape_text("RANK", font.font_variant(size=round(h * 0.3)), round(h * 0.012))
     big = big.resize((round(h * 0.86 * len(letter)), round(h * 0.7)), Image.LANCZOS)  # wide and squat, like the game's
     small = small.resize((round(big.width * 0.96), round(h * 0.2)), Image.LANCZOS)  # RANK as wide as the letter
-    o = round(h * 0.06)  # the black outline
-    gap = round(h * 0.0)
+    b = max(1, round(h * 0.03))  # a fine black outline hugging the letter (thinner on RANK, so its letters stay apart)...
+    bs = max(1, round(h * 0.012))
+    o = b + max(1, round(h * 0.025))  # ...and a fine white one around that, with nothing filled in between
+    gap = round(h * 0.07)
     w = max(big.width, small.width) + 2 * o
     hh = big.height + gap + small.height + 2 * o
-    shape = Image.new("L", (w, hh), 0)
-    shape.paste(big, ((w - big.width) // 2, o), big)
-    shape.paste(small, ((w - small.width) // 2, o + big.height + gap), small)
+    shape, top_part, low_part = (Image.new("L", (w, hh), 0) for _ in range(3))
+    for part, img, at in ((top_part, big, ((w - big.width) // 2, o)), (low_part, small, ((w - small.width) // 2, o + big.height + gap))):
+        part.paste(img, at, img)
+        shape.paste(img, at, img)
     out = Image.new("RGBA", (w, hh), (0, 0, 0, 0))
-    outline = shape.filter(ImageFilter.MaxFilter(o * 2 + 1 if o * 2 + 1 <= 99 else 99))
-    outline = outline.filter(ImageFilter.GaussianBlur(o * 0.6)).point(lambda v: 255 if v > 60 else 0)  # one blob
-    out.paste(Image.new("RGBA", (w, hh), (8, 8, 8, 255)), (0, 0), outline)
+    black = ImageChops.lighter(top_part.filter(ImageFilter.MaxFilter(2 * b + 1)), low_part.filter(ImageFilter.MaxFilter(2 * bs + 1)))
+    white = ImageChops.lighter(top_part.filter(ImageFilter.MaxFilter(2 * o + 1)), low_part.filter(ImageFilter.MaxFilter(2 * (bs + o - b) + 1)))
+    out.paste(Image.new("RGBA", (w, hh), (255, 255, 255, 255)), (0, 0), white)
+    out.paste(Image.new("RGBA", (w, hh), (8, 8, 8, 255)), (0, 0), black)
     out.paste(Image.new("RGBA", (w, hh), rim + (255,)), (0, 0), shape)
     inner = shape.filter(ImageFilter.MinFilter(max(3, SS * 2 + 1)))
     out.paste(_gradient((w, hh), top, bottom), (0, 0), inner)
@@ -231,7 +235,7 @@ def _rating_mark(letter: str, height: int, font_path: str) -> Image.Image:
 
 
 def rating(letter: str, height: int, font: ImageFont.FreeTypeFont) -> Image.Image:
-    """ZZZ's rank mark: a big chunky letter in the rank's colour over a small RANK, both outlined in black."""
+    """ZZZ's rank mark: a big chunky letter in the rank's colour over a small RANK, each with a fine black and white outline."""
     return _rating_mark(letter, height, font.path)
 
 
