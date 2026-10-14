@@ -922,6 +922,50 @@ def _cons_marks(card: Image.Image, build: CharacterBuild, accent, light, images:
         _zzz_marks(img, n, accent, light, icon)
     img = img.resize((round(img.width / SS * BADGE_SCALE), round(img.height / SS * BADGE_SCALE)), Image.LANCZOS)
     card.alpha_composite(img, (PAD - 14, CONS_TOP - 8))
+    badge_bottom = CONS_TOP - 8 + (CONS_W / 2 + 6 + CONS_W * 0.36 * 1.35) * BADGE_SCALE  # under the ring's outer orbit
+    _cons_column(card, build, n, accent, light, images, PAD - 14 + img.width / 2, badge_bottom)
+
+
+CONS_ICON = 34  # each constellation icon in the column under the badge
+
+
+def _cons_column(card: Image.Image, build: CharacterBuild, n: int, accent, light, images: dict[str, Image.Image],
+                 cx: float, top: float) -> None:
+    """The six constellation / eidolon icons from top to bottom under the badge: unlocked ones lit in the
+    character's colour on a glowing disc, locked ones dim grey. Left out for ZZZ, whose mindscapes have no icons."""
+    icons = [images.get(u) for u in build.cons_icons[:6]]
+    if len(icons) < 6 or not any(icons):
+        return
+    bottom = H - PAD - 186  # above the weapon
+    step = (bottom - top) / 6
+    d = CONS_ICON + 10  # the disc around an icon
+    for i, icon in enumerate(icons):
+        cy = top + step * (i + 0.5)
+        lit = i < n
+        disc = Image.new("RGBA", (d * SS, d * SS), (0, 0, 0, 0))
+        dd = ImageDraw.Draw(disc)
+        dd.ellipse((SS, SS, d * SS - SS, d * SS - SS), fill=(_mix(accent, (10, 10, 18), 0.55) + (235,)) if lit else (22, 22, 30, 200),
+                   outline=light + (255,) if lit else (255, 255, 255, 70), width=SS * 2)
+        disc = disc.resize((d, d), Image.LANCZOS)
+        if lit:
+            glow = Image.new("RGBA", (d + 24, d + 24), (0, 0, 0, 0))
+            ImageDraw.Draw(glow).ellipse((12, 12, d + 12, d + 12), fill=accent + (150,))
+            glow = glow.filter(ImageFilter.GaussianBlur(6))
+            card.alpha_composite(glow, (round(cx - d / 2 - 12), round(cy - d / 2 - 12)))
+        card.alpha_composite(disc, (round(cx - d / 2), round(cy - d / 2)))
+        if icon is None:
+            continue
+        mark = icon.convert("RGBA").resize((CONS_ICON, CONS_ICON), Image.LANCZOS)
+        alpha = mark.getchannel("A")
+        if lit:  # the icon's own shading, washed in the character's light colour
+            grey = mark.convert("L")
+            tinted = Image.merge("RGB", [grey.point(lambda v, c=c: round(v * (0.35 + 0.65 * c / 255) + c * 0.25 * (1 - v / 255))) for c in light])
+            mark = tinted.convert("RGBA")
+            mark.putalpha(alpha)
+        else:
+            grey = mark.convert("L").point(lambda v: round(v * 0.45))
+            mark = Image.merge("RGBA", (grey, grey, grey, alpha.point(lambda a: round(a * 0.6))))
+        card.alpha_composite(mark, (round(cx - CONS_ICON / 2), round(cy - CONS_ICON / 2)))
 
 
 class CardMaker:
@@ -940,7 +984,7 @@ class CardMaker:
         if key in self.cards:
             return self.cards[key]
         urls = {build.art_url, build.icon_url, build.path_icon, build.element_icon, build.weapon.icon_url if build.weapon else None}
-        urls |= {p.piece_icon for p in build.gear}
+        urls |= {p.piece_icon for p in build.gear} | set(build.cons_icons)
         urls.discard(None)
         loaded = await asyncio.gather(*(self._image(u, big=u == build.art_url) for u in urls))
         images = {u: img for u, img in zip(urls, loaded) if img is not None}

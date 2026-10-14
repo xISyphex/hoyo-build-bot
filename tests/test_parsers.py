@@ -117,6 +117,8 @@ class GenshinLiveTest(unittest.TestCase):
         self.assertEqual((amber.weapon.name, amber.weapon.refinement), ("Skyward Harp", 2))
         self.assertEqual([g.slot for g in amber.gear], ["Flower", "Plume", "Sands", "Goblet", "Circlet"])
         self.assertEqual(amber.set_bonuses, ["2pc Bloodstained Chivalry", "2pc Pale Flame"])
+        self.assertEqual(len(amber.cons_icons), 6)
+        self.assertEqual(amber.cons_icons[0], "https://enka.network/ui/UI_Talent_S_Ambor_01.png")
 
     def test_set_names_resolve_by_set_id(self):
         # The setNameTextMapHash in the response is missing from the store's
@@ -208,6 +210,11 @@ class StarRailLiveTest(unittest.TestCase):
     def test_substat_rolls(self):
         head = self.by_name["Castorice"].gear[0]
         self.assertEqual([s.rolls for s in head.subs], [1, 2, 3, 3])
+
+    def test_eidolon_icons(self):
+        icons = self.by_name["Castorice"].cons_icons
+        self.assertEqual(len(icons), 6)
+        self.assertTrue(icons[2].endswith("SkillIcon_1407_Ultra.png"))  # E3 and E5 use the skill icons they upgrade
 
     def test_profile(self):
         self.assertEqual((self.profile.nickname, self.profile.level), ("Player", 70))

@@ -235,6 +235,7 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
         # Enka has no Cryo icon under this name; the card draws a snowflake instead
         path_icon=f"https://enka.network/ui/UI_GachaTypeIcon_{WEAPON_ICONS[kind]}.png" if (kind := meta.get("WeaponType")) in WEAPON_ICONS else None,
         element_icon=f"https://enka.network/ui/UI_Buff_Element_{element}.png" if element in ELEMENT_ICONS else None,
+        cons_icons=["https://enka.network" + c for c in meta.get("Consts", [])],
     )
 
 
