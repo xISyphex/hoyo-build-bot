@@ -23,8 +23,8 @@ W = 2 * PAD + COLS * TEAM_W + (COLS - 1) * GAP  # as wide as three teams of four
 TAB_H = 36  # the box's title, as a tab clipped to its top-left corner
 ROW_GAP = 12  # the same space between the title tab, the results row and the portraits, and under the portraits
 # How far each game's portraits reach above / below their spot: Star Rail's copies pill sticks out on top, its tile is taller
-LIFT = {"hsr": 10, "genshin": 6, "zzz": 6}  # Genshin's and ZZZ's copies pills sit like Star Rail's
-DROP = {"hsr": 4}
+LIFT = {"hsr": 10, "genshin": 6, "zzz": 10}  # Genshin's copies pill sits like Star Rail's
+DROP = {"hsr": 4, "zzz": 4}  # Star Rail's and ZZZ's tiles are taller (HSR_H)
 
 
 def _portrait_top(game: str, chips: bool = True) -> int:
@@ -358,7 +358,7 @@ def _portrait(card: Image.Image, game: str, member, icon: Image.Image | None, x:
     if game == "hsr":
         _hsr_portrait(card, member, icon, x, y, accent)
     elif game == "zzz":
-        _zzz_portrait(card, member, icon, x, y, accent, PORTRAIT)
+        _zzz_portrait(card, member, icon, x, y - 4, accent, PORTRAIT, height=HSR_H)  # as tall as Star Rail's
     else:
         _gi_portrait(card, game, member, icon, x, y, accent)
 
@@ -392,32 +392,34 @@ def _hsr_portrait(card: Image.Image, member, icon, x: int, y: int, accent) -> No
     _copies(card, "hsr", member, x, y - 4, accent)
 
 
-def _zzz_portrait(card: Image.Image, member, icon, x: int, y: int, accent, size: int, copies: bool = True) -> None:
-    """HoYoLAB's ZZZ portrait: the agent's square picture (with the outfit they wear) in a thick dark rounded frame,
-    the copies at the top left."""
-    frame = 5 if size > 80 else 4
-    tile = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    td = ImageDraw.Draw(tile)
-    td.rounded_rectangle((0, 0, size - 1, size - 1), 18 if size > 80 else 14, fill=(40, 40, 44, 255), outline=(70, 70, 76, 255), width=1)
-    inner = size - 2 * frame
-    pic = _rarity_tile(inner, inner, member.rarity)  # gold S, purple A, like the other games
+def _zzz_portrait(card: Image.Image, member, icon, x: int, y: int, accent, size: int, copies: bool = True,
+                  height: int | None = None) -> None:
+    """HoYoLAB's ZZZ portrait: the agent's picture (with the outfit they wear) on its rarity colour in a thick dark
+    rounded frame, size wide and height tall (square unless given), the copies at the top left."""
+    w, h = size, height or size
+    big = size > 80
+    frame, radius = (5, 18) if big else (4, 14)
+    tile = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    ImageDraw.Draw(tile).rounded_rectangle((0, 0, w - 1, h - 1), radius, fill=(40, 40, 44, 255), outline=(70, 70, 76, 255), width=1)
+    iw, ih = w - 2 * frame, h - 2 * frame
+    pic = _rarity_tile(iw, ih, member.rarity)  # gold S, purple A, like the other games
     if icon is not None:
-        pic.alpha_composite(_cover(icon, inner, inner, top=False))
+        pic.alpha_composite(_cover(icon, iw, ih, top=False))
     if member.level:  # a see-through level band along the bottom of the picture
-        band_h = 22 if size > 80 else 18
-        pic.alpha_composite(Image.new("RGBA", (inner, band_h), (0, 0, 0, LEVEL_SHADE)), (0, inner - band_h))
-        ImageDraw.Draw(pic).text((inner / 2, inner - band_h / 2), f"Lv. {member.level}", font=c.FONTS.slot, fill=c.TEXT, anchor="mm")
-    mask = Image.new("L", (inner * 4, inner * 4), 0)
-    ImageDraw.Draw(mask).rounded_rectangle((0, 0, inner * 4 - 1, inner * 4 - 1), (13 if size > 80 else 10) * 4, fill=255)
-    tile.alpha_composite(_masked(pic, mask.resize((inner, inner), Image.LANCZOS)), (frame, frame))
+        band_h = 22 if big else 18
+        pic.alpha_composite(Image.new("RGBA", (iw, band_h), (0, 0, 0, LEVEL_SHADE)), (0, ih - band_h))
+        ImageDraw.Draw(pic).text((iw / 2, ih - band_h / 2), f"Lv. {member.level}", font=c.FONTS.slot, fill=c.TEXT, anchor="mm")
+    mask = Image.new("L", (iw * 4, ih * 4), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, iw * 4 - 1, ih * 4 - 1), (13 if big else 10) * 4, fill=255)
+    tile.alpha_composite(_masked(pic, mask.resize((iw, ih), Image.LANCZOS)), (frame, frame))
     pill = (COPY_STYLE or COPY_STYLES["zzz"]) != "slant"
     label = copies_label("zzz", member) if copies and not pill else ""
     if label:  # over the frame too, trimmed by its outer rounded corner
         plate = Image.new("RGBA", tile.size, (0, 0, 0, 0))
         _slant_plate(plate, label, -3, 0, accent, _copy_parts("zzz", member))
-        outer = Image.new("L", (size * 4, size * 4), 0)
-        ImageDraw.Draw(outer).rounded_rectangle((0, 0, size * 4 - 1, size * 4 - 1), (18 if size > 80 else 14) * 4, fill=255)
-        tile.alpha_composite(_masked(plate, outer.resize((size, size), Image.LANCZOS)))
+        outer = Image.new("L", (w * 4, h * 4), 0)
+        ImageDraw.Draw(outer).rounded_rectangle((0, 0, w * 4 - 1, h * 4 - 1), radius * 4, fill=255)
+        tile.alpha_composite(_masked(plate, outer.resize((w, h), Image.LANCZOS)))
     card.alpha_composite(tile, (x, y))
     if copies and pill:
         _copies(card, "zzz", member, x, y, accent)
@@ -599,7 +601,7 @@ def _team(card: Image.Image, game: str, team: Team, images: dict, box, accent, c
         x += PORTRAIT + PORTRAIT_GAP
     if team.bangboo:  # smaller, sitting on the same bottom line
         b = team.bangboo
-        _zzz_portrait(card, b, images.get(b.icon_url or ""), x, top + PORTRAIT - BANGBOO, accent, BANGBOO, copies=False)
+        _zzz_portrait(card, b, images.get(b.icon_url or ""), x, top + PORTRAIT + 4 - BANGBOO, accent, BANGBOO, copies=False)
 
 
 def _band(card: Image.Image, box, colour) -> None:
