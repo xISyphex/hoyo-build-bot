@@ -72,7 +72,7 @@ def _chips(card: Image.Image, game: str, chips, x: float, cy: float, colour, lig
             for i in range(of):
                 x += _paste(card, icons.star(game, 22, i < got), x, cy) + 2
         elif kind == "rating":
-            x += _paste(card, icons.rating(value, 24, f.main), x, cy)
+            x += _paste(card, icons.rating(value, 30, f.main), x, cy)
         else:
             icon = {"score": icons.score, "time": icons.clock}.get(kind)
             if icon:
@@ -104,7 +104,7 @@ def _tile(card: Image.Image, game: str, record: Record, label: str, value: str, 
     elif key == "time":
         icon = icons.clock(26, colour)
     elif key == "rating":
-        icon, text = icons.rating(value, 30, f.main), ""
+        icon, text = icons.rating(value, 40, f.main), ""
     elif key in ("top", "adversity top"):
         flames, offset = icons.rank_badge(value, 28, f.main)
         icon, text = Image.new("RGBA", (flames.width - 2 * offset[0] - round(28 * 0.6 * icons._heat(value)), 28)), ""

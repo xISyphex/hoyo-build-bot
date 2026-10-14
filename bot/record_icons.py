@@ -191,33 +191,48 @@ def score(size: int, color: tuple[int, int, int]) -> Image.Image:
     return img.resize((size, size), Image.LANCZOS)
 
 
-RATING_COLOURS = {"S+": ((255, 210, 70), (255, 120, 30)), "S": ((255, 210, 70), (255, 140, 30)),
-                  "A": ((220, 120, 255), (140, 60, 230)), "B": ((90, 200, 255), (40, 120, 230))}
+# ZZZ's rank marks: (light top, deep bottom, the thin bright rim inside the black outline)
+RATING_COLOURS = {"S+": ((255, 196, 40), (255, 92, 10), (255, 226, 120)), "S": ((255, 176, 30), (255, 96, 10), (255, 214, 110)),
+                  "A": ((236, 110, 255), (176, 40, 236), (248, 170, 255)), "B": ((90, 196, 255), (30, 110, 236), (170, 226, 255))}
+
+
+def _shape_text(text: str, font, fatten: int) -> Image.Image:
+    """The text's shape as a mask, thickened so it reads as a heavy display face."""
+    l, t, r, b = font.getbbox(text, stroke_width=fatten)
+    mask = Image.new("L", (r - l + 2, b - t + 2), 0)
+    ImageDraw.Draw(mask).text((1 - l, 1 - t), text, font=font, fill=255, stroke_width=fatten, stroke_fill=255)
+    return mask
+
+
+@lru_cache(maxsize=None)
+def _rating_mark(letter: str, height: int, font_path: str) -> Image.Image:
+    font = ImageFont.truetype(font_path, 10)
+    top, bottom, rim = RATING_COLOURS.get(letter, ((190, 190, 190), (110, 110, 110), (230, 230, 230)))
+    h = height * SS
+    big = _shape_text(letter, font.font_variant(size=round(h * 0.95)), round(h * 0.035))
+    small = _shape_text("RANK", font.font_variant(size=round(h * 0.3)), round(h * 0.012))
+    big = big.resize((round(h * 0.86 * len(letter)), round(h * 0.7)), Image.LANCZOS)  # wide and squat, like the game's
+    small = small.resize((round(big.width * 0.96), round(h * 0.2)), Image.LANCZOS)  # RANK as wide as the letter
+    o = round(h * 0.06)  # the black outline
+    gap = round(h * 0.0)
+    w = max(big.width, small.width) + 2 * o
+    hh = big.height + gap + small.height + 2 * o
+    shape = Image.new("L", (w, hh), 0)
+    shape.paste(big, ((w - big.width) // 2, o), big)
+    shape.paste(small, ((w - small.width) // 2, o + big.height + gap), small)
+    out = Image.new("RGBA", (w, hh), (0, 0, 0, 0))
+    outline = shape.filter(ImageFilter.MaxFilter(o * 2 + 1 if o * 2 + 1 <= 99 else 99))
+    outline = outline.filter(ImageFilter.GaussianBlur(o * 0.6)).point(lambda v: 255 if v > 60 else 0)  # one blob
+    out.paste(Image.new("RGBA", (w, hh), (8, 8, 8, 255)), (0, 0), outline)
+    out.paste(Image.new("RGBA", (w, hh), rim + (255,)), (0, 0), shape)
+    inner = shape.filter(ImageFilter.MinFilter(max(3, SS * 2 + 1)))
+    out.paste(_gradient((w, hh), top, bottom), (0, 0), inner)
+    return out.resize((max(1, round(w * height / hh)), height), Image.LANCZOS)
 
 
 def rating(letter: str, height: int, font: ImageFont.FreeTypeFont) -> Image.Image:
-    """ZZZ's rating plate: a slanted plate in the rating's colour with a black rim and the letter on it."""
-    top, bottom = RATING_COLOURS.get(letter, ((180, 180, 180), (110, 110, 110)))
-    width = round(height * (1.2 + 0.32 * (len(letter) - 1)))
-    b = (width * SS, height * SS)
-    slant = b[1] * 0.28
-    poly = [(slant, 0), (b[0], 0), (b[0] - slant, b[1]), (0, b[1])]
-    mask = Image.new("L", b, 0)
-    ImageDraw.Draw(mask).polygon(poly, fill=255)
-    img = Image.new("RGBA", b, (0, 0, 0, 0))
-    img.paste(Image.new("RGBA", b, (12, 12, 12, 255)), (0, 0), mask)
-    inner = mask.filter(ImageFilter.MinFilter(SS * 2 + 1 if height < 30 else SS * 3 + 1))
-    img.paste(_gradient(b, top, bottom), (0, 0), inner)
-    img = img.resize((width, height), Image.LANCZOS)
-    big = font.font_variant(size=round(height * 0.86))
-    layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    ld = ImageDraw.Draw(layer)
-    ld.text((width / 2 + 1, height / 2 + 2), letter, font=big, fill=(12, 12, 12, 255), anchor="mm",
-            stroke_width=max(1, height // 12), stroke_fill=(12, 12, 12, 255))
-    ld.text((width / 2, height / 2 + 1), letter, font=big, fill=(255, 255, 255, 255), anchor="mm")
-    sheared = layer.transform(layer.size, Image.AFFINE, (1, 0.22, -0.11 * height, 0, 1, 0), Image.BICUBIC)
-    img.alpha_composite(sheared)
-    return img
+    """ZZZ's rank mark: a big chunky letter in the rank's colour over a small RANK, both outlined in black."""
+    return _rating_mark(letter, height, font.path)
 
 
 def _percent(text: str) -> float | None:
