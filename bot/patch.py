@@ -1,8 +1,7 @@
 """/hsr-patch: the current Star Rail version, how long it has left, and the warps running now.
 
 Everything comes from HoYoLAB's event calendar, read with the bot's own HoYoLAB login (HOYOLAB_COOKIES). HoYoLAB
-doesn't say when a version ends, so the end is taken as the last end time of anything belonging to the current
-version (its warps and its events).
+doesn't say when a version ends, so the end is taken as the last end time of the current version's warps.
 """
 
 from __future__ import annotations
@@ -52,8 +51,8 @@ def hsr_patch(calendar) -> Patch:
     version = str(calendar.cur_game_version)
     now = _real(calendar.now)
     warps = list(calendar.character_warps) + list(calendar.light_cone_warps)
-    ends = _ends(warps, version) + _ends(calendar.events, version)
-    log.info("HSR %s: warp/event ends %s", version, sorted({e.isoformat() for e in ends}))
+    ends = _ends(warps, version)  # a version ends when its last warp does (its second half's, if HoYoLAB lists it)
+    log.info("HSR %s: warp ends %s", version, sorted({e.isoformat() for e in ends}))
     banners = []
     for kind, pools in (("character", calendar.character_warps), ("light cone", calendar.light_cone_warps)):
         for warp in pools:
