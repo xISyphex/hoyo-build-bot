@@ -405,11 +405,42 @@ def _copy_parts(game: str, member) -> list[tuple[str, tuple]]:
     return [(p, RARITY_TEXT.get(rarities[i] if i < 2 else None, c.TEXT)) for i, p in enumerate(parts)]
 
 
-def _parts_text(draw: ImageDraw.ImageDraw, centre: tuple[float, float], parts, font) -> None:
-    """Pieces of text side by side, centred together on centre."""
-    total = sum(draw.textlength(p, font=font) for p, _ in parts)
-    x = centre[0] - total / 2
-    for text, colour in parts:
+SPLIT_W = 9  # room for the S-shaped line between a badge's two parts
+
+
+def _split_line(height: int, slash: bool = False) -> Image.Image:
+    """A thin white line shaped like a stretched S, curving at the top and bottom (or a straight /, for ZZZ)."""
+    k = 4
+    w, h = SPLIT_W * k, height * k
+    img = Image.new("L", (w, h), 0)
+    pts = [(w * 0.2, h), (w * 0.8, 0)] if slash else []
+    for i in range(41 if not slash else 0):
+        t = i / 40
+        # a cubic curve from the top right to the bottom left, its ends bent back the other way
+        p0, p1, p2, p3 = (w * 0.78, 0), (w * 0.05, h * 0.38), (w * 0.95, h * 0.62), (w * 0.22, h)
+        x = (1 - t) ** 3 * p0[0] + 3 * (1 - t) ** 2 * t * p1[0] + 3 * (1 - t) * t * t * p2[0] + t ** 3 * p3[0]
+        y = (1 - t) ** 3 * p0[1] + 3 * (1 - t) ** 2 * t * p1[1] + 3 * (1 - t) * t * t * p2[1] + t ** 3 * p3[1]
+        pts.append((x, y))
+    ImageDraw.Draw(img).line(pts, fill=255, width=round(1.4 * k), joint="curve")
+    mask = img.resize((SPLIT_W, height), Image.LANCZOS)
+    out = Image.new("RGBA", mask.size, (255, 255, 255, 0))
+    out.putalpha(mask.point(lambda v: v * 0.85))
+    return out
+
+
+def _parts_width(draw: ImageDraw.ImageDraw, parts, font) -> float:
+    return sum(draw.textlength(p, font=font) for p, _ in parts) + SPLIT_W * (len(parts) - 1)
+
+
+def _parts_text(draw: ImageDraw.ImageDraw, centre: tuple[float, float], parts, font, card=None, height: int = 22,
+                slash: bool = False) -> None:
+    """Pieces of text side by side, centred together on centre, an S-shaped line between them (on card)."""
+    x = centre[0] - _parts_width(draw, parts, font) / 2
+    for i, (text, colour) in enumerate(parts):
+        if i:
+            if card is not None:
+                card.alpha_composite(_split_line(height, slash), (round(x), round(centre[1] - height / 2)))
+            x += SPLIT_W
         draw.text((x, centre[1]), text, font=font, fill=colour, anchor="lm")
         x += draw.textlength(text, font=font)
 
@@ -418,11 +449,12 @@ def _slant_plate(card: Image.Image, label: str, x: float, y: float, accent, part
     """A dark slanted plate with a colour stripe, its left edge at x."""
     f = c.FONTS
     draw = ImageDraw.Draw(card)
-    w = draw.textlength(label, font=f.small_b) + 22
+    parts = parts or [(label, c.TEXT)]
+    w = _parts_width(draw, parts, f.small_b) + 22
     sl = 7
     draw.polygon([(x + sl, y), (x + w + sl, y), (x + w, y + 24), (x, y + 24)], fill=(14, 12, 24, 240))
     draw.polygon([(x + sl, y), (x + 6 + sl, y), (x + 6, y + 24), (x, y + 24)], fill=accent + (255,))
-    _parts_text(draw, (x + 10 + (w - 10) / 2 + sl / 2, y + 12), parts or [(label, c.TEXT)], f.small_b)
+    _parts_text(draw, (x + 10 + (w - 10) / 2 + sl / 2, y + 12), parts, f.small_b, card, 18, slash=True)
 
 
 def _gi_portrait(card: Image.Image, game: str, member, icon, x: int, y: int, accent) -> None:
@@ -494,9 +526,10 @@ def _copies(card: Image.Image, game: str, member, x: int, y: int, accent) -> Non
                                    fill=accent + (255,) if i == 0 else dark, outline=accent + (255,), width=1)
             draw.text((x - 4 + w / 2, top + 12), part, font=f.small_b, fill=(14, 12, 24) if i == 0 else c.TEXT, anchor="mm")
     else:  # pill
-        w = draw.textlength(label, font=f.small_b) + 14
+        parts = _copy_parts(game, member)
+        w = _parts_width(draw, parts, f.small_b) + 14
         draw.rounded_rectangle((x - 4, y - 6, x - 4 + w, y + 20), 9, fill=dark, outline=accent + (255,), width=1)
-        _parts_text(draw, (x - 4 + w / 2, y + 7), _copy_parts(game, member), f.small_b)
+        _parts_text(draw, (x - 4 + w / 2, y + 7), parts, f.small_b, card, 20)
 
 
 def _team(card: Image.Image, game: str, team: Team, images: dict, box, accent, colour, light) -> None:
