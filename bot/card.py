@@ -1002,6 +1002,15 @@ class CardMaker:
         self.cards[key] = png
         return png
 
+    async def render_records(self, game: str, uid: str, records, nickname: str | None = None) -> bytes:
+        """The battle records image (see records_card)."""
+        from .records_card import draw_records
+
+        urls = list({m.icon_url for r in records for t in r.teams for m in t.members if m.icon_url})
+        loaded = await asyncio.gather(*(self._image(u, big=False) for u in urls))
+        images = {u: img for u, img in zip(urls, loaded) if img is not None}
+        return await asyncio.to_thread(draw_records, game, uid, records, images, nickname)
+
     async def _image(self, url: str, big: bool) -> Image.Image | None:
         path = self.dir / (hashlib.sha1(url.encode()).hexdigest() + ".png")
         if path.exists():

@@ -27,6 +27,7 @@ from .games import zenless as zz
 from .games import fmt_int
 from .hoyolab_links import LinkStore
 from .models import CharacterBuild, Gear, Stat, Weapon
+from .records import Record, read_records
 
 log = logging.getLogger(__name__)
 
@@ -288,6 +289,14 @@ ERRORS = (
     (genshin.InvalidCookies, "The bot's HoYoLAB login has expired, so only showcase characters work for now."),
 )
 
+RECORD_ERRORS = (
+    (genshin.DataNotPublic, "Their HoYoLAB Battle Chronicle is private, so their battle records can't be shown."
+                            " They can make it public in HoYoLAB, or link their own account with `/hoyolab link`."),
+    (genshin.AccountNotFound, "They don't have a HoYoLAB profile for this game, so there are no battle records to show."),
+    (genshin.TooManyRequests, "The bot has reached HoYoLAB's daily limit of 30 players. Try again tomorrow."),
+    (genshin.InvalidCookies, "The bot's HoYoLAB login has expired, so battle records can't be read right now."),
+)
+
 
 class HoyolabClient:
     """Reads HoYoLAB with the login of whoever linked the UID (/hoyolab link), else with the server's own
@@ -367,6 +376,22 @@ class HoyolabClient:
             for k in [k for k, (expires, _) in self._failed.items() if expires < now]:
                 self._failed.pop(k, None)
             return builds
+
+    async def records(self, game: str, uid: str, modes: list[str]) -> list[Record]:
+        """The player's battle records for these modes (see records.py)."""
+        client, linked = self._client_for(game, uid)
+        if client is None:
+            raise HoyolabError("Battle records come from HoYoLAB, and the bot has no HoYoLAB login set up.")
+        try:
+            return await read_records(client, game, int(uid), modes)
+        except genshin.GenshinException as exc:
+            if linked and isinstance(exc, genshin.InvalidCookies):
+                raise HoyolabError("Their HoYoLAB link has expired. They can run `/hoyolab link` again.") from exc
+            message = next((m for kind, m in RECORD_ERRORS if isinstance(exc, kind)), None)
+            if message is None:
+                log.warning("HoYoLAB records error for %s %s: %s", game, uid, exc)
+                message = "HoYoLAB returned an error. Try again later."
+            raise HoyolabError(message) from exc
 
     async def _fetch(self, client: genshin.Client, game: str, uid: int) -> list[CharacterBuild]:
         builds = []

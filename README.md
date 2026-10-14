@@ -95,6 +95,18 @@ hour to appear the first time.
 | `HOYOLAB_LINKS_KEY` | no | The key itself instead of a key file (for Docker, where the bot's folder is rebuilt). |
 | `HOYOLAB_COOKIES` | no | `ltuid_v2=...; ltoken_v2=...` from a HoYoLAB login. Turns on characters that aren't on the showcase (see below). Keep it out of git. |
 
+## Battle records
+
+`/hsr-records`, `/zzz-records` and `/genshin-records` draw a player's endgame
+runs from HoYoLAB as one picture. `modes` picks which ones and in what order
+(empty means all): Star Rail `moc pf apoc aa`, ZZZ `sd da`, Genshin
+`abyss theater stygian`. Each mode shows its score or stars and cycles (ZZZ
+also the ranking percentile) and the teams used; every portrait carries the
+character's copies and their weapon's (E2S1, C0R1, M6P1). HoYoLAB's records
+only carry the character's own copies, so the weapon's come from the player's
+HoYoLAB character list or showcase, when one is available. Needs a HoYoLAB
+login (the server's or the player's own `/hoyolab link`) and counts as a lookup.
+
 ## Characters off the showcase (HoYoLAB)
 
 Enka only sees the 8 (Genshin) or 4 (Star Rail, ZZZ) characters on a player's
