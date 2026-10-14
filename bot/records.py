@@ -242,6 +242,7 @@ def hsr_aa(data) -> Record:
                                   [_hsr_member(c) for c in mob.characters], art=getattr(info, "icon", None)))
     boss = record.boss_record
     if boss and boss.has_data:
+        rec.headline.insert(2, ("King cycles", str(boss.cycles_used)))
         mode = f" · {record.boss.game_mode_name}" if boss.is_hard_mode and record.boss.game_mode_name else ""
         rec.teams.append(Team(f"{record.boss.name}{mode}", [("stars", f"{boss.stars}/3"), ("cycles", str(boss.cycles_used))],
                               [_hsr_member(c) for c in boss.characters], stage="King", art=getattr(record.boss, "icon", None)))
@@ -303,6 +304,8 @@ def zzz_da(data) -> Record:
     hard = list(getattr(data, "hard_challenges", None) or ())  # Adversity Mode, the extra boss
     for c in hard:
         rec.teams.append(_da_team(c, "Adversity Mode"))
+    if hard:
+        rec.headline.append(("Adversity stars", str(sum(c.star for c in hard))))
     if hard and getattr(data, "hard_rank_percent", None):
         rec.headline.append(("Adversity top", data.hard_rank_percent))
     return rec

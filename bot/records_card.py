@@ -88,7 +88,7 @@ def _tile(card: Image.Image, game: str, record: Record, label: str, value: str, 
     draw = ImageDraw.Draw(card)
     key = label.lower()
     icon, text, suffix = None, value, ""
-    if key == "stars":
+    if key in ("stars", "adversity stars"):
         icon = icons.star(game, 30)
         text, _, rest = value.partition(" / ")
         suffix = f"/{rest}" if rest else ""

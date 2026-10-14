@@ -54,6 +54,7 @@ class ReadersTest(unittest.TestCase):
                          ["Wolf Knight", "Lion Knight", "Stag Knight", "Sovereign of Thrones · Hard Mode"])
         self.assertEqual(rec.teams[3].chips, [("stars", "3/3"), ("cycles", "4")])
         self.assertEqual([t.stage for t in rec.teams], ["", "", "", "King"])
+        self.assertEqual(dict(rec.headline)["King cycles"], "4")
 
     def test_zzz_ranking(self):
         sd, da = R.zzz_sd(F.sd()), R.zzz_da(F.da())
@@ -63,6 +64,7 @@ class ReadersTest(unittest.TestCase):
         self.assertEqual(len(da.teams), 4)
         self.assertEqual((da.teams[3].stage, da.teams[3].label), ("Adversity Mode", "Notorious - Miasma Priest"))
         self.assertEqual(dict(da.headline)["Adversity top"], "11.3%")
+        self.assertEqual(dict(da.headline)["Adversity stars"], "3")
 
     def test_genshin(self):
         self.assertEqual(len(R.gi_abyss(F.abyss()).teams), 6)
