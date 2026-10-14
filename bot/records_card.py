@@ -559,7 +559,7 @@ def _copies(card: Image.Image, game: str, member, x: int, y: int, accent) -> Non
         parts = _copy_parts(game, member)
         w = _parts_width(draw, parts, f.small_b) + 14
         draw.rounded_rectangle((x - 4, y - 6, x - 4 + w, y + 20), 9, fill=dark, outline=accent + (255,), width=1)
-        _parts_text(draw, (x - 4 + w / 2, y + 7), parts, f.small_b, card, 20, slash=game == "zzz")
+        _parts_text(draw, (x - 4 + w / 2, y + 7), parts, f.small_b, card, 20)
 
 
 def _team(card: Image.Image, game: str, team: Team, images: dict, box, accent, colour, light) -> None:
