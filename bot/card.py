@@ -901,7 +901,12 @@ BADGE_FILL = "stars"  # behind the badge number: "face", "weapon", "symbol" (ele
 
 
 def _cons_marks(card: Image.Image, build: CharacterBuild, accent, light, images: dict[str, Image.Image]) -> None:
-    """The constellation badge at the top left of the art; BADGE_FILL picks what's in its disc."""
+    """The six constellation / eidolon / mindscape marks down the left of the art, owned ones lit. With SHOW_BADGE the
+    old round badge with the number sits above them (BADGE_FILL picks what's in its disc)."""
+    n = max(0, min(build.constellation, 6))
+    if not SHOW_BADGE:
+        _cons_column(card, build, n, accent, light, images, PAD + 26, CONS_TOP - 14)
+        return
     icon = None
     if BADGE_FILL == "face":
         icon = images.get(build.icon_url or "")
@@ -913,7 +918,6 @@ def _cons_marks(card: Image.Image, build: CharacterBuild, accent, light, images:
             icon = _snowflake()
     size = (CONS_W * SS, (CONS_BOTTOM - CONS_TOP) * SS)
     img = Image.new("RGBA", size, (0, 0, 0, 0))
-    n = max(0, min(build.constellation, 6))
     if build.game == "genshin":
         _genshin_marks(img, n, accent, light, icon)
     elif build.game == "hsr":
@@ -926,16 +930,16 @@ def _cons_marks(card: Image.Image, build: CharacterBuild, accent, light, images:
     _cons_column(card, build, n, accent, light, images, PAD - 14 + img.width / 2, badge_bottom)
 
 
-CONS_ICON = 34  # each constellation icon in the column under the badge
+SHOW_BADGE = False  # the round badge with the number above the column (Syphex chose the column alone, 2026-10-14)
+CONS_ICON = 40  # each constellation icon in the column
 
 
 def _cons_column(card: Image.Image, build: CharacterBuild, n: int, accent, light, images: dict[str, Image.Image],
                  cx: float, top: float) -> None:
-    """The six constellation / eidolon icons from top to bottom under the badge: unlocked ones lit in the
-    character's colour on a glowing disc, locked ones dim grey. Left out for ZZZ, whose mindscapes have no icons."""
+    """The six constellation / eidolon icons from top to bottom: unlocked ones lit in the character's colour on a
+    glowing disc, locked ones dim grey. ZZZ's mindscapes have no icons, so like HoYoLAB they're numbered circles."""
     icons = [images.get(u) for u in build.cons_icons[:6]]
-    if len(icons) < 6 or not any(icons):
-        return
+    icons += [None] * (6 - len(icons))
     bottom = H - PAD - 186  # above the weapon
     step = (bottom - top) / 6
     d = CONS_ICON + 10  # the disc around an icon
@@ -953,7 +957,9 @@ def _cons_column(card: Image.Image, build: CharacterBuild, n: int, accent, light
             glow = glow.filter(ImageFilter.GaussianBlur(6))
             card.alpha_composite(glow, (round(cx - d / 2 - 12), round(cy - d / 2 - 12)))
         card.alpha_composite(disc, (round(cx - d / 2), round(cy - d / 2)))
-        if icon is None:
+        if icon is None:  # a number instead, slanted like HoYoLAB's
+            _slanted(card, (cx + 1, cy + FONTS.main.size / 2 - 1), str(i + 1), FONTS.main,
+                     light + (255,) if lit else (150, 150, 162, 200))
             continue
         mark = icon.convert("RGBA").resize((CONS_ICON, CONS_ICON), Image.LANCZOS)
         alpha = mark.getchannel("A")
