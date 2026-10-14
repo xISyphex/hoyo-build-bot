@@ -9,6 +9,8 @@ from __future__ import annotations
 import datetime as dt
 import io
 
+import dataclasses
+
 from PIL import Image, ImageDraw, ImageFilter
 
 from . import card as c
@@ -21,8 +23,8 @@ PAD = 36
 GAP = 18
 COLS = 2
 CARD_W = (W - 2 * PAD - (COLS - 1) * GAP) // COLS
-CARD_H = 186
-ART_W, ART_H = 132, 160  # the featured item's picture
+CARD_H = 206
+ART_W, ART_H = 144, 180  # the featured item's picture
 SMALL = 58  # the 4-star / A-rank items
 HEAD = 196  # title, countdown and the version bar
 SECTION_HEAD = 46
@@ -130,7 +132,7 @@ def _bar(card: Image.Image, patch: Patch, now: dt.datetime, y: int, accent, ligh
     draw.text((x1, y + h + 16), _day(end, patch.server), font=f.stamp, fill=c.DIM, anchor="rm")
 
 
-def _banner(card: Image.Image, b: Banner, images: dict, box, accent, now: dt.datetime, show_end: bool, server) -> None:
+def _banner(card: Image.Image, b: Banner, images: dict, box, accent, now: dt.datetime, server) -> None:
     f = c.FONTS
     x0, y0, x1, y1 = box
     c._panel(card, box, 18, (255, 255, 255, 12))
@@ -159,8 +161,18 @@ def _banner(card: Image.Image, b: Banner, images: dict, box, accent, now: dt.dat
     if rest:
         line = ", ".join(r[0] for r in rest)
         draw.text((tx, y0 + 56 + SMALL + 18), c._fit_text(draw, line, f.small, width), font=f.small, fill=c.DIM, anchor="lm")
-    if show_end:
-        _pill(card, x1 - 14, y1 - 26, f"ends in {_short(b.end - now)}", accent, f.small_b, icons.clock(18, (230, 230, 240)))
+    # Its time left, in the bottom-right corner
+    _pill(card, x1 - 18, y1 - 34, f"ends in {_short(b.end - now)}", accent, f.small_b, icons.clock(18, (230, 230, 240)))
+
+
+def _split(b: Banner) -> list[Banner]:
+    """One card per featured item: a banner with two (ZZZ's channels, Genshin's weapon wish) becomes two cards
+    sharing the 4-star / A-rank items."""
+    tops = [i for i in b.items if i[1]]
+    if len(tops) < 2:
+        return [b]
+    rest = [i for i in b.items if not i[1]]
+    return [dataclasses.replace(b, featured=[t[0]], icon=t[2], items=[t] + rest) for t in tops]
 
 
 def _rows(n: int) -> int:
@@ -174,10 +186,11 @@ def draw_patch(patch: Patch, images: dict[str, Image.Image], now: dt.datetime | 
     game, server = patch.game, patch.server
     accent = GAME_ACCENT[game]
     light = c._mix(accent, (255, 255, 255), 0.45)
-    running = [b for b in patch.banners if b.start <= now < b.end]
+    running = [one for b in patch.banners if b.start <= now < b.end for one in _split(b)]
     sections = [(k, [b for b in running if b.kind == k]) for k in KINDS[game]]
     sections = [(k, bs) for k, bs in sections if bs]
-    upcoming = sorted((b for b in patch.banners if b.start > now and b.featured), key=lambda b: b.start)[:6]
+    upcoming = sorted((one for b in patch.banners if b.start > now and b.featured for one in _split(b)),
+                      key=lambda b: b.start)[:6]
     height = HEAD + sum(SECTION_HEAD + _rows(len(bs)) * (CARD_H + GAP) for _, bs in sections) + PAD
     if not sections:
         height += 60
@@ -211,17 +224,11 @@ def draw_patch(patch: Patch, images: dict[str, Image.Image], now: dt.datetime | 
         draw = ImageDraw.Draw(card)
         draw.rounded_rectangle((PAD, y + 12, PAD + 4, y + 34), 2, fill=accent + (255,))
         draw.text((PAD + 16, y + 23), kind, font=f.stat_b, fill=c.TEXT, anchor="lm")
-        ends = {b.end for b in banners}
-        shared = len(ends) == 1
-        if shared:
-            end = ends.pop()
-            _pill(card, W - PAD, y + 23, f"ends in {_short(end - now)}", accent, f.small_b,
-                  icons.clock(18, (230, 230, 240)))
         y += SECTION_HEAD
         for i, b in enumerate(banners):
             bx = PAD + (i % COLS) * (CARD_W + GAP)
             by = y + (i // COLS) * (CARD_H + GAP)
-            _banner(card, b, images, (bx, by, bx + CARD_W, by + CARD_H), accent, now, not shared, server)
+            _banner(card, b, images, (bx, by, bx + CARD_W, by + CARD_H), accent, now, server)
         y += _rows(len(banners)) * (CARD_H + GAP)
     if not sections:
         ImageDraw.Draw(card).text((PAD, y + 30), "No banners are running right now.", font=f.stat, fill=c.DIM, anchor="lm")
