@@ -30,6 +30,7 @@ from .models import CharacterBuild, Gear, Stat, Weapon
 from .records import Record, read_records
 
 log = logging.getLogger(__name__)
+CALENDAR_SECONDS = 45 * 60  # the server login's calendars are read again every 30 minutes (warm_calendars)
 
 CACHE_SECONDS = 30 * 60
 NOTE = "From HoYoLAB: this character isn't on the player's in-game showcase."
@@ -436,7 +437,7 @@ class HoyolabClient:
     async def patch(self, game: str, linked_uid: str | None = None):
         """The game's current version, its end and its banners, from HoYoLAB's calendars. Read with the caller's own
         login when they linked an account in this game (linked_uid, one of their own), else with the server's own
-        login for its own account. The result's server is the one the times were read on. Kept for 10 minutes."""
+        login for its own account. The result's server is the one the times were read on. Kept for CALENDAR_SECONDS."""
         uid = linked_uid
         if uid and self.links and self.links.cookies_for(game, uid):
             client, _ = self._client_for(game, uid)
@@ -472,8 +473,7 @@ class HoyolabClient:
             elif game == "genshin":
                 info = patches.genshin_patch(await client.get_genshin_event_calendar(uid))
             else:
-                gacha = await client.get_zzz_gacha_calendar(uid)
-                events = await client.get_zzz_event_calendar(uid)
+                gacha, events = await asyncio.gather(client.get_zzz_gacha_calendar(uid), client.get_zzz_event_calendar(uid))
 
                 def weapon_name(weapon_id) -> str | None:
                     meta = self.assets.data.get("zzz_weapons", {}).get(str(weapon_id), {})
@@ -484,8 +484,18 @@ class HoyolabClient:
             log.warning("Could not read the %s calendar: %s", game, exc)
             raise HoyolabError("HoYoLAB didn't answer just now. Try again in a bit.") from exc
         info.server = server_name(game, str(uid))
-        self._calendars[key] = (time.monotonic() + 600, info)
+        self._calendars[key] = (time.monotonic() + CALENDAR_SECONDS, info)
         return info
+
+    async def warm_calendars(self, games) -> None:
+        """Reads every game's calendar with the server's own login ahead of time (and again before it expires), so
+        the patch commands answer straight from memory. Failures are only logged; the command reads it then."""
+        for game in games:
+            self._calendars.pop((game, ""), None)
+            try:
+                await self.patch(game)
+            except Exception as exc:
+                log.info("Couldn't read the %s calendar ahead of time: %s", game, exc)
 
     async def learn_own(self) -> None:
         """Reads the Genshin substat recommendations of every character on the server's own HoYoLAB account (they

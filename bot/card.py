@@ -1021,6 +1021,16 @@ class CardMaker:
         images = {u: img for u, img in zip(urls + art, loaded) if img is not None}
         return await asyncio.to_thread(draw_records, game, uid, records, images, nickname)
 
+    async def render_patch(self, info) -> bytes:
+        """The /<game>-patch image (see patch_card)."""
+        from .patch_card import draw_patch, image_urls
+
+        now = info.now
+        urls = image_urls(info, now)
+        loaded = await asyncio.gather(*(self._image(u, big=False) for u in urls))
+        images = {u: img for u, img in zip(urls, loaded) if img is not None}
+        return await asyncio.to_thread(draw_patch, info, images, now)
+
     async def _image(self, url: str, big: bool) -> Image.Image | None:
         path = self.dir / (hashlib.sha1(url.encode()).hexdigest() + ".png")
         if path.exists():

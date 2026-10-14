@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import datetime as dt
 import io
 import logging
 import math
@@ -95,6 +96,7 @@ class HoyoBot(discord.Client):
         else:
             self.assets.load()
         self.refresh_assets.start()
+        self.warm_calendars.start()
 
         # The bot's owner (or its team on the Developer Portal) always has access and manages the list.
         app = await self.application_info()
@@ -127,7 +129,13 @@ class HoyoBot(discord.Client):
             await self.effective.refresh(self.session)
             await self.hoyolab.learn_own()
 
+    @tasks.loop(minutes=30)
+    async def warm_calendars(self) -> None:
+        """The patch commands' calendars, read ahead so the commands answer at once."""
+        await self.hoyolab.warm_calendars(GAME_NAMES)
+
     @refresh_assets.before_loop
+    @warm_calendars.before_loop
     async def _wait_ready(self) -> None:
         await self.wait_until_ready()
 
@@ -484,8 +492,15 @@ def make_patch_command(game: str) -> app_commands.Command:
             return
         # Mid-version banner switches happen at the same local time on every server, so move them to the player's
         server = server_name(game, uid) if uid else None
-        info = patch.for_server(info, info.server, server)
-        await interaction.followup.send(embed=patch.patch_embed(info))
+        info = dataclasses.replace(patch.for_server(info, info.server, server), now=dt.datetime.now(dt.timezone.utc))
+        try:
+            png = await bot.cards.render_patch(info)
+        except Exception:
+            log.exception("Could not draw the %s patch card", game)
+            await interaction.followup.send(embed=patch.patch_embed(info))
+            return
+        text = f"Version {info.version} ends <t:{int(info.end.timestamp())}:f> (<t:{int(info.end.timestamp())}:R>)" if info.end else ""
+        await interaction.followup.send(text, file=discord.File(io.BytesIO(png), filename="patch.png"))
 
     return command
 
