@@ -105,6 +105,15 @@ def guide_message(bot_name: str, per_hour: int, app_id: int | None = None, welco
     )
     section(
         1,
+        "Battle records",
+        " ".join(f"`/{cmd}-records`" for cmd, _ in GAMES)
+        + "\nYour endgame runs as one picture: scores, cycles, rankings and the teams you used, with every"
+        " character's copies and their weapon's. Name the modes you want, or leave `modes` empty for all of them."
+        " These come from HoYoLAB, so they work best after `/hoyolab link`."
+        "\nExample: `/hsr-records modes:moc pf`",
+    )
+    section(
+        1,
         "Rules",
         "Without `/hoyolab link`, I can only show characters in the player's in-game showcase, with character details turned on."
         " After changing the showcase, give the data a few minutes to update. Even I can't rush that.\n"

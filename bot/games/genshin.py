@@ -212,10 +212,14 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
             set_bonuses.append(f"2pc {set_name}")
 
     side_icon = meta.get("SideIconName")
-    icon = art = None
+    icon = art = outfit = None
     if side_icon:
         icon = "https://enka.network" + side_icon.replace("_Side", "")
         art = "https://enka.network" + side_icon.replace("UI_AvatarIcon_Side_", "UI_Gacha_AvatarImg_")
+    costume = (meta.get("Costumes") or {}).get(str(info.get("costumeId", "")))
+    if costume:  # wearing an outfit: its icon and art instead
+        outfit = icon = "https://enka.network" + costume["Icon"] if costume.get("Icon") else icon
+        art = "https://enka.network" + costume["Art"] if costume.get("Art") else art
 
     return CharacterBuild(
         game="genshin",
@@ -232,6 +236,7 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
         gear=gear,
         set_bonuses=set_bonuses,
         art_url=art,
+        outfit_icon=outfit,
         # Enka has no Cryo icon under this name; the card draws a snowflake instead
         path_icon=f"https://enka.network/ui/UI_GachaTypeIcon_{WEAPON_ICONS[kind]}.png" if (kind := meta.get("WeaponType")) in WEAPON_ICONS else None,
         element_icon=f"https://enka.network/ui/UI_Buff_Element_{element}.png" if element in ELEMENT_ICONS else None,

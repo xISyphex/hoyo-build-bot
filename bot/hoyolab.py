@@ -27,6 +27,7 @@ from .games import zenless as zz
 from .games import fmt_int
 from .hoyolab_links import LinkStore
 from .models import CharacterBuild, Gear, Stat, Weapon
+from .records import Record, read_records
 
 log = logging.getLogger(__name__)
 
@@ -208,9 +209,12 @@ def starrail_build(assets: Assets, char) -> CharacterBuild:
     gear.sort(key=lambda g: sr.SLOT_ORDER.index(g.slot) if g.slot in sr.SLOT_ORDER else 99)
     if not properties:
         notes.append("HoYoLAB doesn't share this player's stats or relic stats, only levels and gear.")
+    outfit = getattr(char, "is_wearing_outfit", False)  # HoYoLAB's pictures then show the outfit
     return dataclasses.replace(
         skeleton, level=char.level, constellation=char.rank, stats=stats, talents=talents or skeleton.talents,
         weapon=weapon, gear=gear, set_bonuses=_sets(gear), notes=notes, source="hoyolab",
+        art_url=char.image if outfit and getattr(char, "image", None) else skeleton.art_url,
+        outfit_icon=char.icon if outfit and getattr(char, "icon", None) else None,
     )
 
 
@@ -275,6 +279,8 @@ def zzz_build(assets: Assets, agent) -> CharacterBuild:
     return dataclasses.replace(
         skeleton, level=agent.level, constellation=agent.rank, stats=stats or skeleton.stats,
         talents=talents or skeleton.talents, weapon=weapon, gear=gear, set_bonuses=_sets(gear), notes=[NOTE], source="hoyolab",
+        # in an outfit, HoYoLAB's full picture shows it
+        art_url=agent.banner_icon if getattr(agent, "outfit_id", None) and getattr(agent, "banner_icon", None) else skeleton.art_url,
     )
 
 
@@ -286,6 +292,14 @@ ERRORS = (
     (genshin.AccountNotFound, "They don't have a HoYoLAB profile for this game, so I can't see the rest of their characters."),
     (genshin.TooManyRequests, "The bot has reached HoYoLAB's daily limit of 30 players. Characters off the showcase work again tomorrow."),
     (genshin.InvalidCookies, "The bot's HoYoLAB login has expired, so only showcase characters work for now."),
+)
+
+RECORD_ERRORS = (
+    (genshin.DataNotPublic, "Their HoYoLAB Battle Chronicle is private, so their battle records can't be shown."
+                            " They can make it public in HoYoLAB, or link their own account with `/hoyolab link`."),
+    (genshin.AccountNotFound, "They don't have a HoYoLAB profile for this game, so there are no battle records to show."),
+    (genshin.TooManyRequests, "The bot has reached HoYoLAB's daily limit of 30 players. Try again tomorrow."),
+    (genshin.InvalidCookies, "The bot's HoYoLAB login has expired, so battle records can't be read right now."),
 )
 
 
@@ -367,6 +381,22 @@ class HoyolabClient:
             for k in [k for k, (expires, _) in self._failed.items() if expires < now]:
                 self._failed.pop(k, None)
             return builds
+
+    async def records(self, game: str, uid: str, modes: list[str]) -> list[Record]:
+        """The player's battle records for these modes (see records.py)."""
+        client, linked = self._client_for(game, uid)
+        if client is None:
+            raise HoyolabError("Battle records come from HoYoLAB, and the bot has no HoYoLAB login set up.")
+        try:
+            return await read_records(client, game, int(uid), modes)
+        except genshin.GenshinException as exc:
+            if linked and isinstance(exc, genshin.InvalidCookies):
+                raise HoyolabError("Their HoYoLAB link has expired. They can run `/hoyolab link` again.") from exc
+            message = next((m for kind, m in RECORD_ERRORS if isinstance(exc, kind)), None)
+            if message is None:
+                log.warning("HoYoLAB records error for %s %s: %s", game, uid, exc)
+                message = "HoYoLAB returned an error. Try again later."
+            raise HoyolabError(message) from exc
 
     async def _fetch(self, client: genshin.Client, game: str, uid: int) -> list[CharacterBuild]:
         builds = []

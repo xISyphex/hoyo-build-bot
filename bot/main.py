@@ -17,7 +17,7 @@ import genshin
 from discord import app_commands
 from discord.ext import tasks
 
-from . import matching
+from . import matching, records
 from .access import PRIVATE, AccessList
 from .assets import Assets
 from .claims import ClaimStore
@@ -102,6 +102,7 @@ class HoyoBot(discord.Client):
         for game in GAME_NAMES:
             self.tree.add_command(make_command(game))
             self.tree.add_command(make_claim_command(game))
+            self.tree.add_command(make_records_command(game))
         self.tree.add_command(AccessGroup())
         self.tree.add_command(HoyolabGroup())
         self.tree.add_command(help_command)
@@ -296,6 +297,93 @@ def make_command(game: str) -> app_commands.Command:
         # Every character in the game is suggested; the player's own come first when nothing is typed yet.
         names = list(dict.fromkeys(names + bot.assets.character_names(game)))
         return [app_commands.Choice(name=n, value=n) for n in matching.suggest(current, names)]
+
+    return command
+
+
+def make_records_command(game: str) -> app_commands.Command:
+    keys = [m.key for m in records.MODES[game]]
+    modes_help = ", ".join(f"{m.key} ({m.title})" for m in records.MODES[game])
+
+    @app_commands.command(name=f"{game}-records", description=f"Show a player's {GAME_NAMES[game]} battle records")
+    @app_commands.describe(
+        modes=f"Which modes, e.g. `{' '.join(keys[:2])}`. Leave empty for all: {modes_help}"[:100],
+        uid="In-game UID. Leave empty to use the one you claimed with /" + game + "-claim",
+    )
+    async def command(interaction: discord.Interaction, modes: str | None = None, uid: str | None = None) -> None:
+        bot: HoyoBot = interaction.client  # type: ignore[assignment]
+        picked, unknown = records.parse_modes(game, modes)
+        if unknown:
+            await interaction.response.send_message(
+                f"I don't know `{' '.join(unknown)}`. The modes are: {modes_help}.", ephemeral=True)
+            return
+        uid = resolve_uid(bot.claims, interaction.user.id, game, uid)
+        if uid is None:
+            await interaction.response.send_message(
+                f"Add a `uid`, or claim your own once with `/{game}-claim` so you can leave it out.", ephemeral=True)
+            return
+        if not UID_RE.match(uid):
+            await interaction.response.send_message("A UID is 8 to 10 digits, like `618285856`.", ephemeral=True)
+            return
+        if not bot.hoyolab.available(game, uid):
+            await interaction.response.send_message(
+                "Battle records come from HoYoLAB. Link your account with `/hoyolab link` to see your own.", ephemeral=True)
+            return
+        if not bot.access.is_owner(interaction.user.id):
+            next_free = bot.lookups.take(interaction.user.id)
+            if next_free is not None:
+                await interaction.response.send_message(
+                    f"You've used your {bot.lookups.per_hour} lookups for this hour. "
+                    f"You can look up again <t:{math.ceil(next_free)}:R>.",
+                    ephemeral=True,
+                )
+                return
+        await interaction.response.defer(thinking=True)
+        try:
+            found = await bot.hoyolab.records(game, uid, picked)
+        except HoyolabError as exc:
+            await interaction.followup.send(str(exc))
+            return
+        # Weapon copies come from the player's characters: HoYoLAB's list if it shares it, else their showcase.
+        builds: list[CharacterBuild] = []
+        try:
+            builds += await bot.hoyolab.fetch(game, uid)
+        except HoyolabError:
+            pass
+        # The in-game name (and showcase builds) from Enka; a recent lookup is reused
+        profile = bot.enka.cached(game, uid)
+        if profile is None:
+            try:
+                profile = await bot.enka.fetch(game, uid)
+            except Exception as exc:
+                log.info("No Enka profile for %s %s: %s", game, uid, exc)
+        if profile:
+            builds += profile.characters
+        records.fill_copies(found, builds)
+        try:
+            png = await bot.cards.render_records(game, uid, found, profile.nickname if profile else None)
+        except Exception:
+            log.exception("Could not draw the %s battle records for %s", game, uid)
+            await interaction.followup.send("Something went wrong drawing the battle records. Try again later.")
+            return
+        await interaction.followup.send(file=discord.File(io.BytesIO(png), filename="records.png"))
+
+    @command.autocomplete("modes")
+    async def modes_autocomplete(interaction: discord.Interaction, current: str):
+        """Completes the last word typed, keeping the ones before it."""
+        words = current.split()
+        done = words if current.endswith(" ") or not words else words[:-1]
+        last = "" if current.endswith(" ") or not words else words[-1].lower()
+        prefix = " ".join(done)
+        options = []
+        for m in records.MODES[game]:
+            if m.key in done or not m.key.startswith(last):
+                continue
+            value = f"{prefix} {m.key}".strip()
+            options.append(app_commands.Choice(name=f"{value}  ({m.title})"[:100], value=value))
+        if not done and not last:
+            options.insert(0, app_commands.Choice(name="All modes", value=" ".join(keys)))
+        return options[:25]
 
     return command
 
