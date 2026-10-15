@@ -385,6 +385,26 @@ class HoyolabClient:
                 self._failed.pop(k, None)
             return builds
 
+    async def zzz_agents(self, uid: str, ids: list[str]) -> list[CharacterBuild]:
+        """Just these ZZZ agents' builds (one HoYoLAB request each, so far fewer than all of them): what the battle
+        records need for W-Engine phases. The full list is used instead when it's already cached."""
+        if (hit := self.cached("zzz", uid)) is not None:
+            return [b for b in hit if b.character_id.split("-")[0] in ids]
+        client, _ = self._client_for("zzz", uid)
+        if client is None or not ids:
+            return []
+        builds = []
+        try:
+            for start in range(0, len(ids), 5):  # a few at a time
+                for item in await client.get_zzz_agent_info([int(i) for i in ids[start:start + 5]], uid=int(uid)):
+                    try:
+                        builds.append(zzz_build(self.assets, item))
+                    except Exception:
+                        log.exception("Could not read a HoYoLAB zzz agent (%s)", getattr(item, "id", "?"))
+        except Exception as exc:
+            log.info("No ZZZ agent details for %s: %s", uid, exc)
+        return builds
+
     async def records(self, game: str, uid: str, modes: list[str]) -> list[Record]:
         """The player's battle records for these modes (see records.py)."""
         client, linked = self._client_for(game, uid)
