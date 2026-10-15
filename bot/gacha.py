@@ -98,6 +98,7 @@ class Pool:
     """The off-banner 4-stars of a game."""
     characters: list[str]
     weapons: list[str]
+    threes: list[str] = dataclasses.field(default_factory=list)  # 3-star / B-rank weapons
 
 
 def pool(assets, game: str) -> Pool:
@@ -105,7 +106,11 @@ def pool(assets, game: str) -> Pool:
     d = assets.data
     chars: set[str] = set()
     weapons: set[str] = set()
+    threes: set[str] = set()
     if game == "genshin":
+        for info in d.get("gi_weapons", {}).values():
+            if info.get("Rarity") == 3:
+                threes.add(assets.gi_text(info.get("NameTextMapHash")) or "")
         for info in d.get("gi_avatars", {}).values():
             if info.get("QualityType") == "QUALITY_PURPLE":
                 chars.add(assets.gi_text(info.get("NameTextMapHash")) or "")
@@ -116,8 +121,11 @@ def pool(assets, game: str) -> Pool:
             if info.get("Rarity") == 4 and int(cid) < 8000:  # 8xxx are the Trailblazer
                 chars.add(info.get("Name") or assets.hsr_text(info.get("AvatarName", {}).get("Hash")) or "")
         for info in d.get("hsr_weapons", {}).values():
+            name = info.get("Name") or assets.hsr_text(info.get("EquipmentName", {}).get("Hash")) or ""
             if info.get("Rarity") == 4:
-                weapons.add(info.get("Name") or assets.hsr_text(info.get("EquipmentName", {}).get("Hash")) or "")
+                weapons.add(name)
+            elif info.get("Rarity") == 3:
+                threes.add(name)
     elif game == "zzz":
         for info in d.get("zzz_avatars", {}).values():
             if info.get("Rarity") == 3:  # A-rank
@@ -125,11 +133,13 @@ def pool(assets, game: str) -> Pool:
         for info in d.get("zzz_weapons", {}).values():
             if info.get("Rarity") == 3:
                 weapons.add(assets.zzz_text(info.get("ItemName")) or "")
+            elif info.get("Rarity") == 2:  # B-rank
+                threes.add(assets.zzz_text(info.get("ItemName")) or "")
 
     def clean(names: set[str]) -> list[str]:
         return sorted(n for n in names if n and "{" not in n)
 
-    return Pool(clean(chars), clean(weapons))
+    return Pool(clean(chars), clean(weapons), clean(threes))
 
 
 @dataclasses.dataclass
@@ -149,6 +159,7 @@ class BannerChoice:
     featured: list[str]
     featured_4: list[str]
     weapons_4: set[str]  # which of featured_4 are weapons (Genshin and Star Rail mix them)
+    icons: dict[str, str] = dataclasses.field(default_factory=dict)  # HoYoLAB's pictures of the banner's items
 
 
 def roll(rule: Rule, kind: str, banner: BannerChoice, game: str, pity: dict, extra: Pool,
@@ -180,7 +191,7 @@ def roll(rule: Rule, kind: str, banner: BannerChoice, game: str, pity: dict, ext
             return Pull(rng.choice(names), 4, weapon)
     else:
         pity["four"] = m
-    return Pull(THREE_STAR[game], 3, True)
+    return Pull(rng.choice(extra.threes) if extra.threes else THREE_STAR[game], 3, True)
 
 
 class GachaStore:
@@ -254,3 +265,42 @@ class GachaStore:
                 entry[1] += 1
         self._save()
         return results
+
+
+ENKA = "https://enka.network"
+
+
+def icon_index(assets, game: str) -> dict[str, str]:
+    """Picture URLs for every character and weapon in the game data, by name (for the pull and box cards)."""
+    from .games.starrail import SRR_IMAGES
+
+    d = assets.data
+    out: dict[str, str] = {}
+    if game == "genshin":
+        for info in d.get("gi_avatars", {}).values():
+            name, side = assets.gi_text(info.get("NameTextMapHash")), info.get("SideIconName")
+            if name and side:
+                out[name] = ENKA + side.replace("_Side", "")
+        for info in d.get("gi_weapons", {}).values():
+            name = assets.gi_text(info.get("NameTextMapHash"))
+            if name and info.get("Icon"):
+                out[name] = ENKA + info["Icon"]
+    elif game == "hsr":
+        for cid, info in d.get("hsr_characters", {}).items():
+            name = info.get("Name") or assets.hsr_text(info.get("AvatarName", {}).get("Hash"))
+            if name and int(cid) < 8000:
+                out[name] = f"{SRR_IMAGES}character_preview/{cid}.png"
+        for lid, info in d.get("hsr_weapons", {}).items():
+            name = info.get("Name") or assets.hsr_text(info.get("EquipmentName", {}).get("Hash"))
+            if name:
+                out[name] = f"{SRR_IMAGES}light_cone_preview/{lid}.png"
+    elif game == "zzz":
+        for info in d.get("zzz_avatars", {}).values():
+            name = assets.zzz_text(info.get("Name"))
+            if name and info.get("Image"):
+                out[name] = ENKA + info["Image"]
+        for info in d.get("zzz_weapons", {}).values():
+            name = assets.zzz_text(info.get("ItemName"))
+            if name and info.get("ImagePath"):
+                out[name] = ENKA + info["ImagePath"]
+    return {k: v for k, v in out.items() if "{" not in k}

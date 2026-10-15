@@ -1031,6 +1031,13 @@ class CardMaker:
         images = {u: img for u, img in zip(urls, loaded) if img is not None}
         return await asyncio.to_thread(draw_patch, info, images, now)
 
+    async def render_gacha(self, draw, urls: dict[str, str], *args) -> bytes:
+        """A minigame picture (see gacha_card): draw(*args, images) with the pictures in urls, by item name."""
+        names = list(urls)
+        loaded = await asyncio.gather(*(self._image(urls[n], big=False) for n in names))
+        images = {n: img for n, img in zip(names, loaded) if img is not None}
+        return await asyncio.to_thread(draw, *args, images)
+
     async def _image(self, url: str, big: bool) -> Image.Image | None:
         path = self.dir / (hashlib.sha1(url.encode()).hexdigest() + ".png")
         if path.exists():

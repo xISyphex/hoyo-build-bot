@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import datetime as dt
+import io
 import logging
 import random
 
@@ -11,6 +12,7 @@ import discord
 from discord import app_commands
 
 from . import gacha, patch
+from .gacha_card import draw_box, draw_pulls
 from .card import server_name
 from .hoyolab import HoyolabError
 
@@ -37,7 +39,8 @@ def banner_choices(info: patch.Patch) -> list[gacha.BannerChoice]:
         if kind is None or not b.featured:
             continue
         choice = gacha.BannerChoice(kind, " & ".join(b.featured), list(b.featured), list(b.others),
-                                    set(b.others) if kind == "weapon" else set())
+                                    set(b.others) if kind == "weapon" else set(),
+                                    {name: icon for name, _, icon in b.items if icon})
         if all(c.title != choice.title for c in out):
             out.append(choice)
     return sorted(out, key=lambda c: c.kind != "character")
@@ -157,7 +160,18 @@ def make_pull_command(game: str) -> app_commands.Command:
             await interaction.followup.send("You don't have that many pulls any more, Proxy.")
             return
         pity = bot.gacha.pity(interaction.user.id, game, chosen.kind)
-        await interaction.followup.send(embed=pull_embed(game, chosen, results, bot.gacha.pulls(interaction.user.id, game), pity))
+        left = bot.gacha.pulls(interaction.user.id, game)
+        box = bot.gacha.box(interaction.user.id, game)
+        fairy = random.choice(FAIRY_LINES[max(r.rarity for r in results)])
+        known = {**gacha.icon_index(bot.assets, game), **chosen.icons}
+        urls = {r.name: known[r.name] for r in results if r.name in known}
+        try:
+            png = await bot.cards.render_gacha(draw_pulls, urls, game, chosen, results, pity, left, box, fairy)
+        except Exception:
+            log.exception("Could not draw the %s pull results", game)
+            await interaction.followup.send(embed=pull_embed(game, chosen, results, left, pity))
+            return
+        await interaction.followup.send(file=discord.File(io.BytesIO(png), filename="pulls.png"))
 
     @command.autocomplete("banner")
     async def banner_autocomplete(interaction: discord.Interaction, current: str):
@@ -192,19 +206,35 @@ def box_embed(game: str, name: str, box: dict, page: str, pulls: int) -> discord
     return embed
 
 
+async def box_message(bot, game: str, name: str, box: dict, pulls: int, page: int) -> dict:
+    """The box page as a picture with its page buttons, or as an embed if drawing fails."""
+    view = BoxView(game, name, box, pulls, page)
+    key = ("characters", "weapons")[page]
+    known = gacha.icon_index(bot.assets, game)
+    urls = {n: known[n] for n in box.get(key, {}) if n in known}
+    try:
+        png = await bot.cards.render_gacha(draw_box, urls, game, name, box, page, pulls)
+    except Exception:
+        log.exception("Could not draw the %s box", game)
+        return {"embed": box_embed(game, name, box, PAGES[page], pulls), "view": view}
+    return {"file": discord.File(io.BytesIO(png), filename="box.png"), "view": view}
+
+
 class BoxView(discord.ui.View):
-    def __init__(self, game: str, name: str, box: dict, pulls: int, page: str = "characters"):
+    def __init__(self, game: str, name: str, box: dict, pulls: int, page: int = 0):
         super().__init__(timeout=600)
         self.game, self.name, self.box, self.pulls = game, name, box, pulls
-        for p, label in zip(PAGES, PAGE_TITLES[game]):
+        for p, label in enumerate(PAGE_TITLES[game]):
             button = discord.ui.Button(label=label, style=discord.ButtonStyle.primary if p == page else discord.ButtonStyle.secondary)
             button.callback = self._show(p)
             self.add_item(button)
 
-    def _show(self, page: str):
+    def _show(self, page: int):
         async def callback(interaction: discord.Interaction) -> None:
-            view = BoxView(self.game, self.name, self.box, self.pulls, page)
-            await interaction.response.edit_message(embed=box_embed(self.game, self.name, self.box, page, self.pulls), view=view)
+            await interaction.response.defer()
+            msg = await box_message(interaction.client, self.game, self.name, self.box, self.pulls, page)
+            file = msg.pop("file", None)
+            await interaction.edit_original_response(attachments=[file] if file else [], embed=msg.pop("embed", None), **msg)
         return callback
 
 
@@ -214,9 +244,8 @@ def make_box_command(game: str) -> app_commands.Command:
     async def command(interaction: discord.Interaction, user: discord.User | None = None) -> None:
         bot = interaction.client
         who = user or interaction.user
-        box = bot.gacha.box(who.id, game)
-        pulls = bot.gacha.pulls(who.id, game)
-        await interaction.response.send_message(embed=box_embed(game, who.display_name, box, "characters", pulls),
-                                                view=BoxView(game, who.display_name, box, pulls))
+        await interaction.response.defer(thinking=True)
+        msg = await box_message(bot, game, who.display_name, bot.gacha.box(who.id, game), bot.gacha.pulls(who.id, game), 0)
+        await interaction.followup.send(**msg)
 
     return command

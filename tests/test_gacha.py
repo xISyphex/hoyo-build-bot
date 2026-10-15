@@ -138,3 +138,21 @@ class BannerChoiceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CardTests(unittest.TestCase):
+    def test_pull_and_box_cards_draw_without_pictures(self) -> None:
+        from io import BytesIO
+
+        from PIL import Image
+
+        from bot.gacha_card import draw_box, draw_pulls
+
+        for game in ("genshin", "hsr", "zzz"):
+            results = [gacha.Pull("Furina", 5, False, False, 77), gacha.Pull("Bennett", 4, False, True),
+                       gacha.Pull("Debate Club", 3, True)]
+            box = {"characters": {"Furina": [5, 1], "Bennett": [4, 3]}}
+            pulls = Image.open(BytesIO(draw_pulls(game, CHAR, results, {"five": 0, "guarantee": True}, 4, box, "Hi", {})))
+            self.assertEqual(pulls.width, 1200)
+            for page in (0, 1):
+                self.assertEqual(Image.open(BytesIO(draw_box(game, "Proxy", box, page, 4, {}))).width, 1200)
