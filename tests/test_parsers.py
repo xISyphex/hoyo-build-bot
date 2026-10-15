@@ -375,7 +375,9 @@ class EmbedTest(unittest.TestCase):
         tree.add_command(make_claim_command("genshin"))
         payload = tree.get_command("genshin").to_dict(tree)
         # Character first so the UID can be left out when the caller has claimed one.
-        self.assertEqual([o["name"] for o in payload["options"]], ["character", "uid"])
+        self.assertEqual([o["name"] for o in payload["options"]], ["character", "uid", "server"])
+        self.assertEqual([c["value"] for c in payload["options"][2]["choices"]], ["America", "Europe", "Asia", "TW/HK/MO"])
+        self.assertLessEqual(len(payload["options"][2]["description"]), 100)
         self.assertTrue(payload["options"][0]["autocomplete"])
         self.assertTrue(payload["options"][0]["required"])
         self.assertFalse(payload["options"][1].get("required", False))
@@ -392,6 +394,7 @@ class EmbedTest(unittest.TestCase):
         showcase = SimpleNamespace(characters=[SimpleNamespace(name="Furina")])
         bot = SimpleNamespace(
             claims=SimpleNamespace(get=lambda *a: None),
+            links=SimpleNamespace(uids=lambda user: None),
             enka=SimpleNamespace(cached=lambda game, uid: showcase),
             hoyolab=SimpleNamespace(available=lambda game, uid: False),
             assets=self.assets,

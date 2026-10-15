@@ -60,3 +60,24 @@ class ResolveUidTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LinkedUidTests(unittest.TestCase):
+    def test_linked_uids_are_claimed_and_picked_by_server(self) -> None:
+        from types import SimpleNamespace
+
+        from bot.main import claim_linked, resolve_uid
+
+        with tempfile.TemporaryDirectory() as d:
+            store = ClaimStore(Path(d) / "claims.json")
+            store.set(1, "genshin", "618285856")  # claimed by hand: kept
+            linked = {"genshin": ["700000001"], "hsr": ["700000002", "800000003"]}
+            links = SimpleNamespace(uids=lambda user: linked if user == 1 else None)
+            self.assertEqual(claim_linked(store, 1, linked), {"hsr": "700000002"})
+            self.assertEqual(store.get(1, "genshin"), "618285856")
+            # No server: the first one; a server picks that account; a server with none gives nothing
+            self.assertEqual(resolve_uid(store, 1, "hsr", None, links), "700000002")
+            self.assertEqual(resolve_uid(store, 1, "hsr", None, links, "Asia"), "800000003")
+            self.assertEqual(resolve_uid(store, 1, "genshin", None, links, "Europe"), "700000001")
+            self.assertIsNone(resolve_uid(store, 1, "hsr", None, links, "America"))
+            self.assertEqual(resolve_uid(store, 1, "hsr", "600000009", links, "Asia"), "600000009")  # typed wins
