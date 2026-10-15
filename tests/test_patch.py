@@ -149,6 +149,9 @@ class ZzzPatchTest(unittest.TestCase):
             ("Exclusive channels", ["Yixuan"], ["Pan"]), ("Exclusive rescreening", ["Miyabi"], []),
             ("W-Engine channels", ["Qingming Birdcage"], [])])
         self.assertIn("Exclusive rescreening", [f.name for f in patch.patch_embed(info).fields])
+        self.assertEqual(info.banners[0].traits["Yixuan"], [
+            "https://static.nanoka.cc/assets/zzz/IconPhysical.webp", "https://enka.network/ui/zzz/IconAttack.png"])
+        self.assertEqual(info.banners[2].traits["Qingming Birdcage"], ["https://enka.network/ui/zzz/IconAttack.png"])
 
 
 if __name__ == "__main__":
@@ -165,3 +168,23 @@ class PatchCardTest(unittest.TestCase):
         png = draw_patch(info, {}, info.now)
         self.assertEqual(Image.open(io.BytesIO(png)).width, 1200)
         self.assertEqual(info.banners[0].items[0][:2], ("Cyrene", True))
+
+
+class UnitTraitsTest(unittest.TestCase):
+    def test_symbols(self):
+        import tempfile
+        from bot import unit_traits as ut
+        traits = ut.UnitTraits(tempfile.mkdtemp())
+        traits.table["hsr"]["1500"] = ["Quantum", "Memory"]
+        traits.table["gi"]["10000150"] = ["Cryo", "WEAPON_SWORD_ONE_HAND"]
+        # Star Rail: Hakushin's element and path; without an entry, only the calendar's path number
+        self.assertEqual([u.rsplit("/", 1)[1] for u in traits.hsr(1500, 1)], ["Quantum.png", "Remembrance.png"])
+        self.assertEqual([u.rsplit("/", 1)[1] for u in traits.hsr(23050, 2)], ["Hunt.png"])
+        # Genshin: Cryo has no icon to download, so the card draws its snowflake
+        self.assertEqual(traits.genshin(10000150)[0], ut.CRYO)
+        self.assertIn("UI_Buff_Element_Fire", traits.genshin(1, "Pyro")[0])
+        # ZZZ: a sub-element picks Frost / Auric Ink
+        self.assertIn("IconFrost", ut.zzz_urls(202, 1, 3)[0])
+        self.assertIn("IconAnomaly", ut.zzz_urls(202, 1, 3)[1])
+        info = patch.hsr_patch(calendar(), traits)
+        self.assertEqual(len(info.banners[0].traits["Cyrene"]), 1)  # path only: no Hakushin entry for 1415 here

@@ -33,6 +33,7 @@ from .hoyolab_links import LinkStore, cookie_string, games_of, load_key
 from .models import CharacterBuild, PlayerProfile
 from .ratelimit import LookupLimit
 from .set_emojis import SetEmojis
+from .unit_traits import UnitTraits
 
 log = logging.getLogger("hoyo-bot")
 
@@ -82,6 +83,9 @@ class HoyoBot(discord.Client):
         # Which substats each character wants, for the effective substat count on the card.
         self.effective = EffectiveStats(cache_dir)
         self.hoyolab = HoyolabClient(cookies or None, self.assets, self.links, self.effective)
+        # Element and path symbols for the patch card's banners, newer units included.
+        self.traits = UnitTraits(cache_dir)
+        self.hoyolab.traits = self.traits
         self.set_emojis: SetEmojis | None = None
         self.cards: CardMaker | None = None
 
@@ -128,6 +132,8 @@ class HoyoBot(discord.Client):
         if self.effective.is_stale():
             await self.effective.refresh(self.session)
             await self.hoyolab.learn_own()
+        if self.traits.is_stale():
+            await self.traits.refresh(self.session)
 
     @tasks.loop(minutes=30)
     async def warm_calendars(self) -> None:

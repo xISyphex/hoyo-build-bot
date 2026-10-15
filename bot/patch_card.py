@@ -11,12 +11,13 @@ import io
 
 import dataclasses
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw, ImageEnhance, ImageFilter
 
 from . import card as c
 from . import record_icons as icons
 from .patch import KINDS, SERVER_UTC, TITLES, Banner, Patch, version_start
 from .records_card import GAME_ACCENT, _cover, _rarity_tile
+from .unit_traits import CRYO
 
 W = 1200
 PAD = 36
@@ -80,6 +81,37 @@ def _tile(card: Image.Image, icon: Image.Image | None, box, top: bool, weapon: b
     ImageDraw.Draw(card).rounded_rectangle(box, radius, outline=(255, 255, 255, 50), width=1)
 
 
+def _symbol(url: str, images: dict, game: str) -> Image.Image | None:
+    if url == CRYO:
+        return c._tinted(c._snowflake(), (170, 225, 245))
+    icon = images.get(url)
+    if icon is None:
+        return None
+    icon = icon.convert("RGBA")
+    if game == "genshin" and "GachaTypeIcon" in url:  # the grey weapon type icons, a little brighter
+        icon = Image.merge("RGBA", (*ImageEnhance.Brightness(icon.convert("RGB")).enhance(1.5).split(), icon.getchannel("A")))
+    return icon.crop(icon.getchannel("A").getbbox() or (0, 0, icon.width, icon.height))
+
+
+def _marks(card: Image.Image, urls: list[str], images: dict, game: str, x: float, cy: float, size: int) -> float:
+    """A unit's element and path / specialty / weapon type, each on a small dark disc, from x; returns the width."""
+    start = x
+    for url in urls:
+        icon = _symbol(url, images, game)
+        if icon is None:
+            continue
+        disc = Image.new("RGBA", card.size, (0, 0, 0, 0))
+        ImageDraw.Draw(disc).ellipse((x, cy - size / 2, x + size, cy + size / 2), fill=(10, 10, 16, 210),
+                                     outline=(255, 255, 255, 70), width=1)
+        c._layer_onto(card, disc)
+        inner = size * 0.72
+        scale = inner / max(icon.size)
+        icon = icon.resize((max(1, round(icon.width * scale)), max(1, round(icon.height * scale))), Image.LANCZOS)
+        card.alpha_composite(icon, (round(x + (size - icon.width) / 2), round(cy - icon.height / 2)))
+        x += size + 4
+    return x - start - 4 if x > start else 0
+
+
 def _pill(card: Image.Image, right: float, y: float, text: str, accent, font, icon: Image.Image | None = None) -> float:
     """A dark pill ending at right, centred on y; returns its left edge."""
     draw = ImageDraw.Draw(card)
@@ -132,7 +164,7 @@ def _bar(card: Image.Image, patch: Patch, now: dt.datetime, y: int, accent, ligh
     draw.text((x1, y + h + 16), _day(end, patch.server), font=f.stamp, fill=c.DIM, anchor="rm")
 
 
-def _banner(card: Image.Image, b: Banner, images: dict, box, accent, now: dt.datetime, server) -> None:
+def _banner(card: Image.Image, game: str, b: Banner, images: dict, box, accent, now: dt.datetime) -> None:
     f = c.FONTS
     x0, y0, x1, y1 = box
     c._panel(card, box, 18, (255, 255, 255, 12))
@@ -145,6 +177,7 @@ def _banner(card: Image.Image, b: Banner, images: dict, box, accent, now: dt.dat
     ax = x0 + 14
     for name, _, icon in tops[:2]:
         _tile(card, images.get(icon or ""), (ax, y0 + 13, ax + aw, y0 + 13 + ART_H), True, weapon, 14)
+        _marks(card, b.traits.get(name, []), images, game, ax + 6, y0 + 13 + 6 + 16, 32)
         ax += aw + 8
     tx = ax + 8
     width = x1 - tx - 16
@@ -228,7 +261,7 @@ def draw_patch(patch: Patch, images: dict[str, Image.Image], now: dt.datetime | 
         for i, b in enumerate(banners):
             bx = PAD + (i % COLS) * (CARD_W + GAP)
             by = y + (i // COLS) * (CARD_H + GAP)
-            _banner(card, b, images, (bx, by, bx + CARD_W, by + CARD_H), accent, now, server)
+            _banner(card, game, b, images, (bx, by, bx + CARD_W, by + CARD_H), accent, now)
         y += _rows(len(banners)) * (CARD_H + GAP)
     if not sections:
         ImageDraw.Draw(card).text((PAD, y + 30), "No banners are running right now.", font=f.stat, fill=c.DIM, anchor="lm")
@@ -243,14 +276,18 @@ def draw_patch(patch: Patch, images: dict[str, Image.Image], now: dt.datetime | 
         for b in upcoming:
             top = next((i for i in b.items if i[1]), (b.featured[0], True, b.icon))
             name = c._fit_text(draw, top[0], f.small_b, 150)
-            w = round(64 + 12 + max(draw.textlength(name, font=f.small_b), draw.textlength("00 Mmm", font=f.small)) + 18)
+            marks = [u for u in b.traits.get(top[0], []) if u == CRYO or u in images]
+            day = _day(b.start, server)
+            line = draw.textlength(day, font=f.small) + (8 + len(marks) * 28 - 4 if marks else 0)
+            w = round(64 + 12 + max(draw.textlength(name, font=f.small_b), line) + 18)
             if x + w > W - PAD:
                 break
             c._panel(card, (x, y, x + w, y + 84), 14, (255, 255, 255, 12))
             _tile(card, images.get(top[2] or ""), (x + 10, y + 10, x + 74, y + 74), True, b.kind in WEAPON_KINDS, 10)
             draw = ImageDraw.Draw(card)
             draw.text((x + 86, y + 30), name, font=f.small_b, fill=c.TEXT, anchor="lm")
-            draw.text((x + 86, y + 56), _day(b.start, server), font=f.small, fill=c.DIM, anchor="lm")
+            draw.text((x + 86, y + 56), day, font=f.small, fill=c.DIM, anchor="lm")
+            _marks(card, marks, images, game, x + 86 + draw.textlength(day, font=f.small) + 8, y + 56, 24)
             x += w + 12
 
     out = io.BytesIO()
@@ -260,4 +297,5 @@ def draw_patch(patch: Patch, images: dict[str, Image.Image], now: dt.datetime | 
 
 def image_urls(patch: Patch, now: dt.datetime) -> list[str]:
     """The pictures draw_patch can use."""
-    return list({i[2] for b in patch.banners if b.end > now for i in b.items if i[2]} | {b.icon for b in patch.banners if b.icon})
+    marks = {u for b in patch.banners if b.end > now for urls in b.traits.values() for u in urls if u != CRYO}
+    return list({i[2] for b in patch.banners if b.end > now for i in b.items if i[2]} | {b.icon for b in patch.banners if b.icon} | marks)

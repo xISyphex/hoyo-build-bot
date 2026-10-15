@@ -315,6 +315,7 @@ class HoyolabClient:
         self.effective = effective  # Genshin's substat recommendations are picked up from the details read here
         self._clients: dict[str, genshin.Client] = {}  # one per linked login
         self.assets = assets
+        self.traits = None  # UnitTraits, for the element and path symbols on the patch card
         self._cache: dict[tuple[str, str], tuple[float, list[CharacterBuild]]] = {}
         self._locks: dict[tuple[str, str], asyncio.Lock] = {}
         # Answers like "private" are kept too: asking again would only use up the daily limit.
@@ -489,9 +490,9 @@ class HoyolabClient:
             return hit[1]
         try:
             if game == "hsr":
-                info = patches.hsr_patch(await client.get_starrail_event_calendar(uid))
+                info = patches.hsr_patch(await client.get_starrail_event_calendar(uid), self.traits)
             elif game == "genshin":
-                info = patches.genshin_patch(await client.get_genshin_event_calendar(uid))
+                info = patches.genshin_patch(await client.get_genshin_event_calendar(uid), traits=self.traits)
             else:
                 gacha, events = await asyncio.gather(client.get_zzz_gacha_calendar(uid), client.get_zzz_event_calendar(uid))
 
