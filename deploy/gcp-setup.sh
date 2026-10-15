@@ -80,6 +80,11 @@ fi
 "$APP/.venv/bin/pip" install -q -r "$APP/requirements.txt"
 mkdir -p "$APP/data"
 chown -R hoyobot:hoyobot "$APP"
+# HoYoLAB logins and their key: readable only by the bot's own user (and root, i.e. sudo)
+chmod 700 "$APP/data"
+for f in "$APP/.hoyolab.key" "$APP/data/hoyolab_links.json"; do
+  [ -e "$f" ] && chmod 600 "$f"
+done
 
 # Ask for the token when there is none yet (or an earlier run saved it empty).
 # Read from the terminal so it never lands in shell history or a file in the repo.
