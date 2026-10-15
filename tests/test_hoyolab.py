@@ -276,6 +276,24 @@ class HoyolabClientTest(unittest.TestCase):
         self.assertEqual(self.calls, 1)
         self.assertEqual(self.client.cached("genshin", "618285856"), builds)
 
+    def test_records_read_only_the_zzz_agents_they_show(self):
+        asked = []
+
+        async def info(ids, uid):
+            asked.append(list(ids))
+            return [genshin.models.ZZZFullAgent(**ZZZ) for _ in ids]
+
+        self.client.client.get_zzz_agent_info = info
+        ellen = str(ZZZ["id"])
+        builds = asyncio.run(self.client.zzz_agents("1300003409", [ellen, "1021", "1031", "1041", "1061", "1071"]))
+        self.assertEqual(asked, [[int(ellen), 1021, 1031, 1041, 1061], [1071]])  # five at a time, nothing else
+        self.assertEqual(builds[0].name, "Ellen")
+        # With every agent already read for a lookup, nothing is asked again
+        self.client._cache[("zzz", "1300003409")] = (float("inf"), builds[:1])
+        asked.clear()
+        self.assertEqual([b.name for b in asyncio.run(self.client.zzz_agents("1300003409", [ellen]))], ["Ellen"])
+        self.assertEqual(asked, [])
+
     def test_private_profiles_are_remembered(self):
         private = genshin.DataNotPublic({"retcode": 10102, "message": "Data is not public for the user"})
         self.client.client.get_genshin_detailed_characters = self._answer(private)

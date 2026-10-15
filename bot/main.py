@@ -354,6 +354,8 @@ def make_records_command(game: str) -> app_commands.Command:
         started = time.perf_counter()
 
         async def hoyolab_builds() -> list[CharacterBuild]:
+            if game == "zzz":  # ZZZ asks HoYoLAB once per agent, so only the agents in the records are read, after them
+                return []
             try:
                 return await bot.hoyolab.fetch(game, uid)
             except HoyolabError:
@@ -377,6 +379,9 @@ def make_records_command(game: str) -> app_commands.Command:
             raise found
         builds = list(builds) if isinstance(builds, list) else []
         profile = None if isinstance(profile, BaseException) else profile
+        if game == "zzz":
+            ids = list(dict.fromkeys(m.id for r in found for t in r.teams for m in t.members))
+            builds = await bot.hoyolab.zzz_agents(uid, ids)
         read = time.perf_counter()
         if profile:
             builds += profile.characters
