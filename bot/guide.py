@@ -87,6 +87,8 @@ def guide_message(bot_name: str, per_hour: int, app_id: int | None = None, welco
         " ".join(f"`/{cmd}-claim`" for cmd, _ in GAMES)
         + "\nRegister your UID once per game, and you may leave `uid` out to see your own characters."
         " Registering again simply overwrites the old record. I do keep good records, Proxy."
+        " `/hoyolab link` registers your linked UIDs for you. With accounts on several servers, add `server`"
+        " to pick one; without it I use your first."
         f"\nExample: `/hsr-claim uid:{EXAMPLE_UID}`, then `/hsr character:Acheron`",
     )
     section(
@@ -101,14 +103,15 @@ def guide_message(bot_name: str, per_hour: int, app_id: int | None = None, welco
         " On hoyolab.com on a PC, log in, press **Ctrl+Shift+I**, open **Application → Cookies**,"
         " and copy `ltuid_v2`, `ltoken_v2` and `ltmid_v2` into the form. They are a login to your HoYoLAB account,"
         " so only share them if you trust this bot's owner. `/hoyolab status` shows what is linked,"
-        " and `/hoyolab unlink` makes me forget them.\nExample: `/hoyolab link`, then fill in the form.",
+        " and `/hoyolab unlink` makes me forget them. Linking also registers your UIDs, so you can skip `-claim`.\nExample: `/hoyolab link`, then fill in the form.",
     )
     section(
         1,
         "Battle records",
         " ".join(f"`/{cmd}-records`" for cmd, _ in GAMES)
         + "\nYour endgame runs as one picture: scores, cycles, rankings and the teams you used, with every"
-        " character's copies and their weapon's. Name the modes you want, or leave `modes` empty for all of them."
+        " character's copies and their weapon's. Weapons are the ones equipped now: HoYoLAB doesn't keep the run's."
+        " Name the modes you want, or leave `modes` empty for all of them."
         " You don't need `/hoyolab link` for these, but the player's battle records must be public:"
         " on HoYoLAB, open your profile, go to **Privacy Settings** and turn on **Show my Battle Chronicle on my profile**."
         "\nExample: `/hsr-records modes:moc pf`",
