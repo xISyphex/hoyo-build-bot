@@ -523,17 +523,10 @@ PAT_LINES = (
 
 @app_commands.command(name="pat", description="Pat Fairy")
 async def pat_command(interaction: discord.Interaction) -> None:
-    """Fairy enjoys it: her happy face (alone in its message, so Discord shows the emoji big), then her thanks."""
-    bot: HoyoBot = interaction.client  # type: ignore[assignment]
-    emojis = bot.set_emojis
-    if emojis and "fairy_happy" not in emojis.emojis:
-        await interaction.response.defer()  # the first pat uploads the emoji, which can take a moment
-    emoji = await emojis.from_file("fairy_happy", ART / "fairy-happy.png") if emojis else None
-    if interaction.response.is_done():
-        await interaction.followup.send(emoji or "(*^▽^*)")
-    else:
-        await interaction.response.send_message(emoji or "(*^▽^*)")
-    await interaction.followup.send(random.choice(PAT_LINES))
+    """Fairy enjoys it: her thanks with her happy face as a sticker-sized picture, in one message. (Bots can't send
+    real stickers in command replies, and an emoji next to text shows small.)"""
+    await interaction.response.send_message(random.choice(PAT_LINES),
+                                            file=discord.File(ART / "fairy-happy.png", filename="fairy-happy.png"))
 
 
 GAME_SHORT = {"genshin": "Genshin", "hsr": "Star Rail", "zzz": "ZZZ"}
