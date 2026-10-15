@@ -28,12 +28,13 @@ DROP = {"hsr": 4, "zzz": 4}  # Star Rail's and ZZZ's tiles are taller (HSR_H)
 
 
 def _portrait_top(game: str, chips: bool = True) -> int:
-    """Where the portraits go, so every gap is the same (the results row only when there is one)."""
-    return TAB_H + ROW_GAP + (CHIP_H + ROW_GAP if chips else 0) + LIFT.get(game, 0)
+    """Where the portraits go, so every gap is the same."""
+    return TAB_H + ROW_GAP + LIFT.get(game, 0)
 
 
 def _team_h(game: str, chips: bool = True) -> int:
-    return _portrait_top(game, chips) + PORTRAIT + DROP.get(game, 0) + ROW_GAP + 4
+    below = CHIP_H + ROW_GAP if chips else 0  # the node's results row, under the portraits
+    return _portrait_top(game, chips) + PORTRAIT + DROP.get(game, 0) + ROW_GAP + 4 + below
 
 
 def _has_chips(record: Record) -> bool:
@@ -82,9 +83,12 @@ def _starry_width(draw: ImageDraw.ImageDraw, text: str, font) -> float:
 CHIP_H, CHIP_PAD = 28, 9  # each result sits in its own dark pill, readable over any boss art
 
 
-def _chips(card: Image.Image, game: str, chips, x: float, cy: float, colour, light) -> None:
-    """A node's results in a row, each in a dark pill with its icon."""
+def _chips(card: Image.Image, game: str, chips, x: float, cy: float, colour, light, centre: bool = False) -> None:
+    """A node's results in a row, each in a dark pill with its icon, starting at x (or centred on it)."""
     f = c.FONTS
+    target = x
+    if centre:  # drawn from the card's left edge first, then moved into place once its width is known
+        x = 0
     fg = Image.new("RGBA", card.size, (0, 0, 0, 0))  # the contents, drawn first so the pills can be sized to them
     draw = ImageDraw.Draw(fg)
     spans = []
@@ -107,6 +111,12 @@ def _chips(card: Image.Image, game: str, chips, x: float, cy: float, colour, lig
             x += draw.textlength(text, font=f.small_b)
         spans.append((start - CHIP_PAD, x + CHIP_PAD))
         x += CHIP_PAD + 6
+    if centre and spans:  # move the drawn row so it centres on x
+        dx = round(target - (spans[0][0] + spans[-1][1]) / 2)
+        moved = Image.new("RGBA", card.size, (0, 0, 0, 0))
+        moved.paste(fg, (dx, 0))
+        fg = moved
+        spans = [(a + dx, b + dx) for a, b in spans]
     pills = Image.new("RGBA", card.size, (0, 0, 0, 0))
     pd = ImageDraw.Draw(pills)
     for left, right in spans:
@@ -585,8 +595,8 @@ def _team(card: Image.Image, game: str, team: Team, images: dict, box, accent, c
     if star:
         x += _paste(card, star, x - 2, y0 + TAB_H / 2) + 6
     draw.text((x, y0 + TAB_H / 2), title, font=f.stat_s, fill=c.TEXT, anchor="lm")
-    if team.chips:  # this node's own stars / cycles / points, under its title
-        _chips(card, game, team.chips, x0 + 10, y0 + TAB_H + ROW_GAP + CHIP_H / 2, colour, light)
+    if team.chips:  # this node's own stars / cycles / points, centred under the portraits
+        _chips(card, game, team.chips, (x0 + x1) / 2, y1 - 4 - ROW_GAP - CHIP_H / 2, colour, light, centre=True)
     members = team.members[:4]
     if team.chips or y1 - y0 > _team_h(game, False):
         top = y0 + _portrait_top(game) if team.chips else round(y0 + (y1 - y0 - _team_h(game, False)) / 2 + _portrait_top(game, False))

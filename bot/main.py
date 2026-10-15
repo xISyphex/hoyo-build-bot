@@ -213,15 +213,15 @@ def make_command(game: str) -> app_commands.Command:
     @app_commands.describe(
         character="Character name (from the player's showcase)",
         uid="In-game UID. Leave empty to use the one you claimed with /" + game + "-claim",
+        server=SERVER_HELP,
     )
-    async def command(interaction: discord.Interaction, character: str, uid: str | None = None) -> None:
+    @app_commands.choices(server=SERVER_CHOICES)
+    async def command(interaction: discord.Interaction, character: str, uid: str | None = None,
+                      server: str | None = None) -> None:
         bot: HoyoBot = interaction.client  # type: ignore[assignment]
-        uid = resolve_uid(bot.claims, interaction.user.id, game, uid)
+        uid = resolve_uid(bot.claims, interaction.user.id, game, uid, bot.links, server)
         if uid is None:
-            await interaction.response.send_message(
-                f"Add a `uid`, or claim your own once with `/{game}-claim` so you can leave it out.",
-                ephemeral=True,
-            )
+            await interaction.response.send_message(no_uid_message(bot, interaction.user.id, game, server), ephemeral=True)
             return
         if not UID_RE.match(uid):
             await interaction.response.send_message("A UID is 8 to 10 digits, like `618285856`.", ephemeral=True)
@@ -291,7 +291,8 @@ def make_command(game: str) -> app_commands.Command:
     @command.autocomplete("character")
     async def character_autocomplete(interaction: discord.Interaction, current: str):
         bot: HoyoBot = interaction.client  # type: ignore[assignment]
-        uid = resolve_uid(bot.claims, interaction.user.id, game, getattr(interaction.namespace, "uid", None)) or ""
+        uid = resolve_uid(bot.claims, interaction.user.id, game, getattr(interaction.namespace, "uid", None), bot.links,
+                          getattr(interaction.namespace, "server", None)) or ""
         names: list[str] = []
         if UID_RE.match(uid):
             # Only use a profile we already have; autocomplete must answer within 3 seconds.
@@ -319,18 +320,20 @@ def make_records_command(game: str) -> app_commands.Command:
     @app_commands.describe(
         modes=f"Which modes, e.g. `{' '.join(keys[:2])}`. Leave empty for all: {modes_help}"[:100],
         uid="In-game UID. Leave empty to use the one you claimed with /" + game + "-claim",
+        server=SERVER_HELP,
     )
-    async def command(interaction: discord.Interaction, modes: str | None = None, uid: str | None = None) -> None:
+    @app_commands.choices(server=SERVER_CHOICES)
+    async def command(interaction: discord.Interaction, modes: str | None = None, uid: str | None = None,
+                      server: str | None = None) -> None:
         bot: HoyoBot = interaction.client  # type: ignore[assignment]
         picked, unknown = records.parse_modes(game, modes)
         if unknown:
             await interaction.response.send_message(
                 f"I don't know `{' '.join(unknown)}`. The modes are: {modes_help}.", ephemeral=True)
             return
-        uid = resolve_uid(bot.claims, interaction.user.id, game, uid)
+        uid = resolve_uid(bot.claims, interaction.user.id, game, uid, bot.links, server)
         if uid is None:
-            await interaction.response.send_message(
-                f"Add a `uid`, or claim your own once with `/{game}-claim` so you can leave it out.", ephemeral=True)
+            await interaction.response.send_message(no_uid_message(bot, interaction.user.id, game, server), ephemeral=True)
             return
         if not UID_RE.match(uid):
             await interaction.response.send_message("A UID is 8 to 10 digits, like `618285856`.", ephemeral=True)
@@ -435,10 +438,36 @@ def with_hoyolab(profile: PlayerProfile, builds: list[CharacterBuild]) -> Player
     return dataclasses.replace(profile, characters=[*profile.characters, *extra])
 
 
-def resolve_uid(claims: ClaimStore, user_id: int, game: str, typed: str | None) -> str | None:
-    """A typed UID wins; otherwise use the caller's claimed UID for this game."""
+SERVERS = ("America", "Europe", "Asia", "TW/HK/MO")
+SERVER_CHOICES = [app_commands.Choice(name=s, value=s) for s in SERVERS]
+SERVER_HELP = "Which of your accounts, if you have one on several servers. Leave empty for your first"
+
+
+def my_uids(claims: ClaimStore, links: LinkStore | None, user_id: int, game: str) -> list[str]:
+    """The caller's own UIDs for this game: the claimed one first, then any from their linked HoYoLAB account
+    (one per server), in the order they were added."""
+    linked = ((links.uids(user_id) if links else None) or {}).get(game) or []
+    return list(dict.fromkeys(u for u in [claims.get(user_id, game), *linked] if u))
+
+
+def resolve_uid(claims: ClaimStore, user_id: int, game: str, typed: str | None, links: LinkStore | None = None,
+                server: str | None = None) -> str | None:
+    """A typed UID wins; otherwise the caller's own UID on the chosen server, or their first one."""
     typed = str(typed or "").strip()
-    return typed or claims.get(user_id, game)
+    if typed:
+        return typed
+    mine = my_uids(claims, links, user_id, game)
+    if server:
+        return next((u for u in mine if server_name(game, u) == server), None)
+    return mine[0] if mine else None
+
+
+def no_uid_message(bot, user_id: int, game: str, server: str | None) -> str:
+    mine = my_uids(bot.claims, bot.links, user_id, game)
+    if server and mine:
+        have = ", ".join(f"{server_name(game, u) or '?'} ({u})" for u in mine)
+        return f"You have no {GAME_NAMES[game]} UID on {server}. Yours: {have}."
+    return f"Add a `uid`, or claim your own once with `/{game}-claim` (or `/hoyolab link`) so you can leave it out."
 
 
 def make_claim_command(game: str) -> app_commands.Command:
@@ -480,11 +509,9 @@ def make_patch_command(game: str) -> app_commands.Command:
     @app_commands.describe(uid=f"Any UID on your server, for its banner times. Leave empty to use your /{game}-claim")
     async def command(interaction: discord.Interaction, uid: str | None = None) -> None:
         bot: HoyoBot = interaction.client  # type: ignore[assignment]
-        uid = resolve_uid(bot.claims, interaction.user.id, game, uid)
         # The calendar is the same for everyone, so it's always the server login's, read ahead of time; the times
-        # are then moved to the player's server (their own linked account's when no UID is given)
-        mine = (bot.links.uids(interaction.user.id) or {}).get(game) or []
-        uid = uid or (mine[0] if mine else None)
+        # are then moved to the player's server (their own UID's when none is given)
+        uid = resolve_uid(bot.claims, interaction.user.id, game, uid, bot.links)
         await interaction.response.defer(thinking=True)
         try:
             info = await bot.hoyolab.patch(game)
@@ -541,6 +568,16 @@ def describe_uids(uids: dict[str, list[str]]) -> str:
     return ", ".join(f"{GAME_SHORT[g]} {', '.join(u)}" for g, u in uids.items() if u) or "no game accounts"
 
 
+def claim_linked(claims: ClaimStore, user_id: int, uids: dict[str, list[str]]) -> dict[str, str]:
+    """Claims the first linked UID of each game the person hasn't claimed one for yet. Returns what it claimed."""
+    claimed = {}
+    for game, game_uids in uids.items():
+        if game_uids and claims.get(user_id, game) is None:
+            claims.set(user_id, game, game_uids[0])
+            claimed[game] = game_uids[0]
+    return claimed
+
+
 class LinkModal(discord.ui.Modal, title="Link your HoYoLAB account"):
     """Asks for the three HoYoLAB login cookies in a private form, so they never appear in a chat."""
 
@@ -575,11 +612,14 @@ class LinkModal(discord.ui.Modal, title="Link your HoYoLAB account"):
         bot.links.link(interaction.user.id, cookies, uids)
         bot.hoyolab.forget(previous)
         bot.hoyolab.forget(uids)
-        await interaction.followup.send(
-            f"Linked: {describe_uids(uids)}. Lookups of these UIDs can now show every character, not just the showcase, "
-            "for anyone who looks them up. `/hoyolab unlink` deletes your cookies from the bot.",
-            ephemeral=True,
-        )
+        claimed = claim_linked(bot.claims, interaction.user.id, uids)
+        msg = (f"Linked: {describe_uids(uids)}. Lookups of these UIDs can now show every character, not just the "
+               "showcase, for anyone who looks them up. `/hoyolab unlink` deletes your cookies from the bot.")
+        if claimed:
+            msg += f"\nClaimed for you: {describe_uids({g: [u] for g, u in claimed.items()})}."
+        if any(len(u) > 1 for u in uids.values()):
+            msg += " With accounts on several servers, add `server` to a lookup to pick one; without it you get the first."
+        await interaction.followup.send(msg, ephemeral=True)
 
 
 class HoyolabGroup(app_commands.Group):
