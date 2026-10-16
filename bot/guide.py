@@ -137,8 +137,8 @@ def guide_message(bot_name: str, per_hour: int, app_id: int | None = None, welco
             "Administrator commands",
             "For you alone, Proxy. `/access add` grants someone access and sends them this guide,"
             " `/access remove` revokes it, and `/access list` shows everyone with access. You have no lookup limit."
-            " `/genshin-news`, `/hsr-news` and `/zzz-news` post each game's new character demos, teasers and EPs from"
-            " its YouTube channel in the channel you pick; leave `channel` empty to stop them."
+            " `/genshin-news`, `/hsr-news` and `/zzz-news` post every new video from each game's"
+            " YouTube channel in the channel you pick; leave `channel` empty to stop them."
             "\nExample: `/access add user:@Proxy`",
         )
 
