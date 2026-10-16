@@ -86,7 +86,7 @@ class HoyoBot(discord.Client):
         # Element and path symbols for the patch card's banners, newer units included.
         self.traits = UnitTraits(cache_dir)
         self.hoyolab.traits = self.traits
-        # Where each server wants new character videos from the official YouTube channels (/<game>-news).
+        # Where each server wants new videos from the official YouTube channels (/<game>-news).
         self.news = news.NewsStore(os.path.join(cache_dir, "news.json"))
         self.set_emojis: SetEmojis | None = None
         self.cards: CardMaker | None = None
@@ -146,7 +146,7 @@ class HoyoBot(discord.Client):
 
     @tasks.loop(minutes=10)
     async def check_news(self) -> None:
-        """Posts new character videos from the official YouTube channels to the channels picked with /<game>-news."""
+        """Posts new videos from the official YouTube channels to the channels picked with /<game>-news."""
         for game, channel_id in news.CHANNELS.items():
             targets = self.news.targets(game)
             if not targets:
@@ -574,7 +574,7 @@ def make_patch_command(game: str) -> app_commands.Command:
 
 def make_news_command(game: str) -> app_commands.Command:
     @app_commands.command(name=f"{game}-news",
-                          description=f"Post new {GAME_NAMES[game]} character demos and EPs in a channel (owner only)")
+                          description=f"Post every new {GAME_NAMES[game]} YouTube video in a channel (owner only)")
     @app_commands.describe(channel="Where to post them. Leave empty to stop posting them in this server")
     @app_commands.allowed_installs(guilds=True, users=False)
     @app_commands.allowed_contexts(guilds=True, dms=False, private_channels=False)
@@ -599,14 +599,14 @@ def make_news_command(game: str) -> app_commands.Command:
         # The bot keeps no server cache, so the channel is fetched; posting a first line there checks it may post
         try:
             target = await bot.fetch_channel(channel.id)
-            await target.send(f"I'll post new {GAME_NAMES[game]} character demos, teasers and EPs here.")
+            await target.send(f"I'll post every new {GAME_NAMES[game]} YouTube video here.")
         except discord.HTTPException:
             await interaction.followup.send(
                 f"I can't post in {channel.mention}. Make sure the bot is in this server and may view the channel,"
                 " send messages and embed links there.")
             return
         old = bot.news.set(game, interaction.guild_id, channel.id)
-        text = f"New {GAME_NAMES[game]} character demos, teasers and EPs will be posted in {channel.mention}."
+        text = f"Every new {GAME_NAMES[game]} YouTube video will be posted in {channel.mention}."
         if old and old != channel.id:
             text += f" (Instead of <#{old}>.)"
         await interaction.followup.send(text)

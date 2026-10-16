@@ -1,15 +1,14 @@
-"""New character videos from the games' official YouTube channels, posted to the Discord channels picked with
+"""New videos from the games' official YouTube channels, posted to the Discord channels picked with
 /genshin-news, /hsr-news and /zzz-news.
 
 YouTube's public feed for a channel (no key, no login) lists its latest uploads; it is read every few minutes and
-videos whose title looks like a character demo, teaser, trailer or EP are posted once. Check what the feed sees with
+every new upload (Shorts aside) is posted once. Check what the feed sees with
 `python -m bot.news game`."""
 
 from __future__ import annotations
 
 import json
 import logging
-import re
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -19,9 +18,6 @@ log = logging.getLogger(__name__)
 FEED = "https://www.youtube.com/feeds/videos.xml?channel_id={}"
 # The official English channels: @GenshinImpact, @HonkaiStarRail, @ZZZ_Official
 CHANNELS = {"genshin": "UCiS882YPwZt1NfaM0gR0D9Q", "hsr": "UC2PeMPA8PAOp-bynLoCeMLA", "zzz": "UC2SpC8rL9LaeQriE4YNdyzA"}
-# Titles worth posting: character / agent demos, teasers, trailers and showcases, and EPs
-WANTED = re.compile(r"\b(character|agent)\s+(demo|teaser|trailer|showcase|story)\b|\bEP\b|myriad celestia trailer"
-                    r"|collected miscellany", re.I)
 SEEN_KEEP = 200
 NS = {"a": "http://www.w3.org/2005/Atom", "yt": "http://www.youtube.com/xml/schemas/2015"}
 
@@ -36,10 +32,6 @@ def parse_feed(xml: str) -> list[tuple[str, str, str]]:
         if vid and "/shorts/" not in link:
             videos.append((vid, title, f"https://www.youtube.com/watch?v={vid}"))
     return videos
-
-
-def wanted(title: str) -> bool:
-    return bool(WANTED.search(title))
 
 
 class NewsStore:
@@ -80,7 +72,7 @@ class NewsStore:
         return list(self.channels[game].values())
 
     def new_videos(self, game: str, videos: list[tuple[str, str, str]]) -> list[tuple[str, str, str]]:
-        """The wanted videos not handled yet, oldest first, and marks every listed video handled. The first read of
+        """The videos not handled yet, oldest first, and marks every listed video handled. The first read of
         a game only remembers what's there, so turning the feature on doesn't post a backlog."""
         first = game not in self.seen
         seen = self.seen.setdefault(game, [])
@@ -89,14 +81,14 @@ class NewsStore:
             return []
         self.seen[game] = ([v[0] for v in fresh] + seen)[:SEEN_KEEP]
         self._save()
-        return [] if first else [v for v in reversed(fresh) if wanted(v[1])]
+        return [] if first else list(reversed(fresh))
 
 
 def message(game_name: str, title: str, url: str) -> str:
     return f"New {game_name} video: **{title}**\n{url}"
 
 
-if __name__ == "__main__":  # python -m bot.news zzz: what the feed lists, and which videos would be posted
+if __name__ == "__main__":  # python -m bot.news zzz: what the feed lists
     import urllib.request
 
     game = sys.argv[1] if len(sys.argv) > 1 else "zzz"
@@ -105,4 +97,4 @@ if __name__ == "__main__":  # python -m bot.news zzz: what the feed lists, and w
     root = ET.fromstring(xml)
     print("Channel:", root.findtext("a:title", "", NS))
     for _, title, _ in parse_feed(xml):
-        print("POST " if wanted(title) else "skip ", title)
+        print(title)
