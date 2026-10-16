@@ -16,6 +16,8 @@ from collections import Counter
 import discord
 from genshin.models import HSREventTimeType, ZZZGachaEventType
 
+from . import unit_traits
+
 log = logging.getLogger(__name__)
 
 TITLES = {"genshin": "Genshin Impact", "hsr": "Honkai: Star Rail", "zzz": "Zenless Zone Zero"}
@@ -39,6 +41,7 @@ class Banner:
     icon: str | None = None
     version: str = ""
     items: list[tuple[str, bool, str | None]] = dataclasses.field(default_factory=list)  # (name, 5-star / S, icon)
+    traits: dict[str, list[str]] = dataclasses.field(default_factory=dict)  # item name -> element, path symbol urls
 
 
 @dataclasses.dataclass
@@ -86,7 +89,7 @@ def _finish(game: str, version: str, now: dt.datetime, banners: list[Banner], ev
     return Patch(game, version, now, max(ends) if ends else None, banners)
 
 
-def hsr_patch(calendar) -> Patch:
+def hsr_patch(calendar, traits=None) -> Patch:
     """Star Rail: HoYoLAB's event calendar (warps, events, the current version)."""
     version = str(calendar.cur_game_version)
     now = _real(calendar.now)
@@ -100,13 +103,14 @@ def hsr_patch(calendar) -> Patch:
             top = [i for i in items if i.rarity >= 5]
             banners.append(Banner(kind, [i.name for i in top], [i.name for i in items if i.rarity < 5],
                                   _real(t.start), _real(t.end), top[0].icon if top else None, str(warp.version),
-                                  [(i.name, i.rarity >= 5, i.icon) for i in items]))
+                                  [(i.name, i.rarity >= 5, i.icon) for i in items],
+                                  {i.name: traits.hsr(i.id, i.path) for i in items} if traits else {}))
     spans = [(_real(e.time_info.start), _real(e.time_info.end)) for e in calendar.events
              if e.time_info and e.time_type != HSREventTimeType.LONG and str(e.version) == version]
     return _finish("hsr", version, now, banners, spans)
 
 
-def genshin_patch(calendar, now: dt.datetime | None = None) -> Patch:
+def genshin_patch(calendar, now: dt.datetime | None = None, traits=None) -> Patch:
     """Genshin: HoYoLAB's event calendar (wishes and events)."""
     now = now or dt.datetime.now(dt.timezone.utc)
     banners = []
@@ -118,7 +122,8 @@ def genshin_patch(calendar, now: dt.datetime | None = None) -> Patch:
             top = [i for i in items if i.rarity >= 5]
             banners.append(Banner(kind, [i.name for i in top], [i.name for i in items if i.rarity < 5],
                                   _utc(pool.start_timestamp), _utc(pool.end_timestamp), top[0].icon if top else None,
-                                  str(pool.version), [(i.name, i.rarity >= 5, i.icon) for i in items]))
+                                  str(pool.version), [(i.name, i.rarity >= 5, i.icon) for i in items],
+                                  {i.name: traits.genshin(i.id, getattr(i, "element", None)) for i in items} if traits else {}))
     spans = [(_utc(e.start_timestamp), _utc(e.end_timestamp)) for e in calendar.events if e.end_timestamp]
     return _finish("genshin", _version(banners, now), now, banners, spans)
 
@@ -140,11 +145,14 @@ def zzz_patch(gacha, events, weapon_name, now: dt.datetime | None = None) -> Pat
             continue
         if hasattr(pool, "characters"):
             items = [(c.name or c.full_name, c.rarity, c.icon) for c in pool.characters]
+            marks = [unit_traits.zzz_urls(c.element, c.sub_element, c.specialty) for c in pool.characters]
         else:
             items = [(weapon_name(w.id) or w.skill_name or "New W-Engine", w.rarity, w.icon) for w in pool.weapons]
+            marks = [unit_traits.zzz_urls(None, None, w.specialty) for w in pool.weapons]
         top = [i for i in items if i[1] == "S"]
         banners.append(Banner(kind, [i[0] for i in top], [i[0] for i in items if i[1] != "S"], pool.start, pool.end,
-                              top[0][2] if top else None, str(pool.version), [(i[0], i[1] == "S", i[2]) for i in items]))
+                              top[0][2] if top else None, str(pool.version), [(i[0], i[1] == "S", i[2]) for i in items],
+                              {i[0]: m for i, m in zip(items, marks)}))
     spans = [(e.start, e.end) for e in events]
     return _finish("zzz", _version(banners, now), now, banners, spans)
 

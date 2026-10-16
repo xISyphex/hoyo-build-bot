@@ -19,7 +19,7 @@ import genshin
 from discord import app_commands
 from discord.ext import tasks
 
-from . import matching, patch, records
+from . import matching, news, patch, records
 from .access import PRIVATE, AccessList
 from .assets import Assets
 from .claims import ClaimStore
@@ -33,6 +33,7 @@ from .hoyolab_links import LinkStore, cookie_string, games_of, load_key
 from .models import CharacterBuild, PlayerProfile
 from .ratelimit import LookupLimit
 from .set_emojis import SetEmojis
+from .unit_traits import UnitTraits
 
 log = logging.getLogger("hoyo-bot")
 
@@ -82,6 +83,11 @@ class HoyoBot(discord.Client):
         # Which substats each character wants, for the effective substat count on the card.
         self.effective = EffectiveStats(cache_dir)
         self.hoyolab = HoyolabClient(cookies or None, self.assets, self.links, self.effective)
+        # Element and path symbols for the patch card's banners, newer units included.
+        self.traits = UnitTraits(cache_dir)
+        self.hoyolab.traits = self.traits
+        # Where each server wants new character videos from the official YouTube channels (/<game>-news).
+        self.news = news.NewsStore(os.path.join(cache_dir, "news.json"))
         self.set_emojis: SetEmojis | None = None
         self.cards: CardMaker | None = None
 
@@ -97,6 +103,7 @@ class HoyoBot(discord.Client):
             self.assets.load()
         self.refresh_assets.start()
         self.warm_calendars.start()
+        self.check_news.start()
 
         # The bot's owner (or its team on the Developer Portal) always has access and manages the list.
         app = await self.application_info()
@@ -107,6 +114,7 @@ class HoyoBot(discord.Client):
             self.tree.add_command(make_claim_command(game))
             self.tree.add_command(make_records_command(game))
             self.tree.add_command(make_patch_command(game))
+            self.tree.add_command(make_news_command(game))
         self.tree.add_command(AccessGroup())
         self.tree.add_command(HoyolabGroup())
         self.tree.add_command(help_command)
@@ -128,14 +136,41 @@ class HoyoBot(discord.Client):
         if self.effective.is_stale():
             await self.effective.refresh(self.session)
             await self.hoyolab.learn_own()
+        if self.traits.is_stale():
+            await self.traits.refresh(self.session)
 
     @tasks.loop(minutes=30)
     async def warm_calendars(self) -> None:
         """The patch commands' calendars, read ahead so the commands answer at once."""
         await self.hoyolab.warm_calendars(GAME_NAMES)
 
+    @tasks.loop(minutes=10)
+    async def check_news(self) -> None:
+        """Posts new character videos from the official YouTube channels to the channels picked with /<game>-news."""
+        for game, channel_id in news.CHANNELS.items():
+            targets = self.news.targets(game)
+            if not targets:
+                continue
+            try:
+                async with self.session.get(news.FEED.format(channel_id)) as resp:
+                    resp.raise_for_status()
+                    videos = news.parse_feed(await resp.text())
+            except Exception as exc:
+                log.info("Couldn't read the %s YouTube feed: %s", game, exc)
+                continue
+            for _, title, url in self.news.new_videos(game, videos):
+                log.info("New %s video: %s", game, title)
+                for target in targets:
+                    channel = self.get_channel(target)
+                    try:
+                        channel = channel or await self.fetch_channel(target)
+                        await channel.send(news.message(GAME_NAMES[game], title, url))
+                    except discord.HTTPException as exc:
+                        log.warning("Couldn't post the %s video to channel %s: %s", game, target, exc)
+
     @refresh_assets.before_loop
     @warm_calendars.before_loop
+    @check_news.before_loop
     async def _wait_ready(self) -> None:
         await self.wait_until_ready()
 
@@ -533,6 +568,48 @@ def make_patch_command(game: str) -> app_commands.Command:
             return
         text = f"Version {info.version} ends <t:{int(info.end.timestamp())}:f> (<t:{int(info.end.timestamp())}:R>)" if info.end else ""
         await interaction.followup.send(text, file=discord.File(io.BytesIO(png), filename="patch.png"))
+
+    return command
+
+
+def make_news_command(game: str) -> app_commands.Command:
+    @app_commands.command(name=f"{game}-news",
+                          description=f"Post new {GAME_NAMES[game]} character demos and EPs in a channel (owner only)")
+    @app_commands.describe(channel="Where to post them. Leave empty to stop posting them in this server")
+    @app_commands.allowed_installs(guilds=True, users=False)
+    @app_commands.allowed_contexts(guilds=True, dms=False, private_channels=False)
+    async def command(interaction: discord.Interaction, channel: app_commands.AppCommandChannel | None = None) -> None:
+        bot: HoyoBot = interaction.client  # type: ignore[assignment]
+        if not bot.access.is_owner(interaction.user.id):
+            await interaction.response.send_message("Only the bot's owner can choose where news is posted.", ephemeral=True)
+            return
+        if interaction.guild_id is None:
+            await interaction.response.send_message("Use this in a server the bot is in.", ephemeral=True)
+            return
+        if channel is None:
+            old = bot.news.set(game, interaction.guild_id, None)
+            text = (f"I'll stop posting {GAME_NAMES[game]} videos in <#{old}>." if old else
+                    f"{GAME_NAMES[game]} videos weren't being posted in this server.")
+            await interaction.response.send_message(text, ephemeral=True)
+            return
+        if channel.type not in (discord.ChannelType.text, discord.ChannelType.news):
+            await interaction.response.send_message("Pick a text channel.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        # The bot keeps no server cache, so the channel is fetched; posting a first line there checks it may post
+        try:
+            target = await bot.fetch_channel(channel.id)
+            await target.send(f"I'll post new {GAME_NAMES[game]} character demos, teasers and EPs here.")
+        except discord.HTTPException:
+            await interaction.followup.send(
+                f"I can't post in {channel.mention}. Make sure the bot is in this server and may view the channel,"
+                " send messages and embed links there.")
+            return
+        old = bot.news.set(game, interaction.guild_id, channel.id)
+        text = f"New {GAME_NAMES[game]} character demos, teasers and EPs will be posted in {channel.mention}."
+        if old and old != channel.id:
+            text += f" (Instead of <#{old}>.)"
+        await interaction.followup.send(text)
 
     return command
 
