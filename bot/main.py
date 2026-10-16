@@ -600,10 +600,16 @@ def make_news_command(game: str) -> app_commands.Command:
         try:
             target = await bot.fetch_channel(channel.id)
             await target.send(f"I'll post every new {GAME_NAMES[game]} YouTube video here.")
-        except discord.HTTPException:
-            await interaction.followup.send(
-                f"I can't post in {channel.mention}. Make sure the bot is in this server and may view the channel,"
-                " send messages and embed links there.")
+        except discord.HTTPException as exc:
+            log.info("Can't post %s news in %s: %s", game, channel.id, exc)
+            if exc.code == 50001:  # Missing Access: not a member of the server, or can't see the channel
+                why = ("I can't see that channel. Either the bot isn't a member of this server (added only to your"
+                       " account, not to the server), or the channel hides it: let its role **View Channel** there.")
+            elif exc.code == 50013:  # Missing Permissions
+                why = "I can see that channel but may not post there: let the bot's role **Send Messages** and **Embed Links** there."
+            else:
+                why = f"Discord said: {exc.text or exc.status}."
+            await interaction.followup.send(f"I can't post in {channel.mention}. {why}")
             return
         old = bot.news.set(game, interaction.guild_id, channel.id)
         text = f"Every new {GAME_NAMES[game]} YouTube video will be posted in {channel.mention}."
