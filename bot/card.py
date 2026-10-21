@@ -45,6 +45,7 @@ LINE = (255, 255, 255, 22)
 ART_MAX = 1100  # art is kept at most this tall
 FULL_ART_MAX = 2600  # except ZZZ's, which the head close-up enlarges: kept at full size
 ICON_MAX = 192
+MINDSCAPE_H = 170  # ZZZ: the Mindscape picture's panel, bottom left where other games show the weapon
 FACE_SIZE = 240  # ZZZ art is scaled so the face is this big
 FACE_X, FACE_Y = 210, 380  # and its centre lands here
 
@@ -103,6 +104,122 @@ def _background(accent) -> Image.Image:
             d = math.hypot((x - cx) / small.width, (y - cy) / small.height)
             px[x, y] = _mix(deep, dark, min(d / 0.75, 1))
     return small.resize((W, H), Image.BILINEAR).convert("RGBA")
+
+
+def mindscape_urls(build: CharacterBuild) -> tuple[str | None, str | None, int]:
+    """ZZZ: the agent's Mindscape Cinema pictures for their Mindscape level: the picture shown, the next one, and
+    how many thirds of the next one show over it. M0 the 1st, M1-2 a third / two thirds of the 2nd over it, M3 the
+    2nd, M4-5 thirds of the 3rd, M6 the 3rd."""
+    if build.game != "zzz" or not str(build.character_id).isdigit():
+        return None, None, 0
+    level = min(max(build.constellation, 0), 6)
+    base, thirds = (3, 0) if level == 6 else (level // 3 + 1, level % 3)
+    url = f"https://enka.network/ui/zzz/Mindscape_{build.character_id}_{{}}.png"
+    return url.format(base), url.format(base + 1) if thirds else None, thirds
+
+
+# Glow colours by Mindscape level, coolest to hottest like a flame's temperature: red, orange, yellow, white, blue
+GLOW_COLORS = {1: (232, 48, 32), 2: (255, 122, 24), 3: (255, 206, 52), 4: (255, 244, 226), 5: (150, 205, 255),
+                6: (70, 130, 255)}
+GLOW_M = 30  # how far the glow reaches past the panel
+
+
+def _glow(card: Image.Image, box, level: int) -> None:
+    """A soft glow around a panel, in the colour of the Mindscape level (none at M0)."""
+    color = GLOW_COLORS.get(min(level, 6))
+    if not color:
+        return
+    x0, y0, x1, y1 = box
+    m = GLOW_M
+    w, h = x1 - x0 + 2 * m, y1 - y0 + 2 * m
+    panel = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(panel).rounded_rectangle((m, m, w - m, h - m), 14, fill=255)
+    strength = 0.55 + 0.07 * min(level, 6)
+    outer = Image.new("RGBA", (w, h), color + (0,))  # only around the panel, not under it
+    outer.putalpha(ImageChops.subtract(panel.filter(ImageFilter.GaussianBlur(6)), panel)
+                   .point(lambda v: round(min(255, v * 1.6) * strength)))
+    core = Image.new("RGBA", (w, h), _mix(color, (255, 255, 255), 0.55) + (0,))
+    core.putalpha(ImageChops.subtract(panel.filter(ImageFilter.GaussianBlur(3)), panel)
+                  .point(lambda v: round(min(255, v * 2.2) * strength)))
+    full = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    full.alpha_composite(outer)
+    full.alpha_composite(core)
+    left, top = x0 - m, y0 - m
+    crop = full.crop((max(-left, 0), max(-top, 0), w - max(left + w - card.width, 0), h - max(top + h - card.height, 0)))
+    card.alpha_composite(crop, (max(left, 0), max(top, 0)))
+
+
+# Background behind each Mindscape picture (Syphex): M0 the card's dark panel, M3 black, M6 white
+V_HALF = 0.4  # half the first slice's width at its wide end, as a share of the panel height
+# Where each agent's face is in their Mindscape pictures (the 2nd and 3rd are drawn alike), as shares of the
+# picture's width and height, read off the pictures by eye; the first slice opens around it
+MINDSCAPE_FACES = {
+    1011: (0.43, 0.27), 1021: (0.52, 0.33), 1031: (0.52, 0.37), 1041: (0.58, 0.38), 1061: (0.48, 0.45),
+    1071: (0.33, 0.44), 1091: (0.54, 0.45), 1101: (0.5, 0.3), 1111: (0.49, 0.22), 1121: (0.38, 0.37),
+    1131: (0.54, 0.55), 1141: (0.79, 0.28), 1151: (0.42, 0.33), 1161: (0.62, 0.3), 1181: (0.71, 0.41),
+    1191: (0.71, 0.28), 1201: (0.19, 0.31), 1211: (0.6, 0.31), 1221: (0.64, 0.28), 1241: (0.6, 0.33),
+    1251: (0.56, 0.33), 1261: (0.58, 0.26), 1271: (0.38, 0.22), 1281: (0.56, 0.37), 1291: (0.62, 0.3),
+    1311: (0.52, 0.33), 1321: (0.31, 0.26), 1331: (0.44, 0.33), 1351: (0.71, 0.31), 1361: (0.56, 0.35),
+    1371: (0.34, 0.37), 1381: (0.56, 0.48), 1391: (0.29, 0.28), 1401: (0.45, 0.3), 1411: (0.49, 0.54),
+    1421: (0.6, 0.26), 1431: (0.3, 0.35), 1441: (0.6, 0.26), 1451: (0.22, 0.5), 1461: (0.62, 0.28),
+    1481: (0.51, 0.31), 1491: (0.47, 0.33), 1501: (0.48, 0.41), 1511: (0.44, 0.37), 1521: (0.53, 0.41),
+    1531: (0.53, 0.15), 1541: (0.81, 0.33), 1561: (0.35, 0.22), 1571: (0.45, 0.31), 1581: (0.47, 0.3),
+    1591: (0.6, 0.31), 1611: (0.45, 0.33), 1621: (0.34, 0.35), 1631: (0.71, 0.31), 1641: (0.22, 0.39),
+}
+MINDSCAPE_BG = {1: (8, 6, 16, 200), 2: (0, 0, 0, 255), 3: (255, 255, 255, 255)}
+
+
+def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level: int = 0,
+                     upcoming: Image.Image | None = None, thirds: int = 0,
+                     face: tuple[float, float] | None = None) -> None:
+    """ZZZ: the Mindscape Cinema picture in a rounded panel, the next one taking over a part per copy, with a
+    glow around it."""
+    if picture is None:
+        return
+    _glow(card, box, level)
+    x0, y0, x1, y1 = box
+    w, h = x1 - x0, y1 - y0
+
+    def fill(pic: Image.Image) -> Image.Image:
+        pic = pic.convert("RGBA")
+        scale = max(w / pic.width, h / pic.height)
+        pic = pic.resize((round(pic.width * scale), round(pic.height * scale)), Image.LANCZOS)
+        left, top = (pic.width - w) // 2, (pic.height - h) // 2
+        return pic.crop((left, top, left + w, top + h))
+
+    base = 3 if level >= 6 else max(level, 0) // 3 + 1  # which of the three pictures is shown
+    tile = Image.new("RGBA", (w, h), MINDSCAPE_BG[base])
+    tile.alpha_composite(fill(picture))
+    # Like the game's Mindscape Cinema, each copy uncovers a part of the next picture: first a slice shaped like a
+    # stretched V lying on its side, its wide end on the agent's face, then everything above it, then (the next level)
+    # the rest
+    if upcoming is not None and thirds:
+        scale = max(w / upcoming.width, h / upcoming.height)
+        fx, fy = face if face else (0.0, 0.7)  # unknown face: wide end at the left
+        fx = fx * upcoming.width * scale - (upcoming.width * scale - w) / 2
+        fy = fy * upcoming.height * scale - (upcoming.height * scale - h) / 2
+        right = fx > w / 2
+        # the V's point is in the corner diagonally across from the face, and its middle line runs through the face
+        tip = (0 if right else w, -h * 0.02 if fy > h / 2 else h * 1.02)
+        end = w if right else 0
+        mid = tip[1] + (fy - tip[1]) * (end - tip[0]) / ((fx - tip[0]) or 1)
+        mid = min(max(mid, -h * 0.1), h * 1.1)
+        upper, lower = (end, mid - h * V_HALF), (end, mid + h * V_HALF)
+        sides = (lower, tip) if right else (tip, lower)  # the points on the right edge, then the left
+        region = (tip, upper, lower) if thirds == 1 else ((0, -h), (w, -h)) + sides
+        cut = Image.new("L", (w * 4, h * 4), 0)
+        ImageDraw.Draw(cut).polygon([(x * 4, y * 4) for x, y in region], fill=255)
+        cut = cut.resize((w, h), Image.LANCZOS)
+        tile.paste(Image.new("RGBA", (w, h), MINDSCAPE_BG[base + 1]), (0, 0), cut)  # the next picture's background
+        nxt = fill(upcoming)
+        over = nxt.copy()
+        over.putalpha(ImageChops.multiply(nxt.getchannel("A"), cut))
+        tile.alpha_composite(over)
+    mask = Image.new("L", (w * 4, h * 4), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, w * 4 - 1, h * 4 - 1), 14 * 4, fill=255)
+    tile.putalpha(ImageChops.multiply(tile.getchannel("A"), mask.resize((w, h), Image.LANCZOS)))
+    card.alpha_composite(tile, (x0, y0))
+    ImageDraw.Draw(card).rounded_rectangle(box, 14, outline=(255, 255, 255, 40), width=1)
 
 
 def _fit_text(draw: ImageDraw.ImageDraw, text: str, font, width: int) -> str:
@@ -361,13 +478,23 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
 
     _cons_marks(card, build, accent, light, images)
 
-    # Weapon, bottom left.
+    # ZZZ: the Mindscape picture bottom left, the weapon at the foot of the stats column, and Crit Value and the
+    # effective substat count side by side under the discs. Other games: the weapon bottom left, the two values
+    # at the foot of the stats column.
+    zzz = build.game == "zzz"
+    if zzz:
+        shown, upcoming, thirds = mindscape_urls(build)
+        _mindscape_panel(card, images.get(shown or ""), (PAD, H - PAD - MINDSCAPE_H, ART_W - 6, H - PAD),
+                         build.constellation, images.get(upcoming or ""), thirds,
+                         MINDSCAPE_FACES.get(int(build.character_id)) if upcoming else None)
+    weapon_box = None
     if build.weapon:
         w = build.weapon
-        stat_lines = _wrap(ImageDraw.Draw(card), " · ".join(f"{_name(s)} {s.value}" for s in w.stats), f.small_b, ART_W - 6 - PAD - 120, 2, " · ")
-        name_lines = _wrap(ImageDraw.Draw(card), w.name, f.wname, ART_W - 6 - PAD - 120, 2)
+        x0, x1 = (STATS_X, STATS_X + STATS_W) if zzz else (PAD, ART_W - 6)
+        stat_lines = _wrap(ImageDraw.Draw(card), " · ".join(f"{_name(s)} {s.value}" for s in w.stats), f.small_b, x1 - x0 - 120, 2, " · ")
+        name_lines = _wrap(ImageDraw.Draw(card), w.name, f.wname, x1 - x0 - 120, 2)
         box_h = 34 + 26 * len(name_lines) + 24 + 22 * len(stat_lines)
-        box = (PAD, H - PAD - max(box_h, 112), ART_W - 6, H - PAD)
+        box = weapon_box = (x0, H - PAD - max(box_h, 112), x1, H - PAD)
         _panel(card, box, 14, (8, 6, 16, 190))
         _icon(card, images.get(w.icon_url or ""), (box[0] + 10, box[1] + 10, box[0] + 96, box[3] - 10))
         tx = box[0] + 108
@@ -390,10 +517,15 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     effective = sum(piece_count(p, wanted) for p in build.gear) if wanted and build.gear else None
     badges = [b for b in ((*value, TEAL) if value else None,
                           ("EFFECTIVE SUBS", str(effective), EFFECTIVE) if effective is not None else None) if b]
-    footer_h = 58 * len(badges) - (12 if badges else 0)
+    if zzz:
+        footer_h = weapon_box[3] - weapon_box[1] if weapon_box else 0
+    else:
+        footer_h = 58 * len(badges) - (12 if badges else 0)
     # ATK% on gear raises the ATK total; a few totals have longer names than the gear lines
     wanted_totals = {TOTAL_NAMES.get(n, n.rstrip("%")) for n in wanted or ()}
-    box = (STATS_X, PAD, STATS_X + STATS_W, H - PAD)
+    box = (STATS_X, PAD, STATS_X + STATS_W, (weapon_box[1] - 12 if weapon_box else H - PAD) if zzz else H - PAD)
+    if zzz:
+        footer_h = 0
     _panel(card, box)
     draw = ImageDraw.Draw(card)
     _spaced(draw, (box[0] + 18, box[1] + 20), "STATS", f.label, DIM)
@@ -422,22 +554,26 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
         draw.text((box[0] + 46, mid), _fit_text(draw, name, font, room), font=font, fill=color, anchor="lm")
         draw.text((box[2] - 18, mid), s.value, font=f.stat_b, fill=color, anchor="rm")
         y += row_h
-    y = box[3] - 12 - footer_h
-    for label, value, color in badges:
-        badge = (box[0] + 10, y, box[2] - 10, y + 46)
+    cols = 2
+    gw = (W - PAD - GEAR_X - 12 * (cols - 1)) / cols
+    if zzz:  # one column each, under the discs
+        spots = [(round(GEAR_X + i * (gw + 12)), H - PAD - 46, round(GEAR_X + i * (gw + 12) + gw)) for i in range(cols)]
+    else:
+        spots = [(box[0] + 10, box[3] - 12 - footer_h + 58 * i, box[2] - 10) for i in range(len(badges))]
+    for (label, value, color), (x0, y, x1) in zip(badges, spots):
+        badge = (x0, y, x1, y + 46)
         _panel(card, badge, 10, color + (22,))
         draw = ImageDraw.Draw(card)
         draw.rounded_rectangle(badge, 10, outline=color + (110,), width=1)
         _spaced(draw, (badge[0] + 14, y + 23), label, f.label, color, anchor="lm")
         draw.text((badge[2] - 14, y + 23), value, font=f.stat_b, fill=color, anchor="rm")
-        y += 58
 
     # Gear, two per row.
     gear = build.gear[:6]
+    gear_bottom = H - PAD - (46 + 12 if zzz and badges else 0)
     if gear:
-        cols, rows = 2, max(3, math.ceil(len(gear) / 2))
-        gw = (W - PAD - GEAR_X - 12 * (cols - 1)) / cols
-        gh = (H - 2 * PAD - 12 * (rows - 1)) / rows
+        rows = max(3, math.ceil(len(gear) / 2))
+        gh = (gear_bottom - PAD - 12 * (rows - 1)) / rows
         for i, piece in enumerate(gear):
             x0 = GEAR_X + (i % cols) * (gw + 12)
             y0 = PAD + (i // cols) * (gh + 12)
@@ -1004,7 +1140,9 @@ class CardMaker:
         urls |= {p.piece_icon for p in build.gear} | set(build.cons_icons)
         urls.discard(None)
         art_max = FULL_ART_MAX if build.game == "zzz" else ART_MAX
-        loaded = await asyncio.gather(*(self._image(u, art_max if u == build.art_url else ICON_MAX) for u in urls))
+        mindscape = set(mindscape_urls(build)[:2]) - {None}
+        urls |= mindscape
+        loaded = await asyncio.gather(*(self._image(u, art_max if u == build.art_url or u in mindscape else ICON_MAX) for u in urls))
         images = {u: img for u, img in zip(urls, loaded) if img is not None}
         face = await self._face(build, images) if build.game == "zzz" else None
         png = await asyncio.to_thread(draw_card, build, images, profile.uid, wanted, face)

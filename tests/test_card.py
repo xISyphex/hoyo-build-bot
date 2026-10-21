@@ -200,3 +200,82 @@ class FaceTest(unittest.TestCase):
         art, _ = self._figure()
         png = draw_card(build, {build.art_url: art}, face=(250, 200, 120))
         self.assertEqual(Image.open(io.BytesIO(png)).size, (W, H))
+
+
+class MindscapeTest(unittest.TestCase):
+    def test_next_picture_takes_over_a_third_per_copy(self):
+        import dataclasses
+        from bot.card import mindscape_urls
+        build = zenless.parse_profile(load_assets(), "1300003409", fixture("zzz_live.json")).characters[0]
+        got = {}
+        for m in range(7):
+            shown, upcoming, thirds = mindscape_urls(dataclasses.replace(build, constellation=m))
+            got[m] = (shown[-5], upcoming[-5] if upcoming else None, thirds)
+        self.assertEqual(got, {0: ("1", None, 0), 1: ("1", "2", 1), 2: ("1", "2", 2), 3: ("2", None, 0),
+                               4: ("2", "3", 1), 5: ("2", "3", 2), 6: ("3", None, 0)})
+        b = dataclasses.replace(build, constellation=4, character_id="9999")  # no known face: the V opens at the left
+        shown, upcoming, _ = mindscape_urls(b)
+        png = draw_card(b, {shown: Image.new("RGBA", (1920, 1080), (200, 50, 50, 255)),
+                            upcoming: Image.new("RGBA", (1920, 1080), (50, 50, 200, 255))})
+        card = Image.open(io.BytesIO(png)).convert("RGB")
+        self.assertEqual(card.size, (W, H))
+        top = 720 - 24 - 170  # the panel's top
+        band, below = card.getpixel((24 + 176, top + 70)), card.getpixel((24 + 340, top + 160))
+        self.assertGreater(band[2], band[0])  # M4: the diagonal band through the middle shows the next picture
+        self.assertGreater(below[0], below[2])  # the rest: this one
+
+    def test_background_black_for_m3_white_for_m6(self):
+        import dataclasses
+        from bot.card import mindscape_urls
+        build = zenless.parse_profile(load_assets(), "1300003409", fixture("zzz_live.json")).characters[0]
+        clear = Image.new("RGBA", (1920, 1080), (0, 0, 0, 0))  # a fully see-through picture shows the background
+        top = 720 - 24 - 170
+        for m, want in ((3, (0, 0, 0)), (6, (255, 255, 255))):
+            b = dataclasses.replace(build, constellation=m)
+            shown, _, _ = mindscape_urls(b)
+            card = Image.open(io.BytesIO(draw_card(b, {shown: clear}))).convert("RGB")
+            self.assertEqual(card.getpixel((24 + 200, top + 85)), want)
+        b = dataclasses.replace(build, constellation=4, character_id="9999")  # the unlocked band shows the M6 picture's white
+        shown, upcoming, _ = mindscape_urls(b)
+        card = Image.open(io.BytesIO(draw_card(b, {shown: clear, upcoming: clear}))).convert("RGB")
+        self.assertEqual(card.getpixel((24 + 176, top + 70)), (255, 255, 255))
+        self.assertEqual(card.getpixel((24 + 340, top + 160)), (0, 0, 0))
+
+    def test_first_slice_opens_on_the_face(self):
+        import dataclasses
+        from bot.card import ART_W, MINDSCAPE_FACES, mindscape_urls
+        build = zenless.parse_profile(load_assets(), "1300003409", fixture("zzz_live.json")).characters[0]
+        h = 170  # see-through pictures, so the slice shows the next picture's white background
+        for cid in (1191, 1201):  # face at the right, face at the left
+            b = dataclasses.replace(build, constellation=4, character_id=str(cid))
+            shown, upcoming, _ = mindscape_urls(b)
+            clear = Image.new("RGBA", (1920, 1080), (0, 0, 0, 0))
+            card = Image.open(io.BytesIO(draw_card(b, {shown: clear, upcoming: clear}))).convert("RGB")
+            x0, y0 = 24, 720 - 24 - 170
+            w = ART_W - 6 - 24
+            scale = max(w / 1920, h / 1080)
+            fx, fy = MINDSCAPE_FACES[cid]
+            px = round(fx * 1920 * scale - (1920 * scale - w) / 2)
+            py = round(fy * 1080 * scale - (1080 * scale - h) / 2)
+            self.assertEqual(card.getpixel((x0 + px, y0 + py)), (255, 255, 255), cid)
+
+    def test_other_games_have_none(self):
+        from bot.card import mindscape_urls
+        build = genshin.parse_profile(load_assets(), "618285856", fixture("genshin_live.json")).characters[0]
+        self.assertEqual(mindscape_urls(build), (None, None, 0))
+
+
+class GlowTest(unittest.TestCase):
+    def test_glow_colour_climbs_with_the_mindscape(self):
+        import dataclasses
+        from bot.card import mindscape_urls
+        build = zenless.parse_profile(load_assets(), "1300003409", fixture("zzz_live.json")).characters[0]
+        picture = Image.new("RGBA", (1920, 1080), (0, 0, 0, 0))
+        pixels = {}
+        for m in (0, 1, 6):
+            b = dataclasses.replace(build, constellation=m)
+            card = Image.open(io.BytesIO(draw_card(b, {mindscape_urls(b)[0]: picture})))
+            pixels[m] = card.convert("RGB").getpixel((200, 720 - 24 - 170 - 4))  # just above the picture's panel
+        r0, g0, b0 = pixels[0]
+        self.assertGreater(pixels[1][0], r0 + 20)  # M1: red
+        self.assertGreater(pixels[6][2], b0 + 20)  # M6: blue
