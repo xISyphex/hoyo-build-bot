@@ -127,29 +127,47 @@ NOTCH_R = 7  # the half-round notches where the stub tears off
 
 
 def _ticket_stub(ticket: Image.Image, level: int) -> None:
-    """The ticket's stub over the left of the picture, frosted and darkened: a progress bar of six slanted segments
-    filling from M1 at the bottom to M6 at the top, the unlocked ones in the colour of the highest."""
+    """The ticket's stub over the left of the picture, frosted and darkened, holding a game-style bar standing upright:
+    an M in a circle at the bottom and six cells going up, the unlocked ones filled in the colour of the highest."""
     h = ticket.height
     stub = ticket.crop((0, 0, TAB_W, h)).filter(ImageFilter.GaussianBlur(4))
     stub.alpha_composite(Image.new("RGBA", (TAB_W, h), (10, 8, 20, 185)))
-    lit = MINDSCAPE_COLORS.get(min(level, 6))
-    k = 4  # drawn at 4x for smooth slants
+    color = MINDSCAPE_COLORS.get(min(level, 6), (120, 116, 140))
+    dark, ink = _mix(color, (0, 0, 0), 0.35), (14, 10, 22, 255)
+    k = 4  # drawn at 4x and shrunk, for smooth edges
     layer = Image.new("RGBA", (TAB_W * k, h * k), (0, 0, 0, 0))
     draw = ImageDraw.Draw(layer)
-    font = _font("Bold", 15 * k)
-    left, right, top, bottom, gap, slant = 6, TAB_W - 7, 8, h - 8, 4, 5
-    seg = (bottom - top - gap * 5) / 6
+    cx, r = TAB_W / 2, 14  # the circle
+    cy = h - 6 - r
+    half, line = 8, 2.5  # the bar's half width and outline
+    tip, bar_bottom = 6, cy - r + 3  # the bar's pointed top and where it meets the circle
+    body_top = tip + half
+    draw.polygon([((cx - half) * k, bar_bottom * k), ((cx - half) * k, body_top * k), (cx * k, tip * k),
+                  ((cx + half) * k, body_top * k), ((cx + half) * k, bar_bottom * k)], fill=ink)
+    inner, gap = half - line, 2
+    cell = (bar_bottom - line - body_top - gap * 5) / 6
     for n in range(1, 7):
-        y1 = bottom - (n - 1) * (seg + gap)
-        y0 = y1 - seg
-        shape = [(left * k, y1 * k), ((left + slant) * k, y0 * k), (right * k, y0 * k), ((right - slant) * k, y1 * k)]
+        y1 = bar_bottom - line - (n - 1) * (cell + gap)
+        y0 = y1 - cell
+        x0, x1 = cx - inner, cx + inner
         if n <= level:
-            draw.polygon(shape, fill=lit + (255,))
-            text = (16, 12, 26, 255)
+            draw.rectangle((x0 * k, y0 * k, x1 * k, y1 * k), fill=color + (255,))
+            draw.rectangle(((x1 - 3) * k, y0 * k, x1 * k, y1 * k), fill=dark + (255,))  # shade on the right
+            draw.rectangle(((x0 + 1.5) * k, (y0 + 1.5) * k, (x0 + 4) * k, (y1 - 1.5) * k),
+                           fill=_mix(color, (255, 255, 255), 0.55) + (255,))  # shine on the left
         else:
-            draw.polygon(shape, fill=(255, 255, 255, 16), outline=(255, 255, 255, 60), width=k)
-            text = (150, 146, 170, 170)
-        draw.text(((left + right) / 2 * k, (y0 + y1) / 2 * k), f"M{n}", font=font, fill=text, anchor="mm")
+            draw.rectangle((x0 * k, y0 * k, x1 * k, y1 * k), fill=(62, 58, 78, 255))
+    if level >= 6:  # the pointed top fills too once every level is unlocked
+        draw.polygon([((cx - inner) * k, (body_top + 1) * k), (cx * k, (tip + line + 2) * k),
+                      ((cx + inner) * k, (body_top + 1) * k)], fill=color + (255,))
+    draw.ellipse(((cx - r) * k, (cy - r) * k, (cx + r) * k, (cy + r) * k), fill=ink)
+    rr = r - line
+    draw.ellipse(((cx - rr) * k, (cy - rr) * k, (cx + rr) * k, (cy + rr) * k),
+                 fill=(color if level else (62, 58, 78)) + (255,))
+    draw.ellipse(((cx - rr + 3) * k, (cy - rr + 2.5) * k, (cx - rr + 8) * k, (cy - rr + 6.5) * k),
+                 fill=(255, 255, 255, 150))  # shine
+    draw.text((cx * k, (cy + 1) * k), "M", font=_font("Bold", 19 * k), fill=ink if level else (150, 146, 170, 255),
+              anchor="mm")
     stub.alpha_composite(layer.resize((TAB_W, h), Image.LANCZOS))
     ticket.paste(stub, (0, 0))
 

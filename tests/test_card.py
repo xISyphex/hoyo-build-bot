@@ -284,19 +284,18 @@ class MindscapeTest(unittest.TestCase):
 
 
 class MindscapeTabTest(unittest.TestCase):
-    def test_unlocked_levels_lit_in_the_highest_ones_colour(self):
+    def test_bar_fills_with_the_highest_levels_colour(self):
         import dataclasses
         from bot.card import MINDSCAPE_COLORS, TAB_W
         build = zenless.parse_profile(load_assets(), "1300003409", fixture("zzz_live.json")).characters[0]
-        card = Image.open(io.BytesIO(draw_card(dataclasses.replace(build, constellation=3), {}))).convert("RGB")
-        top, row = 720 - 24 - 150, 150 / 6
+        top = 720 - 24 - 150
 
-        def colours(n):  # the colours in the M{n} segment's row; the bar fills from the bottom
-            y = round(top + 150 - row * (n - 0.5))
-            return {card.getpixel((x, yy)) for x in range(24, 24 + TAB_W) for yy in range(y - 6, y + 6)}
+        def count(level, color):  # pixels in the stub close to this colour
+            card = Image.open(io.BytesIO(draw_card(dataclasses.replace(build, constellation=level), {}))).convert("RGB")
+            return sum(1 for x in range(24, 24 + TAB_W) for y in range(top, top + 150)
+                       if all(abs(a - b) < 16 for a, b in zip(card.getpixel((x, y)), color)))
 
-        for n in (1, 2, 3):
-            self.assertIn(MINDSCAPE_COLORS[3], colours(n))  # M1-M3 all in M3's yellow
-        self.assertNotIn(MINDSCAPE_COLORS[1], colours(1))
-        self.assertNotIn(MINDSCAPE_COLORS[3], colours(4))  # M4 still dim
-
+        self.assertGreater(count(3, MINDSCAPE_COLORS[3]), 100)  # M3: the circle and three cells in yellow
+        self.assertEqual(count(3, MINDSCAPE_COLORS[1]), 0)  # nothing in M1's red
+        self.assertEqual(count(0, MINDSCAPE_COLORS[3]), 0)
+        self.assertGreater(count(6, MINDSCAPE_COLORS[6]), count(3, MINDSCAPE_COLORS[3]))  # M6: every cell
