@@ -224,6 +224,23 @@ class MindscapeTest(unittest.TestCase):
         self.assertGreater(band[2], band[0])  # M4: the diagonal band through the middle shows the next picture
         self.assertGreater(below[0], below[2])  # the rest: this one
 
+    def test_background_black_for_m3_white_for_m6(self):
+        import dataclasses
+        from bot.card import mindscape_urls
+        build = zenless.parse_profile(load_assets(), "1300003409", fixture("zzz_live.json")).characters[0]
+        clear = Image.new("RGBA", (1920, 1080), (0, 0, 0, 0))  # a fully see-through picture shows the background
+        top = 720 - 24 - 170
+        for m, want in ((3, (0, 0, 0)), (6, (255, 255, 255))):
+            b = dataclasses.replace(build, constellation=m)
+            shown, _, _ = mindscape_urls(b)
+            card = Image.open(io.BytesIO(draw_card(b, {shown: clear}))).convert("RGB")
+            self.assertEqual(card.getpixel((24 + 200, top + 85)), want)
+        b = dataclasses.replace(build, constellation=4)  # the unlocked band shows the M6 picture's white
+        shown, upcoming, _ = mindscape_urls(b)
+        card = Image.open(io.BytesIO(draw_card(b, {shown: clear, upcoming: clear}))).convert("RGB")
+        self.assertEqual(card.getpixel((24 + 176, top + 70)), (255, 255, 255))
+        self.assertEqual(card.getpixel((24 + 340, top + 160)), (0, 0, 0))
+
     def test_other_games_have_none(self):
         from bot.card import mindscape_urls
         build = genshin.parse_profile(load_assets(), "618285856", fixture("genshin_live.json")).characters[0]

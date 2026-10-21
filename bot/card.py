@@ -149,6 +149,10 @@ def _glow(card: Image.Image, box, level: int) -> None:
     card.alpha_composite(crop, (max(left, 0), max(top, 0)))
 
 
+# Background behind each Mindscape picture (Syphex): M0 the card's dark panel, M3 black, M6 white
+MINDSCAPE_BG = {1: (8, 6, 16, 200), 2: (0, 0, 0, 255), 3: (255, 255, 255, 255)}
+
+
 def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level: int = 0,
                      upcoming: Image.Image | None = None, thirds: int = 0) -> None:
     """ZZZ: the Mindscape Cinema picture in a rounded panel, the next one taking over a part per copy, with a
@@ -166,7 +170,8 @@ def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level:
         left, top = (pic.width - w) // 2, (pic.height - h) // 2
         return pic.crop((left, top, left + w, top + h))
 
-    tile = Image.new("RGBA", (w, h), (8, 6, 16, 200))
+    base = 3 if level >= 6 else max(level, 0) // 3 + 1  # which of the three pictures is shown
+    tile = Image.new("RGBA", (w, h), MINDSCAPE_BG[base])
     tile.alpha_composite(fill(picture))
     # Like the game's Mindscape Cinema, each copy uncovers a part of the next picture: first a diagonal band
     # rising through the middle, then everything above it, then (the next level) the rest
@@ -182,7 +187,7 @@ def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level:
         cut = Image.new("L", (w * 4, h * 4), 0)
         ImageDraw.Draw(cut).polygon([(x * 4, y * 4) for x, y in region], fill=255)
         cut = cut.resize((w, h), Image.LANCZOS)
-        tile.paste(Image.new("RGBA", (w, h), (8, 6, 16, 200)), (0, 0), cut)  # clear this picture under it
+        tile.paste(Image.new("RGBA", (w, h), MINDSCAPE_BG[base + 1]), (0, 0), cut)  # the next picture's background
         nxt = fill(upcoming)
         over = nxt.copy()
         over.putalpha(ImageChops.multiply(nxt.getchannel("A"), cut))
