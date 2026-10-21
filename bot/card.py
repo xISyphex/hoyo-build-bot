@@ -199,8 +199,9 @@ def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level:
         fx = fx * upcoming.width * scale - (upcoming.width * scale - w) / 2
         fy = fy * upcoming.height * scale - (upcoming.height * scale - h) / 2
         right = fx > w / 2
-        # the V's point is in the corner across from the face, and its middle line runs through the face
-        tip, end = ((0, h * 1.02), w) if right else ((w, -h * 0.02), 0)
+        # the V's point is in the corner diagonally across from the face, and its middle line runs through the face
+        tip = (0 if right else w, -h * 0.02 if fy > h / 2 else h * 1.02)
+        end = w if right else 0
         mid = tip[1] + (fy - tip[1]) * (end - tip[0]) / ((fx - tip[0]) or 1)
         mid = min(max(mid, -h * 0.1), h * 1.1)
         upper, lower = (end, mid - h * V_HALF), (end, mid + h * V_HALF)
