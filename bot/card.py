@@ -150,6 +150,7 @@ def _glow(card: Image.Image, box, level: int) -> None:
 
 
 # Background behind each Mindscape picture (Syphex): M0 the card's dark panel, M3 black, M6 white
+V_TOP, V_BOTTOM = 0.32, 1.06  # where the first slice's edges start on the left, as shares of the panel height
 MINDSCAPE_BG = {1: (8, 6, 16, 200), 2: (0, 0, 0, 255), 3: (255, 255, 255, 255)}
 
 
@@ -176,14 +177,12 @@ def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level:
     # Like the game's Mindscape Cinema, each copy uncovers a part of the next picture: first a diagonal band
     # rising through the middle, then everything above it, then (the next level) the rest
     if upcoming is not None and thirds:
-        rise = w * 0.45  # how much higher the band's edges are at the right than at the left
-
-        def edge(at: float) -> list[tuple[float, float]]:  # a line of the band, at this height on the left
-            return [(0, at), (w, at - rise)]
-
-        upper, lower = edge(h * 0.55), edge(h * 0.55 + h * 0.62)
-        top = [(0, -rise - h), (w, -rise - h)]
-        region = (upper[0], upper[1], lower[1], lower[0]) if thirds == 1 else (top[0], top[1], lower[1], lower[0])
+        # The first slice is a stretched V lying on its side: wide at the left, its two edges meeting in a point at
+        # the top right corner. The next copy uncovers everything above it.
+        tip = (w, -h * 0.02)
+        upper, lower = (0, h * V_TOP), (0, h * V_BOTTOM)
+        top = [(0, -h), (w, -h)]
+        region = (upper, tip, lower) if thirds == 1 else (top[0], top[1], tip, lower)
         cut = Image.new("L", (w * 4, h * 4), 0)
         ImageDraw.Draw(cut).polygon([(x * 4, y * 4) for x, y in region], fill=255)
         cut = cut.resize((w, h), Image.LANCZOS)
