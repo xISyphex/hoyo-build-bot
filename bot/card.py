@@ -149,8 +149,31 @@ def _glow(card: Image.Image, box, level: int) -> None:
     card.alpha_composite(crop, (max(left, 0), max(top, 0)))
 
 
+NAME_STYLE = "fill"
+
+
+def _backdrop_name(tile: Image.Image, name: str) -> None:
+    """The name in tall letters filling the panel's width, faint so the picture stays in front."""
+    w, h = tile.size
+    text = name.upper()
+    size = h
+    font = _font("Bold", size)
+    while size > 20 and ImageDraw.Draw(tile).textlength(text, font=font) > w * 0.94:
+        size -= 4
+        font = _font("Bold", size)
+    layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(layer)
+    left, top, right, bottom = draw.textbbox((0, 0), text, font=font)
+    at = ((w - (right - left)) / 2 - left, h - (bottom - top) - top - 8)
+    if NAME_STYLE == "outline":
+        draw.text(at, text, font=font, fill=(0, 0, 0, 0), stroke_width=2, stroke_fill=(255, 255, 255, 90))
+    else:
+        draw.text(at, text, font=font, fill=(255, 255, 255, 46))
+    tile.alpha_composite(layer)
+
+
 def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level: int = 0,
-                     upcoming: Image.Image | None = None, thirds: int = 0) -> None:
+                     upcoming: Image.Image | None = None, thirds: int = 0, name: str = "") -> None:
     """ZZZ: the Mindscape Cinema picture in a rounded panel, the next one taking over a part per copy, with a
     glow around it."""
     if picture is None:
@@ -167,6 +190,8 @@ def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level:
         return pic.crop((left, top, left + w, top + h))
 
     tile = Image.new("RGBA", (w, h), (8, 6, 16, 200))
+    if name:  # like the game, the agent's name in big letters behind the picture
+        _backdrop_name(tile, name)
     tile.alpha_composite(fill(picture))
     # Like the game's Mindscape Cinema, each copy uncovers a part of the next picture: first a diagonal band
     # rising through the middle, then everything above it, then (the next level) the rest
@@ -182,7 +207,10 @@ def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level:
         cut = Image.new("L", (w * 4, h * 4), 0)
         ImageDraw.Draw(cut).polygon([(x * 4, y * 4) for x, y in region], fill=255)
         cut = cut.resize((w, h), Image.LANCZOS)
-        tile.paste(Image.new("RGBA", (w, h), (8, 6, 16, 200)), (0, 0), cut)  # clear this picture under it
+        under = Image.new("RGBA", (w, h), (8, 6, 16, 200))
+        if name:
+            _backdrop_name(under, name)
+        tile.paste(under, (0, 0), cut)  # clear this picture under it
         nxt = fill(upcoming)
         over = nxt.copy()
         over.putalpha(ImageChops.multiply(nxt.getchannel("A"), cut))
@@ -457,7 +485,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     if zzz:
         shown, upcoming, thirds = mindscape_urls(build)
         _mindscape_panel(card, images.get(shown or ""), (PAD, H - PAD - MINDSCAPE_H, ART_W - 6, H - PAD),
-                         build.constellation, images.get(upcoming or ""), thirds)
+                         build.constellation, images.get(upcoming or ""), thirds, build.name)
     weapon_box = None
     if build.weapon:
         w = build.weapon
