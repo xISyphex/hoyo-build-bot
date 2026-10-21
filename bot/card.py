@@ -122,21 +122,20 @@ def mindscape_urls(build: CharacterBuild) -> tuple[str | None, str | None, int]:
 # the M1-M6 tab beside the picture
 MINDSCAPE_COLORS = {1: (232, 48, 32), 2: (255, 122, 24), 3: (255, 206, 52), 4: (255, 244, 226), 5: (150, 205, 255),
                     6: (70, 130, 255)}
-TAB_W = 40  # the M1-M6 tab left of the picture
-TAB_GAP = 6
+TAB_W = 40  # ZZZ: the ticket stub with M1-M6 at the left of the Mindscape picture
+NOTCH_R = 7  # the half-round notches where the stub tears off
 
 
-def _mindscape_tab(card: Image.Image, box, level: int) -> None:
-    """A tab with M1 to M6 from top to bottom; the unlocked ones lit in their level's colour."""
-    _panel(card, box, 12, (8, 6, 16, 200))
-    x0, y0, x1, y1 = box
+def _ticket_stub(level: int, h: int) -> Image.Image:
+    """The ticket's stub: M1 to M6 from top to bottom, the unlocked ones lit in their level's colour."""
+    stub = Image.new("RGBA", (TAB_W, h), (14, 11, 24, 235))
+    draw = ImageDraw.Draw(stub)
     font = _font("Bold", 17)
-    draw = ImageDraw.Draw(card)
-    row = (y1 - y0) / 6
+    row = h / 6
     for n in range(1, 7):
-        lit = n <= level
-        color = MINDSCAPE_COLORS[n] + (255,) if lit else (120, 116, 140, 150)
-        draw.text(((x0 + x1) / 2, y0 + row * (n - 0.5)), f"M{n}", font=font, fill=color, anchor="mm")
+        color = MINDSCAPE_COLORS[n] + (255,) if n <= level else (120, 116, 140, 150)
+        draw.text((TAB_W / 2, row * (n - 0.5)), f"M{n}", font=font, fill=color, anchor="mm")
+    return stub
 
 
 # Background behind each Mindscape picture (Syphex): M0 the card's dark panel, M3 black, M6 white
@@ -171,11 +170,41 @@ def _content(pictures: list[Image.Image]) -> tuple[int, int, int, int] | None:
 def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level: int = 0,
                      upcoming: Image.Image | None = None, thirds: int = 0,
                      face: tuple[float, float] | None = None) -> None:
-    """ZZZ: the Mindscape Cinema picture in a rounded panel, the next one taking over a part per copy."""
-    if picture is None:
-        return
-    x0, y0, x1, y1 = box
+    """ZZZ: a movie ticket: the stub with the Mindscape levels at the left, torn along a perforation from the Mindscape
+    Cinema picture, the next picture taking over a part per copy."""
+    tx0, y0, x1, y1 = box
+    x0 = tx0 + TAB_W
     w, h = x1 - x0, y1 - y0
+    base = 3 if level >= 6 else max(level, 0) // 3 + 1  # which of the three pictures is shown
+    tile = Image.new("RGBA", (w, h), MINDSCAPE_BG[base])
+    if picture is not None:
+        _mindscape_picture(tile, picture, level, base, upcoming, thirds, face)
+    ticket = Image.new("RGBA", (x1 - tx0, h), (0, 0, 0, 0))
+    ticket.paste(_ticket_stub(level, h), (0, 0))
+    ticket.paste(tile, (TAB_W, 0))
+    tw = ticket.width
+    mask = Image.new("L", (tw * 4, h * 4), 0)
+    md = ImageDraw.Draw(mask)
+    md.rounded_rectangle((0, 0, tw * 4 - 1, h * 4 - 1), 14 * 4, fill=255)
+    for cy in (0, h * 4):  # the notches at both ends of the tear line
+        md.ellipse((TAB_W * 4 - NOTCH_R * 4, cy - NOTCH_R * 4, TAB_W * 4 + NOTCH_R * 4, cy + NOTCH_R * 4), fill=0)
+    mask = mask.resize((tw, h), Image.LANCZOS)
+    ticket.putalpha(ImageChops.multiply(ticket.getchannel("A"), mask))
+    edge = Image.new("RGBA", (tw, h), (255, 255, 255, 0))  # a faint outline along the ticket's edge
+    edge.putalpha(mask.filter(ImageFilter.FIND_EDGES).point(lambda v: min(v, 60)))
+    ticket.alpha_composite(edge)
+    draw = ImageDraw.Draw(ticket)
+    y = NOTCH_R + 5
+    while y < h - NOTCH_R - 4:  # the perforation
+        draw.ellipse((TAB_W - 1.5, y - 1.5, TAB_W + 1.5, y + 1.5), fill=(255, 255, 255, 90))
+        y += 7
+    card.alpha_composite(ticket, (tx0, y0))
+
+
+def _mindscape_picture(tile: Image.Image, picture: Image.Image, level: int, base: int,
+                       upcoming: Image.Image | None, thirds: int, face: tuple[float, float] | None) -> None:
+    """The Mindscape picture filling the tile, with the next one's slice over it."""
+    w, h = tile.size
     picture = picture.convert("RGBA")
     nxt = upcoming.convert("RGBA") if upcoming is not None and thirds else None
     # the pictures have see-through margins; only their drawn part is zoomed to fill the panel
@@ -192,8 +221,6 @@ def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level:
         left, top = (pic.width - w) // 2, (pic.height - h) // 2
         return pic.crop((left, top, left + w, top + h))
 
-    base = 3 if level >= 6 else max(level, 0) // 3 + 1  # which of the three pictures is shown
-    tile = Image.new("RGBA", (w, h), MINDSCAPE_BG[base])
     tile.alpha_composite(fill(picture))
     # Like the game's Mindscape Cinema, each copy uncovers a part of the next picture: first a slice shaped like a
     # stretched V lying on its side, its wide end on the agent's face, then everything above it, then (the next level)
@@ -220,11 +247,6 @@ def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level:
         over = fill(nxt)
         over.putalpha(ImageChops.multiply(over.getchannel("A"), cut))
         tile.alpha_composite(over)
-    mask = Image.new("L", (w * 4, h * 4), 0)
-    ImageDraw.Draw(mask).rounded_rectangle((0, 0, w * 4 - 1, h * 4 - 1), 14 * 4, fill=255)
-    tile.putalpha(ImageChops.multiply(tile.getchannel("A"), mask.resize((w, h), Image.LANCZOS)))
-    card.alpha_composite(tile, (x0, y0))
-    ImageDraw.Draw(card).rounded_rectangle(box, 14, outline=(255, 255, 255, 40), width=1)
 
 
 def _fit_text(draw: ImageDraw.ImageDraw, text: str, font, width: int) -> str:
@@ -489,8 +511,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     zzz = build.game == "zzz"
     if zzz:
         shown, upcoming, thirds = mindscape_urls(build)
-        _mindscape_tab(card, (PAD, H - PAD - MINDSCAPE_H, PAD + TAB_W, H - PAD), build.constellation)
-        _mindscape_panel(card, images.get(shown or ""), (PAD + TAB_W + TAB_GAP, H - PAD - MINDSCAPE_H, ART_W - 6, H - PAD),
+        _mindscape_panel(card, images.get(shown or ""), (PAD, H - PAD - MINDSCAPE_H, ART_W - 6, H - PAD),
                          build.constellation, images.get(upcoming or ""), thirds,
                          MINDSCAPE_FACES.get(int(build.character_id)) if upcoming else None)
     weapon_box = None
