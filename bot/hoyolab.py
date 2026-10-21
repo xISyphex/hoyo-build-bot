@@ -508,6 +508,11 @@ class HoyolabClient:
         self._calendars[key] = (time.monotonic() + CALENDAR_SECONDS, info)
         return info
 
+    def cached_patch(self, game: str):
+        """The calendar read with the server's own login, if one is in memory."""
+        hit = self._calendars.get((game, ""))
+        return hit[1] if hit else None
+
     async def warm_calendars(self, games) -> None:
         """Reads every game's calendar with the server's own login ahead of time (and again before it expires), so
         the patch commands answer straight from memory. Failures are only logged; the command reads it then."""

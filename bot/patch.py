@@ -157,6 +157,22 @@ def zzz_patch(gacha, events, weapon_name, now: dt.datetime | None = None) -> Pat
     return _finish("zzz", _version(banners, now), now, banners, spans)
 
 
+CHARACTER_KINDS = {"Character warps", "Character event wishes", "Chronicled wish", "Exclusive channels",
+                   "Exclusive rescreening"}
+
+
+def unknown_characters(info: Patch, known: list[str], now: dt.datetime | None = None) -> list[str]:
+    """Featured characters on the running banners that aren't in the game data (one name containing the other counts
+    as known, for the odd spelling difference between HoYoLAB and the game data)."""
+    def norm(name: str) -> str:
+        return "".join(ch for ch in name.lower() if ch.isalnum())
+
+    now = now or dt.datetime.now(dt.timezone.utc)
+    have = [norm(k) for k in known]
+    names = {n for b in info.banners if b.kind in CHARACTER_KINDS and b.start <= now < b.end for n in b.featured}
+    return sorted(n for n in names if not any(norm(n) in k or (k and k in norm(n)) for k in have))
+
+
 # Each game server runs on its own fixed clock; mid-version banner switches happen at the same local time on each
 SERVER_UTC = {"America": -5, "Europe": 1, "Asia": 8, "TW/HK/MO": 8, "China": 8}
 
