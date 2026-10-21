@@ -162,3 +162,41 @@ class MirrorUrlTest(unittest.TestCase):
         self.assertEqual(mirror_url("https://enka.network/ui/UI_Gacha_AvatarImg_Furina.png"),
                          "https://static.nanoka.cc/assets/gi/UI_Gacha_AvatarImg_Furina.webp")
         self.assertIsNone(mirror_url("https://raw.githubusercontent.com/Mar-7th/StarRailRes/master/x.png"))
+
+
+class FaceTest(unittest.TestCase):
+    def _figure(self):
+        """A figure on a transparent picture with a patterned 'face' near its top."""
+        import random as rnd
+        rnd.seed(1)
+        art = Image.new("RGBA", (500, 1000), (0, 0, 0, 0))
+        art.paste((90, 90, 160, 255), (150, 100, 350, 1000))  # the body
+        face = Image.new("RGBA", (120, 120))
+        face.putdata([(rnd.randrange(256), rnd.randrange(256), rnd.randrange(256), 255) for _ in range(120 * 120)])
+        face = face.resize((120, 120))
+        art.paste(face, (190, 140))
+        return art, face
+
+    def test_face_icon_is_found_in_the_picture(self):
+        from bot import face as facemod
+        if facemod.cv2 is None:
+            self.skipTest("OpenCV not installed")
+        art, icon = self._figure()
+        x, y, size = facemod.find_face(art, icon)
+        self.assertAlmostEqual(x, 250, delta=12)
+        self.assertAlmostEqual(y, 200, delta=12)
+        self.assertAlmostEqual(size, 120, delta=15)
+
+    def test_without_an_icon_the_face_is_guessed_from_the_outline(self):
+        from bot.face import EST_D, EST_Y, find_face
+        art, _ = self._figure()
+        x, y, size = find_face(art, None)
+        self.assertAlmostEqual(x, 250, delta=5)
+        self.assertAlmostEqual(y, 100 + EST_Y * 900, delta=2)
+        self.assertAlmostEqual(size, EST_D * 900, delta=2)
+
+    def test_zzz_card_draws_with_a_face(self):
+        build = zenless.parse_profile(load_assets(), "1300003409", fixture("zzz_live.json")).characters[0]
+        art, _ = self._figure()
+        png = draw_card(build, {build.art_url: art}, face=(250, 200, 120))
+        self.assertEqual(Image.open(io.BytesIO(png)).size, (W, H))

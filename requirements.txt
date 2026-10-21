@@ -3,3 +3,4 @@ aiohttp>=3.9
 Pillow>=10.1
 genshin>=1.7.31
 cryptography>=42
+opencv-python-headless>=4.8,<5
