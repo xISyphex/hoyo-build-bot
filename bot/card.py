@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import io
+import json
 import logging
 import math
 import os
@@ -20,6 +21,7 @@ import aiohttp
 from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageFont
 
 from .effective import EffectiveStats, piece_count
+from .face import find_face
 from .embeds import ELEMENT_COLORS, GAME_LABELS, ZZZ_RARITY, _is_zero, _name
 from . import stat_icons
 from .models import CharacterBuild, Gear, PlayerProfile
@@ -42,8 +44,8 @@ PANEL = (255, 255, 255, 14)
 LINE = (255, 255, 255, 22)
 ART_MAX = 1100  # art is kept at most this tall
 ICON_MAX = 192
-ART_DROP = 110  # ZZZ art starts this far down, so the head sits below the name
-HEAD_X = 230  # and its head lines up here
+FACE_SIZE = 240  # ZZZ art is scaled so the face is this big
+FACE_X, FACE_Y = 210, 380  # and its centre lands here
 
 
 FONT_FILES = {"Regular": "Rajdhani-Medium.ttf", "SemiBold": "Rajdhani-SemiBold.ttf", "Bold": "Rajdhani-Bold.ttf"}
@@ -202,32 +204,23 @@ def _info_row(card: Image.Image, build: CharacterBuild, f, accent, light, y: int
     _draw_rarity(draw, build, f, x + 11, cy)
 
 
-def _paste_art(card: Image.Image, art: Image.Image | None, full_body: bool = False) -> None:
+def _paste_art(card: Image.Image, art: Image.Image | None, face: tuple[float, float, float] | None = None) -> None:
     """Character art across the left column, fading out to the right before the stats box, so wide art (wings,
     weapons) never shows through it.
 
-    full_body (ZZZ): every agent is scaled to the same height, starts below the name, and is
-    lined up on its head, so tall, wide (wings) and off-centre art all sit the same way.
+    face (ZZZ): the face's centre and size in the picture; every agent is scaled to the same face size and lined up
+    on it, so each card shows the same head close-up whatever the picture's framing.
     """
     if art is None:
         return
     art = art.convert("RGBA")
     width = ART_W + 140
-    if full_body:
-        solid = art.getchannel("A").point(lambda a: 255 if a > 100 else 0).getbbox()
-        if solid:  # trim empty space above the head, so every agent starts at the same height
-            art = art.crop((0, solid[1], art.width, art.height))
-        scale = (H + 60) / art.height
-        art = art.resize((round(art.width * scale), round(art.height * scale)), Image.LANCZOS)
-        # Where the head is: the middle of the visible pixels in the figure's top fifth.
-        weights = list(art.crop((0, 0, art.width, art.height // 5)).getchannel("A").resize((art.width, 1), Image.BOX).getdata())
-        total = sum(weights)
-        head_x = sum(i * w for i, w in enumerate(weights)) / total if total else art.width / 2
-        left = round(head_x - HEAD_X)  # source x that lands on the card's left edge
-        canvas = Image.new("RGBA", (width, H), (0, 0, 0, 0))
-        src = art.crop((max(left, 0), 0, min(left + width, art.width), min(art.height, H - ART_DROP)))
-        canvas.alpha_composite(src, (max(-left, 0), ART_DROP))
-        art = canvas
+    if face:
+        fx, fy, size = face
+        k = size / FACE_SIZE  # picture pixels per card pixel
+        left, top = fx - FACE_X * k, fy - FACE_Y * k
+        # outside the picture comes out transparent
+        art = art.crop((round(left), round(top), round(left + width * k), round(top + H * k))).resize((width, H), Image.LANCZOS)
     else:
         scale = (H + 60) / art.height
         if art.width * scale < width:
@@ -338,8 +331,9 @@ def server_name(game: str, uid: str) -> str | None:
 
 
 def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | None = None,
-              wanted: set[str] | None = None) -> bytes:
-    """wanted: the substats this character wants; they're counted and highlighted (left out if unknown)."""
+              wanted: set[str] | None = None, face: tuple[float, float, float] | None = None) -> bytes:
+    """wanted: the substats this character wants; they're counted and highlighted (left out if unknown).
+    face: where the face is in the art (ZZZ), for the head close-up."""
     global FONTS
     FONTS = FONTS or Fonts()
     f = FONTS
@@ -348,7 +342,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     labels = GAME_LABELS[build.game]
 
     card = _background(accent)
-    _paste_art(card, images.get(build.art_url or "") or images.get(build.icon_url or ""), full_body=build.game == "zzz")
+    _paste_art(card, images.get(build.art_url or "") or images.get(build.icon_url or ""), face)
     _shade(card, (0, 0, W, 210), 215, 0)
     _shade(card, (0, H - 280, W, H), 0, 225)
     draw = ImageDraw.Draw(card)
@@ -995,6 +989,8 @@ class CardMaker:
         self.dir = Path(cache_dir) / "images"
         self.failed: set[str] = set()
         self.cards: dict[str, bytes] = {}  # recent cards, so flipping back and forth is instant
+        self.faces_path = Path(cache_dir) / "faces.json"
+        self.faces: dict[str, list[float]] | None = None  # art url -> face centre and size, as shares of the picture
 
     async def render(self, profile: PlayerProfile, build: CharacterBuild) -> bytes:
         wanted = self.effective.wanted(build) if self.effective else None
@@ -1006,7 +1002,8 @@ class CardMaker:
         urls.discard(None)
         loaded = await asyncio.gather(*(self._image(u, big=u == build.art_url) for u in urls))
         images = {u: img for u, img in zip(urls, loaded) if img is not None}
-        png = await asyncio.to_thread(draw_card, build, images, profile.uid, wanted)
+        face = await self._face(build, images) if build.game == "zzz" else None
+        png = await asyncio.to_thread(draw_card, build, images, profile.uid, wanted, face)
         if len(self.cards) >= 40:
             self.cards.pop(next(iter(self.cards)))
         self.cards[key] = png
@@ -1032,6 +1029,26 @@ class CardMaker:
         loaded = await asyncio.gather(*(self._image(u, big=False) for u in urls))
         images = {u: img for u, img in zip(urls, loaded) if img is not None}
         return await asyncio.to_thread(draw_patch, info, images, now)
+
+    async def _face(self, build: CharacterBuild, images: dict[str, Image.Image]) -> tuple[float, float, float] | None:
+        """Where the face is in a ZZZ agent's picture, found once per picture and kept in faces.json."""
+        art = images.get(build.art_url or "")
+        if art is None:
+            return None
+        if self.faces is None:
+            try:
+                self.faces = json.loads(self.faces_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                self.faces = {}
+        if build.art_url not in self.faces:
+            x, y, size = await asyncio.to_thread(find_face, art, images.get(build.icon_url or ""), build.art_url)
+            self.faces[build.art_url] = [x / art.width, y / art.height, size / art.height]  # shares, whatever the size
+            try:
+                self.faces_path.write_text(json.dumps(self.faces), encoding="utf-8")
+            except OSError:
+                log.exception("Could not save %s", self.faces_path)
+        x, y, size = self.faces[build.art_url]
+        return x * art.width, y * art.height, size * art.height
 
     async def _image(self, url: str, big: bool) -> Image.Image | None:
         path = self.dir / (hashlib.sha1(url.encode()).hexdigest() + ".png")

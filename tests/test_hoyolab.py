@@ -377,3 +377,17 @@ class LinkTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ZzzOutfitTest(unittest.TestCase):
+    def test_outfit_picture_comes_from_enka_when_known(self):
+        assets = Assets("data")
+        assets.load()
+        plain = zzz_build(assets, genshin.models.ZZZFullAgent(**ZZZ))
+        # HoYoLAB names the outfit at the end of the picture's file name
+        banner = "https://example.invalid/role_vertical_painting_1191_{}.png"
+        known = zzz_build(assets, genshin.models.ZZZFullAgent(**{**ZZZ, "role_vertical_painting_url": banner.format(3111911)}))
+        unknown = zzz_build(assets, genshin.models.ZZZFullAgent(**{**ZZZ, "role_vertical_painting_url": banner.format(3119999)}))
+        self.assertTrue(known.art_url.startswith("https://enka.network/ui/zzz/"))
+        self.assertNotEqual(known.art_url, plain.art_url)
+        self.assertEqual(unknown.art_url, banner.format(3119999))

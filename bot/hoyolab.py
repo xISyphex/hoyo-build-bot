@@ -251,7 +251,10 @@ def _zzz_sub(prop, rarity: str) -> Stat:
 
 def zzz_build(assets: Assets, agent) -> CharacterBuild:
     """One genshin.py ZZZFullAgent as a build card."""
-    skeleton = zz.parse_character(assets, {"Id": agent.id, "Level": agent.level, "TalentLevel": agent.rank})
+    outfit = getattr(agent, "outfit_id", None)
+    plain = zz.parse_character(assets, {"Id": agent.id, "Level": agent.level, "TalentLevel": agent.rank})
+    # in an outfit, Enka's picture of it when Enka knows the outfit (full body, like every other card's)
+    skeleton = zz.parse_character(assets, {"Id": agent.id, "Level": agent.level, "TalentLevel": agent.rank, "SkinId": outfit}) if outfit else plain
     stats = [Stat(ZZZ_NAMES.get(p.name, p.name), p.final) for p in agent.properties if p.final not in ("", None)]
     talents = []
     for label in [label for _, label in zz.SKILLS]:
@@ -280,8 +283,8 @@ def zzz_build(assets: Assets, agent) -> CharacterBuild:
     return dataclasses.replace(
         skeleton, level=agent.level, constellation=agent.rank, stats=stats or skeleton.stats,
         talents=talents or skeleton.talents, weapon=weapon, gear=gear, set_bonuses=_sets(gear), notes=[NOTE], source="hoyolab",
-        # in an outfit, HoYoLAB's full picture shows it
-        art_url=agent.banner_icon if getattr(agent, "outfit_id", None) and getattr(agent, "banner_icon", None) else skeleton.art_url,
+        # an outfit Enka doesn't know yet: HoYoLAB's own picture of it
+        art_url=agent.banner_icon if outfit and skeleton.art_url == plain.art_url and getattr(agent, "banner_icon", None) else skeleton.art_url,
     )
 
 
