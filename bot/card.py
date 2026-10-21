@@ -45,7 +45,7 @@ LINE = (255, 255, 255, 22)
 ART_MAX = 1100  # art is kept at most this tall
 FULL_ART_MAX = 2600  # except ZZZ's, which the head close-up enlarges: kept at full size
 ICON_MAX = 192
-BACKDROP_ALPHA = 0.3  # how strongly the Mindscape picture shows behind the ZZZ card
+MINDSCAPE_H = 170  # ZZZ: the Mindscape picture's panel, bottom left where other games show the weapon
 FACE_SIZE = 240  # ZZZ art is scaled so the face is this big
 FACE_X, FACE_Y = 210, 380  # and its centre lands here
 
@@ -114,17 +114,23 @@ def mindscape_url(build: CharacterBuild) -> str | None:
     return f"https://enka.network/ui/zzz/Mindscape_{build.character_id}_{stage}.png"
 
 
-def _paste_backdrop(card: Image.Image, picture: Image.Image | None) -> None:
-    """A wide picture behind the whole card, dimmed so the panels on top stay readable."""
+def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box) -> None:
+    """ZZZ: the Mindscape Cinema picture in a rounded panel, filling it."""
     if picture is None:
         return
+    x0, y0, x1, y1 = box
+    w, h = x1 - x0, y1 - y0
     picture = picture.convert("RGBA")
-    scale = max(W / picture.width, H / picture.height)
+    scale = max(w / picture.width, h / picture.height)
     picture = picture.resize((round(picture.width * scale), round(picture.height * scale)), Image.LANCZOS)
-    left, top = picture.width - W, (picture.height - H) // 2  # its right side: the left is the agent's own art
-    picture = picture.crop((left, top, left + W, top + H))
-    picture.putalpha(picture.getchannel("A").point(lambda a: round(a * BACKDROP_ALPHA)))
-    card.alpha_composite(picture)
+    left, top = (picture.width - w) // 2, (picture.height - h) // 2
+    tile = Image.new("RGBA", (w, h), (8, 6, 16, 200))
+    tile.alpha_composite(picture.crop((left, top, left + w, top + h)))
+    mask = Image.new("L", (w * 4, h * 4), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, w * 4 - 1, h * 4 - 1), 14 * 4, fill=255)
+    tile.putalpha(ImageChops.multiply(tile.getchannel("A"), mask.resize((w, h), Image.LANCZOS)))
+    card.alpha_composite(tile, (x0, y0))
+    ImageDraw.Draw(card).rounded_rectangle(box, 14, outline=(255, 255, 255, 40), width=1)
 
 
 def _fit_text(draw: ImageDraw.ImageDraw, text: str, font, width: int) -> str:
@@ -367,7 +373,6 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     labels = GAME_LABELS[build.game]
 
     card = _background(accent)
-    _paste_backdrop(card, images.get(mindscape_url(build) or ""))
     _paste_art(card, images.get(build.art_url or "") or images.get(build.icon_url or ""), face)
     _shade(card, (0, 0, W, 210), 215, 0)
     _shade(card, (0, H - 280, W, H), 0, 225)
@@ -384,13 +389,20 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
 
     _cons_marks(card, build, accent, light, images)
 
-    # Weapon, bottom left.
+    # ZZZ: the Mindscape picture bottom left, the weapon at the foot of the stats column, and Crit Value and the
+    # effective substat count side by side under the discs. Other games: the weapon bottom left, the two values
+    # at the foot of the stats column.
+    zzz = build.game == "zzz"
+    if zzz:
+        _mindscape_panel(card, images.get(mindscape_url(build) or ""), (PAD, H - PAD - MINDSCAPE_H, ART_W - 6, H - PAD))
+    weapon_box = None
     if build.weapon:
         w = build.weapon
-        stat_lines = _wrap(ImageDraw.Draw(card), " · ".join(f"{_name(s)} {s.value}" for s in w.stats), f.small_b, ART_W - 6 - PAD - 120, 2, " · ")
-        name_lines = _wrap(ImageDraw.Draw(card), w.name, f.wname, ART_W - 6 - PAD - 120, 2)
+        x0, x1 = (STATS_X, STATS_X + STATS_W) if zzz else (PAD, ART_W - 6)
+        stat_lines = _wrap(ImageDraw.Draw(card), " · ".join(f"{_name(s)} {s.value}" for s in w.stats), f.small_b, x1 - x0 - 120, 2, " · ")
+        name_lines = _wrap(ImageDraw.Draw(card), w.name, f.wname, x1 - x0 - 120, 2)
         box_h = 34 + 26 * len(name_lines) + 24 + 22 * len(stat_lines)
-        box = (PAD, H - PAD - max(box_h, 112), ART_W - 6, H - PAD)
+        box = weapon_box = (x0, H - PAD - max(box_h, 112), x1, H - PAD)
         _panel(card, box, 14, (8, 6, 16, 190))
         _icon(card, images.get(w.icon_url or ""), (box[0] + 10, box[1] + 10, box[0] + 96, box[3] - 10))
         tx = box[0] + 108
@@ -413,10 +425,15 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     effective = sum(piece_count(p, wanted) for p in build.gear) if wanted and build.gear else None
     badges = [b for b in ((*value, TEAL) if value else None,
                           ("EFFECTIVE SUBS", str(effective), EFFECTIVE) if effective is not None else None) if b]
-    footer_h = 58 * len(badges) - (12 if badges else 0)
+    if zzz:
+        footer_h = weapon_box[3] - weapon_box[1] if weapon_box else 0
+    else:
+        footer_h = 58 * len(badges) - (12 if badges else 0)
     # ATK% on gear raises the ATK total; a few totals have longer names than the gear lines
     wanted_totals = {TOTAL_NAMES.get(n, n.rstrip("%")) for n in wanted or ()}
-    box = (STATS_X, PAD, STATS_X + STATS_W, H - PAD)
+    box = (STATS_X, PAD, STATS_X + STATS_W, (weapon_box[1] - 12 if weapon_box else H - PAD) if zzz else H - PAD)
+    if zzz:
+        footer_h = 0
     _panel(card, box)
     draw = ImageDraw.Draw(card)
     _spaced(draw, (box[0] + 18, box[1] + 20), "STATS", f.label, DIM)
@@ -445,22 +462,26 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
         draw.text((box[0] + 46, mid), _fit_text(draw, name, font, room), font=font, fill=color, anchor="lm")
         draw.text((box[2] - 18, mid), s.value, font=f.stat_b, fill=color, anchor="rm")
         y += row_h
-    y = box[3] - 12 - footer_h
-    for label, value, color in badges:
-        badge = (box[0] + 10, y, box[2] - 10, y + 46)
+    cols = 2
+    gw = (W - PAD - GEAR_X - 12 * (cols - 1)) / cols
+    if zzz:  # one column each, under the discs
+        spots = [(round(GEAR_X + i * (gw + 12)), H - PAD - 46, round(GEAR_X + i * (gw + 12) + gw)) for i in range(cols)]
+    else:
+        spots = [(box[0] + 10, box[3] - 12 - footer_h + 58 * i, box[2] - 10) for i in range(len(badges))]
+    for (label, value, color), (x0, y, x1) in zip(badges, spots):
+        badge = (x0, y, x1, y + 46)
         _panel(card, badge, 10, color + (22,))
         draw = ImageDraw.Draw(card)
         draw.rounded_rectangle(badge, 10, outline=color + (110,), width=1)
         _spaced(draw, (badge[0] + 14, y + 23), label, f.label, color, anchor="lm")
         draw.text((badge[2] - 14, y + 23), value, font=f.stat_b, fill=color, anchor="rm")
-        y += 58
 
     # Gear, two per row.
     gear = build.gear[:6]
+    gear_bottom = H - PAD - (46 + 12 if zzz and badges else 0)
     if gear:
-        cols, rows = 2, max(3, math.ceil(len(gear) / 2))
-        gw = (W - PAD - GEAR_X - 12 * (cols - 1)) / cols
-        gh = (H - 2 * PAD - 12 * (rows - 1)) / rows
+        rows = max(3, math.ceil(len(gear) / 2))
+        gh = (gear_bottom - PAD - 12 * (rows - 1)) / rows
         for i, piece in enumerate(gear):
             x0 = GEAR_X + (i % cols) * (gw + 12)
             y0 = PAD + (i // cols) * (gh + 12)
