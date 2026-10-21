@@ -122,15 +122,15 @@ def mindscape_urls(build: CharacterBuild) -> tuple[str | None, str | None, int]:
 # the M1-M6 tab beside the picture
 MINDSCAPE_COLORS = {1: (232, 48, 32), 2: (255, 122, 24), 3: (255, 206, 52), 4: (255, 244, 226), 5: (150, 205, 255),
                     6: (70, 130, 255)}
-TAB_W = 44  # ZZZ: the ticket stub with the M1-M6 progress bar at the left of the Mindscape picture
-NOTCH_R = 7  # the half-round notches where the stub tears off
+TAB_W = 44  # ZZZ: the Mindscape bar's strip at the left of the picture at the left of the Mindscape picture
+CHAMFER = 7  # the cut corners of the arcade screen
 
 
-def _ticket_stub(ticket: Image.Image, level: int) -> None:
-    """The ticket's stub over the left of the picture, frosted and darkened, holding a game-style bar standing upright:
+def _mindscape_bar(screen: Image.Image, level: int) -> None:
+    """The strip over the left of the picture, frosted and darkened, holding a game-style bar standing upright:
     an M in a circle at the bottom and six cells going up, the unlocked ones filled in the colour of the highest."""
-    h = ticket.height
-    stub = ticket.crop((0, 0, TAB_W, h)).filter(ImageFilter.GaussianBlur(4))
+    h = screen.height
+    stub = screen.crop((0, 0, TAB_W, h)).filter(ImageFilter.GaussianBlur(4))
     stub.alpha_composite(Image.new("RGBA", (TAB_W, h), (10, 8, 20, 185)))
     color = MINDSCAPE_COLORS.get(min(level, 6), (120, 116, 140))
     dark, ink = _mix(color, (0, 0, 0), 0.35), (14, 10, 22, 255)
@@ -169,7 +169,7 @@ def _ticket_stub(ticket: Image.Image, level: int) -> None:
     draw.text((cx * k, (cy + 1) * k), "M", font=_font("Bold", 19 * k), fill=ink if level else (150, 146, 170, 255),
               anchor="mm")
     stub.alpha_composite(layer.resize((TAB_W, h), Image.LANCZOS))
-    ticket.paste(stub, (0, 0))
+    screen.paste(stub, (0, 0))
 
 
 # Background behind each Mindscape picture (Syphex): M0 the card's dark panel, M3 black, M6 white
@@ -204,31 +204,35 @@ def _content(pictures: list[Image.Image]) -> tuple[int, int, int, int] | None:
 def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level: int = 0,
                      upcoming: Image.Image | None = None, thirds: int = 0,
                      face: tuple[float, float] | None = None) -> None:
-    """ZZZ: a movie ticket: the stub with the Mindscape levels at the left, torn along a perforation from the Mindscape
-    Cinema picture, the next picture taking over a part per copy."""
+    """ZZZ: an arcade screen: the Mindscape bar at the left, the Mindscape Cinema picture beside it with scanlines, the
+    next picture taking over a part per copy."""
     tx0, y0, x1, y1 = box
     tw, h = x1 - tx0, y1 - y0
     base = 3 if level >= 6 else max(level, 0) // 3 + 1  # which of the three pictures is shown
-    ticket = Image.new("RGBA", (tw, h), MINDSCAPE_BG[base])  # the picture runs under the stub too
+    screen = Image.new("RGBA", (tw, h), MINDSCAPE_BG[base])  # the picture runs under the bar too
     if picture is not None:
-        _mindscape_picture(ticket, picture, level, base, upcoming, thirds, face)
-    _ticket_stub(ticket, level)
+        _mindscape_picture(screen, picture, level, base, upcoming, thirds, face)
+    for y in range(0, h, 3):  # CRT scanlines over the picture
+        screen.alpha_composite(Image.new("RGBA", (tw - TAB_W, 1), (0, 0, 0, 32)), (TAB_W, y))
+    _mindscape_bar(screen, level)
+    # an arcade screen: corners cut like pixel art, a dark bezel with a neon trim in the level's colour, and the same
+    # bezel between the bar and the picture
+    c = CHAMFER
+    outline = [(c, 0), (tw - 1 - c, 0), (tw - 1, c), (tw - 1, h - 1 - c), (tw - 1 - c, h - 1), (c, h - 1),
+               (0, h - 1 - c), (0, c)]
     mask = Image.new("L", (tw * 4, h * 4), 0)
-    md = ImageDraw.Draw(mask)
-    md.rounded_rectangle((0, 0, tw * 4 - 1, h * 4 - 1), 14 * 4, fill=255)
-    for cy in (0, h * 4):  # the notches at both ends of the tear line
-        md.ellipse((TAB_W * 4 - NOTCH_R * 4, cy - NOTCH_R * 4, TAB_W * 4 + NOTCH_R * 4, cy + NOTCH_R * 4), fill=0)
+    ImageDraw.Draw(mask).polygon([(x * 4, y * 4) for x, y in outline], fill=255)
     mask = mask.resize((tw, h), Image.LANCZOS)
-    ticket.putalpha(ImageChops.multiply(ticket.getchannel("A"), mask))
-    edge = Image.new("RGBA", (tw, h), (255, 255, 255, 0))  # a faint outline along the ticket's edge
-    edge.putalpha(mask.filter(ImageFilter.FIND_EDGES).point(lambda v: min(v, 60)))
-    ticket.alpha_composite(edge)
-    draw = ImageDraw.Draw(ticket)
-    y = NOTCH_R + 5
-    while y < h - NOTCH_R - 4:  # the perforation
-        draw.ellipse((TAB_W - 1.5, y - 1.5, TAB_W + 1.5, y + 1.5), fill=(255, 255, 255, 90))
-        y += 7
-    card.alpha_composite(ticket, (tx0, y0))
+    screen.putalpha(ImageChops.multiply(screen.getchannel("A"), mask))
+    neon = MINDSCAPE_COLORS.get(min(level, 6), (120, 116, 140))
+    draw = ImageDraw.Draw(screen)
+    draw.line(outline + [outline[0]], fill=(14, 10, 24, 255), width=5)
+    draw.rectangle((TAB_W - 2, 0, TAB_W + 1, h), fill=(14, 10, 24, 255))
+    inset = [(c + 1, 3), (tw - 4 - c + 2, 3), (tw - 4, c + 1), (tw - 4, h - 4 - c + 2), (tw - 4 - c + 2, h - 4),
+             (c + 1, h - 4), (3, h - 4 - c + 2), (3, c + 1)]
+    draw.line(inset + [inset[0]], fill=neon + (230,), width=1)
+    draw.line([(TAB_W, 3), (TAB_W, h - 4)], fill=neon + (230,), width=1)
+    card.alpha_composite(screen, (tx0, y0))
 
 
 def _mindscape_picture(tile: Image.Image, picture: Image.Image, level: int, base: int,

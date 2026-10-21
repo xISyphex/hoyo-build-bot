@@ -211,7 +211,8 @@ def _panel_box() -> tuple[int, int, int, int]:
 
 def _in_panel(fx: float, fy: float) -> tuple[int, int]:
     x, y, w, h = _panel_box()
-    return round(x + fx * w), round(y + fy * h)
+    dy = round(fy * h)
+    return round(x + fx * w), y + dy - dy % 3 + 1  # between the scanlines (every 3rd row)
 
 
 class MindscapeTest(unittest.TestCase):
@@ -266,6 +267,7 @@ class MindscapeTest(unittest.TestCase):
             fx, fy = MINDSCAPE_FACES[cid]
             px = round(fx * 1920 * scale - (1920 * scale - w) / 2)
             py = round(fy * 1080 * scale - (1080 * scale - h) / 2)
+            py += 1 - py % 3  # between the scanlines
             self.assertEqual(card.convert("RGB").getpixel((x0 + px, y0 + py)), (255, 255, 255), cid)
 
     def test_drawn_part_fills_the_panel(self):
