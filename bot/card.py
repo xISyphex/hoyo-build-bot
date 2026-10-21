@@ -118,46 +118,26 @@ def mindscape_urls(build: CharacterBuild) -> tuple[str | None, str | None, int]:
     return url.format(base), url.format(base + 1) if thirds else None, thirds
 
 
-# Flame colours by Mindscape level, coolest to hottest like a flame's temperature: red, orange, yellow, white, blue
-FLAME_COLORS = {1: (232, 48, 32), 2: (255, 122, 24), 3: (255, 206, 52), 4: (255, 244, 226), 5: (150, 205, 255),
+# Glow colours by Mindscape level, coolest to hottest like a flame's temperature: red, orange, yellow, white, blue
+GLOW_COLORS = {1: (232, 48, 32), 2: (255, 122, 24), 3: (255, 206, 52), 4: (255, 244, 226), 5: (150, 205, 255),
                 6: (70, 130, 255)}
-FLAME_M = 30  # how far the flames reach past the panel
+GLOW_M = 30  # how far the glow reaches past the panel
 
 
-def _flame(card: Image.Image, box, level: int, seed: str) -> None:
-    """A soft flame licking up around a panel, in the colour of the Mindscape level (none at M0)."""
-    color = FLAME_COLORS.get(min(level, 6))
+def _glow(card: Image.Image, box, level: int) -> None:
+    """A soft glow around a panel, in the colour of the Mindscape level (none at M0)."""
+    color = GLOW_COLORS.get(min(level, 6))
     if not color:
         return
     x0, y0, x1, y1 = box
-    m = FLAME_M
+    m = GLOW_M
     w, h = x1 - x0 + 2 * m, y1 - y0 + 2 * m
-    rnd = random.Random(seed)
     panel = Image.new("L", (w, h), 0)
     ImageDraw.Draw(panel).rounded_rectangle((m, m, w - m, h - m), 14, fill=255)
-    # flames rise: a soft glow all round, and tongues licking up from the top edge and the upper sides
-    glow = panel.filter(ImageFilter.GaussianBlur(6))
-    licks = Image.new("L", (w, h), 0)
-    d = ImageDraw.Draw(licks)
-    x = m + 6
-    while x < w - m - 6:
-        tall = rnd.uniform(8, 16 + 2 * min(level, 6))
-        half = rnd.uniform(4, 11)
-        lean = rnd.uniform(-4, 4)
-        d.polygon([(x - half, m + 8), (x + lean, m + 4 - tall), (x + half, m + 8)], fill=rnd.randrange(150, 256))
-        x += rnd.uniform(7, 20)
-    for side in (m, w - m):  # shorter flames up the sides, leaning outward
-        y = m + 10
-        while y < h - m - 20:
-            reach = rnd.uniform(4, 9) * (1 - (y - m) / (h - 2 * m)) + 2
-            out = -1 if side == m else 1
-            d.polygon([(side, y + 8), (side + out * reach, y - 6), (side, y - 2)], fill=rnd.randrange(100, 200))
-            y += rnd.uniform(9, 15)
-    flame = ImageChops.lighter(glow, licks.filter(ImageFilter.GaussianBlur(3.5)))
-    flame = ImageChops.subtract(flame, panel)  # only around the panel, not under it
     strength = 0.55 + 0.07 * min(level, 6)
-    outer = Image.new("RGBA", (w, h), color + (0,))
-    outer.putalpha(flame.point(lambda v: round(min(255, v * 1.6) * strength)))
+    outer = Image.new("RGBA", (w, h), color + (0,))  # only around the panel, not under it
+    outer.putalpha(ImageChops.subtract(panel.filter(ImageFilter.GaussianBlur(6)), panel)
+                   .point(lambda v: round(min(255, v * 1.6) * strength)))
     core = Image.new("RGBA", (w, h), _mix(color, (255, 255, 255), 0.55) + (0,))
     core.putalpha(ImageChops.subtract(panel.filter(ImageFilter.GaussianBlur(3)), panel)
                   .point(lambda v: round(min(255, v * 2.2) * strength)))
@@ -169,13 +149,13 @@ def _flame(card: Image.Image, box, level: int, seed: str) -> None:
     card.alpha_composite(crop, (max(left, 0), max(top, 0)))
 
 
-def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level: int = 0, seed: str = "",
+def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level: int = 0,
                      upcoming: Image.Image | None = None, thirds: int = 0) -> None:
     """ZZZ: the Mindscape Cinema picture in a rounded panel, the next one taking over a part per copy, with a
-    flame around it."""
+    glow around it."""
     if picture is None:
         return
-    _flame(card, box, level, seed)
+    _glow(card, box, level)
     x0, y0, x1, y1 = box
     w, h = x1 - x0, y1 - y0
 
@@ -207,9 +187,6 @@ def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level:
         over = nxt.copy()
         over.putalpha(ImageChops.multiply(nxt.getchannel("A"), cut))
         tile.alpha_composite(over)
-        seams = ImageDraw.Draw(tile)
-        for line in ((upper, lower) if thirds == 1 else (lower,)):
-            seams.line(line, fill=(255, 255, 255, 120), width=2)
     mask = Image.new("L", (w * 4, h * 4), 0)
     ImageDraw.Draw(mask).rounded_rectangle((0, 0, w * 4 - 1, h * 4 - 1), 14 * 4, fill=255)
     tile.putalpha(ImageChops.multiply(tile.getchannel("A"), mask.resize((w, h), Image.LANCZOS)))
@@ -480,7 +457,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     if zzz:
         shown, upcoming, thirds = mindscape_urls(build)
         _mindscape_panel(card, images.get(shown or ""), (PAD, H - PAD - MINDSCAPE_H, ART_W - 6, H - PAD),
-                         build.constellation, build.character_id, images.get(upcoming or ""), thirds)
+                         build.constellation, images.get(upcoming or ""), thirds)
     weapon_box = None
     if build.weapon:
         w = build.weapon

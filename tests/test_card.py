@@ -230,8 +230,8 @@ class MindscapeTest(unittest.TestCase):
         self.assertEqual(mindscape_urls(build), (None, None, 0))
 
 
-class FlameTest(unittest.TestCase):
-    def test_flame_colour_climbs_with_the_mindscape(self):
+class GlowTest(unittest.TestCase):
+    def test_glow_colour_climbs_with_the_mindscape(self):
         import dataclasses
         from bot.card import mindscape_urls
         build = zenless.parse_profile(load_assets(), "1300003409", fixture("zzz_live.json")).characters[0]
