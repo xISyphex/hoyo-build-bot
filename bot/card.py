@@ -114,10 +114,62 @@ def mindscape_url(build: CharacterBuild) -> str | None:
     return f"https://enka.network/ui/zzz/Mindscape_{build.character_id}_{stage}.png"
 
 
-def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box) -> None:
-    """ZZZ: the Mindscape Cinema picture in a rounded panel, filling it."""
+# Flame colours by Mindscape level, coolest to hottest like a flame's temperature: red, orange, yellow, white, blue
+FLAME_COLORS = {1: (232, 48, 32), 2: (255, 122, 24), 3: (255, 206, 52), 4: (255, 244, 226), 5: (150, 205, 255),
+                6: (70, 130, 255)}
+FLAME_M = 30  # how far the flames reach past the panel
+
+
+def _flame(card: Image.Image, box, level: int, seed: str) -> None:
+    """A soft flame licking up around a panel, in the colour of the Mindscape level (none at M0)."""
+    color = FLAME_COLORS.get(min(level, 6))
+    if not color:
+        return
+    x0, y0, x1, y1 = box
+    m = FLAME_M
+    w, h = x1 - x0 + 2 * m, y1 - y0 + 2 * m
+    rnd = random.Random(seed)
+    panel = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(panel).rounded_rectangle((m, m, w - m, h - m), 14, fill=255)
+    # flames rise: a soft glow all round, and tongues licking up from the top edge and the upper sides
+    glow = panel.filter(ImageFilter.GaussianBlur(6))
+    licks = Image.new("L", (w, h), 0)
+    d = ImageDraw.Draw(licks)
+    x = m + 6
+    while x < w - m - 6:
+        tall = rnd.uniform(8, 16 + 2 * min(level, 6))
+        half = rnd.uniform(4, 11)
+        lean = rnd.uniform(-4, 4)
+        d.polygon([(x - half, m + 8), (x + lean, m + 4 - tall), (x + half, m + 8)], fill=rnd.randrange(150, 256))
+        x += rnd.uniform(7, 20)
+    for side in (m, w - m):  # shorter flames up the sides, leaning outward
+        y = m + 10
+        while y < h - m - 20:
+            reach = rnd.uniform(4, 9) * (1 - (y - m) / (h - 2 * m)) + 2
+            out = -1 if side == m else 1
+            d.polygon([(side, y + 8), (side + out * reach, y - 6), (side, y - 2)], fill=rnd.randrange(100, 200))
+            y += rnd.uniform(9, 15)
+    flame = ImageChops.lighter(glow, licks.filter(ImageFilter.GaussianBlur(3.5)))
+    flame = ImageChops.subtract(flame, panel)  # only around the panel, not under it
+    strength = 0.55 + 0.07 * min(level, 6)
+    outer = Image.new("RGBA", (w, h), color + (0,))
+    outer.putalpha(flame.point(lambda v: round(min(255, v * 1.6) * strength)))
+    core = Image.new("RGBA", (w, h), _mix(color, (255, 255, 255), 0.55) + (0,))
+    core.putalpha(ImageChops.subtract(panel.filter(ImageFilter.GaussianBlur(3)), panel)
+                  .point(lambda v: round(min(255, v * 2.2) * strength)))
+    full = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    full.alpha_composite(outer)
+    full.alpha_composite(core)
+    left, top = x0 - m, y0 - m
+    crop = full.crop((max(-left, 0), max(-top, 0), w - max(left + w - card.width, 0), h - max(top + h - card.height, 0)))
+    card.alpha_composite(crop, (max(left, 0), max(top, 0)))
+
+
+def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level: int = 0, seed: str = "") -> None:
+    """ZZZ: the Mindscape Cinema picture in a rounded panel, filling it, with a flame around it for the level."""
     if picture is None:
         return
+    _flame(card, box, level, seed)
     x0, y0, x1, y1 = box
     w, h = x1 - x0, y1 - y0
     picture = picture.convert("RGBA")
@@ -394,7 +446,8 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     # at the foot of the stats column.
     zzz = build.game == "zzz"
     if zzz:
-        _mindscape_panel(card, images.get(mindscape_url(build) or ""), (PAD, H - PAD - MINDSCAPE_H, ART_W - 6, H - PAD))
+        _mindscape_panel(card, images.get(mindscape_url(build) or ""), (PAD, H - PAD - MINDSCAPE_H, ART_W - 6, H - PAD),
+                         build.constellation, build.character_id)
     weapon_box = None
     if build.weapon:
         w = build.weapon

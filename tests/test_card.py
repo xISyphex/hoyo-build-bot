@@ -219,3 +219,19 @@ class MindscapeTest(unittest.TestCase):
         from bot.card import mindscape_url
         build = genshin.parse_profile(load_assets(), "618285856", fixture("genshin_live.json")).characters[0]
         self.assertIsNone(mindscape_url(build))
+
+
+class FlameTest(unittest.TestCase):
+    def test_flame_colour_climbs_with_the_mindscape(self):
+        import dataclasses
+        from bot.card import mindscape_url
+        build = zenless.parse_profile(load_assets(), "1300003409", fixture("zzz_live.json")).characters[0]
+        picture = Image.new("RGBA", (1920, 1080), (0, 0, 0, 0))
+        pixels = {}
+        for m in (0, 1, 6):
+            b = dataclasses.replace(build, constellation=m)
+            card = Image.open(io.BytesIO(draw_card(b, {mindscape_url(b): picture})))
+            pixels[m] = card.convert("RGB").getpixel((200, 720 - 24 - 170 - 4))  # just above the picture's panel
+        r0, g0, b0 = pixels[0]
+        self.assertGreater(pixels[1][0], r0 + 20)  # M1: red
+        self.assertGreater(pixels[6][2], b0 + 20)  # M6: blue
