@@ -166,7 +166,7 @@ def _flame(card: Image.Image, box, level: int, seed: str) -> None:
 
 
 def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level: int = 0, seed: str = "") -> None:
-    """ZZZ: the Mindscape Cinema picture in a rounded panel, filling it, with a flame around it for the level."""
+    """ZZZ: the Mindscape Cinema picture in a rounded panel, unveiled a slice per copy, with a flame around it."""
     if picture is None:
         return
     _flame(card, box, level, seed)
@@ -176,8 +176,28 @@ def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level:
     scale = max(w / picture.width, h / picture.height)
     picture = picture.resize((round(picture.width * scale), round(picture.height * scale)), Image.LANCZOS)
     left, top = (picture.width - w) // 2, (picture.height - h) // 2
+    picture = picture.crop((left, top, left + w, top + h))
+    # Like the game's Mindscape Cinema, each copy unveils one of six slanted slices; the rest show only a dark shadow
+    shown = min(max(level, 0), 6)
+    cut = Image.new("L", (w, h), 0)
+    d = ImageDraw.Draw(cut)
+    slant = h * 0.25
+    step = (w + slant) / 6
+    for i in range(shown):
+        a = -slant + i * step
+        d.polygon([(a + slant, 0), (a + slant + step, 0), (a + step, h), (a, h)], fill=255)
+    shadow = Image.new("RGBA", (w, h), (70, 64, 100, 0))
+    shadow.putalpha(picture.getchannel("A").point(lambda v: v * 120 // 255))
     tile = Image.new("RGBA", (w, h), (8, 6, 16, 200))
-    tile.alpha_composite(picture.crop((left, top, left + w, top + h)))
+    tile.alpha_composite(shadow)
+    shown_part = picture.copy()
+    shown_part.putalpha(ImageChops.multiply(picture.getchannel("A"), cut))
+    tile.alpha_composite(shown_part)
+    if 0 < shown < 6:  # a thin bright seam where the unveiled part ends
+        seam = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        a = -slant + shown * step
+        ImageDraw.Draw(seam).line([(a + slant, 0), (a, h)], fill=(255, 255, 255, 90), width=2)
+        tile.alpha_composite(seam)
     mask = Image.new("L", (w * 4, h * 4), 0)
     ImageDraw.Draw(mask).rounded_rectangle((0, 0, w * 4 - 1, h * 4 - 1), 14 * 4, fill=255)
     tile.putalpha(ImageChops.multiply(tile.getchannel("A"), mask.resize((w, h), Image.LANCZOS)))
