@@ -43,6 +43,7 @@ EFFECTIVE = GOLD  # the effective substat count, and the substats it counts
 PANEL = (255, 255, 255, 14)
 LINE = (255, 255, 255, 22)
 ART_MAX = 1100  # art is kept at most this tall
+FULL_ART_MAX = 2600  # except ZZZ's, which the head close-up enlarges: kept at full size
 ICON_MAX = 192
 FACE_SIZE = 240  # ZZZ art is scaled so the face is this big
 FACE_X, FACE_Y = 210, 380  # and its centre lands here
@@ -221,6 +222,8 @@ def _paste_art(card: Image.Image, art: Image.Image | None, face: tuple[float, fl
         left, top = fx - FACE_X * k, fy - FACE_Y * k
         # outside the picture comes out transparent
         art = art.crop((round(left), round(top), round(left + width * k), round(top + H * k))).resize((width, H), Image.LANCZOS)
+        if k < 1:  # enlarged: a light sharpen keeps the line art crisp
+            art = art.filter(ImageFilter.UnsharpMask(radius=1.2, percent=60, threshold=2))
     else:
         scale = (H + 60) / art.height
         if art.width * scale < width:
@@ -1000,7 +1003,8 @@ class CardMaker:
         urls = {build.art_url, build.icon_url, build.path_icon, build.element_icon, build.weapon.icon_url if build.weapon else None}
         urls |= {p.piece_icon for p in build.gear} | set(build.cons_icons)
         urls.discard(None)
-        loaded = await asyncio.gather(*(self._image(u, big=u == build.art_url) for u in urls))
+        art_max = FULL_ART_MAX if build.game == "zzz" else ART_MAX
+        loaded = await asyncio.gather(*(self._image(u, art_max if u == build.art_url else ICON_MAX) for u in urls))
         images = {u: img for u, img in zip(urls, loaded) if img is not None}
         face = await self._face(build, images) if build.game == "zzz" else None
         png = await asyncio.to_thread(draw_card, build, images, profile.uid, wanted, face)
@@ -1016,7 +1020,7 @@ class CardMaker:
         urls = list({m.icon_url for r in records for t in r.teams for m in t.members + ([t.bangboo] if t.bangboo else []) if m.icon_url}
                     | {r.medal for r in records if r.medal})
         art = list({t.art for r in records for t in r.teams if t.art})  # boss pictures, kept larger
-        loaded = await asyncio.gather(*(self._image(u, big=False) for u in urls), *(self._image(u, big=True) for u in art))
+        loaded = await asyncio.gather(*(self._image(u, ICON_MAX) for u in urls), *(self._image(u, ART_MAX) for u in art))
         images = {u: img for u, img in zip(urls + art, loaded) if img is not None}
         return await asyncio.to_thread(draw_records, game, uid, records, images, nickname)
 
@@ -1026,7 +1030,7 @@ class CardMaker:
 
         now = info.now
         urls = image_urls(info, now)
-        loaded = await asyncio.gather(*(self._image(u, big=False) for u in urls))
+        loaded = await asyncio.gather(*(self._image(u, ICON_MAX) for u in urls))
         images = {u: img for u, img in zip(urls, loaded) if img is not None}
         return await asyncio.to_thread(draw_patch, info, images, now)
 
@@ -1050,8 +1054,10 @@ class CardMaker:
         x, y, size = self.faces[build.art_url]
         return x * art.width, y * art.height, size * art.height
 
-    async def _image(self, url: str, big: bool) -> Image.Image | None:
-        path = self.dir / (hashlib.sha1(url.encode()).hexdigest() + ".png")
+    async def _image(self, url: str, limit: int) -> Image.Image | None:
+        """The picture, at most limit pixels on its longer side."""
+        suffix = "-full" if limit == FULL_ART_MAX else ""  # kept apart from the smaller copy of the same picture
+        path = self.dir / (hashlib.sha1(url.encode()).hexdigest() + suffix + ".png")
         if path.exists():
             return await asyncio.to_thread(_open, path)
         if url in self.failed:
@@ -1061,7 +1067,7 @@ class CardMaker:
                 async with self.session.get(source, timeout=aiohttp.ClientTimeout(total=20)) as resp:
                     resp.raise_for_status()
                     data = await resp.read()
-                return await asyncio.to_thread(_shrink_and_save, data, path, ART_MAX if big else ICON_MAX)
+                return await asyncio.to_thread(_shrink_and_save, data, path, limit)
             except Exception as exc:
                 log.warning("Could not load card image %s: %s", source, exc)
         self.failed.add(url)
