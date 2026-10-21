@@ -45,7 +45,7 @@ LINE = (255, 255, 255, 22)
 ART_MAX = 1100  # art is kept at most this tall
 FULL_ART_MAX = 2600  # except ZZZ's, which the head close-up enlarges: kept at full size
 ICON_MAX = 192
-MINDSCAPE_H = 170  # ZZZ: the Mindscape picture's panel, bottom left where other games show the weapon
+MINDSCAPE_H = 150  # ZZZ: the Mindscape picture's panel, bottom left where other games show the weapon
 FACE_SIZE = 240  # ZZZ art is scaled so the face is this big
 FACE_X, FACE_Y = 210, 380  # and its centre lands here
 
@@ -118,35 +118,58 @@ def mindscape_urls(build: CharacterBuild) -> tuple[str | None, str | None, int]:
     return url.format(base), url.format(base + 1) if thirds else None, thirds
 
 
-# Glow colours by Mindscape level, coolest to hottest like a flame's temperature: red, orange, yellow, white, blue
-GLOW_COLORS = {1: (232, 48, 32), 2: (255, 122, 24), 3: (255, 206, 52), 4: (255, 244, 226), 5: (150, 205, 255),
-                6: (70, 130, 255)}
-GLOW_M = 30  # how far the glow reaches past the panel
+# Mindscape level colours, coolest to hottest like a flame's temperature: red, orange, yellow, white, blue; used for
+# the M1-M6 tab beside the picture
+MINDSCAPE_COLORS = {1: (232, 48, 32), 2: (255, 122, 24), 3: (255, 206, 52), 4: (255, 244, 226), 5: (150, 205, 255),
+                    6: (70, 130, 255)}
+TAB_W = 44  # ZZZ: the Mindscape bar's strip at the left of the picture at the left of the Mindscape picture
+CHAMFER = 7  # the cut corners of the arcade screen
 
 
-def _glow(card: Image.Image, box, level: int) -> None:
-    """A soft glow around a panel, in the colour of the Mindscape level (none at M0)."""
-    color = GLOW_COLORS.get(min(level, 6))
-    if not color:
-        return
-    x0, y0, x1, y1 = box
-    m = GLOW_M
-    w, h = x1 - x0 + 2 * m, y1 - y0 + 2 * m
-    panel = Image.new("L", (w, h), 0)
-    ImageDraw.Draw(panel).rounded_rectangle((m, m, w - m, h - m), 14, fill=255)
-    strength = 0.55 + 0.07 * min(level, 6)
-    outer = Image.new("RGBA", (w, h), color + (0,))  # only around the panel, not under it
-    outer.putalpha(ImageChops.subtract(panel.filter(ImageFilter.GaussianBlur(6)), panel)
-                   .point(lambda v: round(min(255, v * 1.6) * strength)))
-    core = Image.new("RGBA", (w, h), _mix(color, (255, 255, 255), 0.55) + (0,))
-    core.putalpha(ImageChops.subtract(panel.filter(ImageFilter.GaussianBlur(3)), panel)
-                  .point(lambda v: round(min(255, v * 2.2) * strength)))
-    full = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    full.alpha_composite(outer)
-    full.alpha_composite(core)
-    left, top = x0 - m, y0 - m
-    crop = full.crop((max(-left, 0), max(-top, 0), w - max(left + w - card.width, 0), h - max(top + h - card.height, 0)))
-    card.alpha_composite(crop, (max(left, 0), max(top, 0)))
+def _mindscape_bar(screen: Image.Image, level: int) -> None:
+    """The strip over the left of the picture, frosted and darkened, holding a game-style bar standing upright:
+    an M in a circle at the bottom and six cells going up, the unlocked ones filled in the colour of the highest."""
+    h = screen.height
+    stub = screen.crop((0, 0, TAB_W, h)).filter(ImageFilter.GaussianBlur(4))
+    stub.alpha_composite(Image.new("RGBA", (TAB_W, h), (10, 8, 20, 185)))
+    color = MINDSCAPE_COLORS.get(min(level, 6), (120, 116, 140))
+    dark, ink = _mix(color, (0, 0, 0), 0.35), (14, 10, 22, 255)
+    k = 4  # drawn at 4x and shrunk, for smooth edges
+    layer = Image.new("RGBA", (TAB_W * k, h * k), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(layer)
+    cx, r = TAB_W / 2, 14  # the circle
+    cy = h - 6 - r
+    half, line = 8, 2.5  # the bar's half width and outline
+    tip, bar_bottom = 6, cy - r + 3  # the bar's pointed top and where it meets the circle
+    body_top = tip + half
+    draw.polygon([((cx - half) * k, bar_bottom * k), ((cx - half) * k, body_top * k), (cx * k, tip * k),
+                  ((cx + half) * k, body_top * k), ((cx + half) * k, bar_bottom * k)], fill=ink)
+    inner, gap = half - line, 2
+    cell = (bar_bottom - line - body_top - gap * 5) / 6
+    for n in range(1, 7):
+        y1 = bar_bottom - line - (n - 1) * (cell + gap)
+        y0 = y1 - cell
+        x0, x1 = cx - inner, cx + inner
+        if n <= level:
+            draw.rectangle((x0 * k, y0 * k, x1 * k, y1 * k), fill=color + (255,))
+            draw.rectangle(((x1 - 3) * k, y0 * k, x1 * k, y1 * k), fill=dark + (255,))  # shade on the right
+            draw.rectangle(((x0 + 1.5) * k, (y0 + 1.5) * k, (x0 + 4) * k, (y1 - 1.5) * k),
+                           fill=_mix(color, (255, 255, 255), 0.55) + (255,))  # shine on the left
+        else:
+            draw.rectangle((x0 * k, y0 * k, x1 * k, y1 * k), fill=(62, 58, 78, 255))
+    if level >= 6:  # the pointed top fills too once every level is unlocked
+        draw.polygon([((cx - inner) * k, (body_top + 1) * k), (cx * k, (tip + line + 2) * k),
+                      ((cx + inner) * k, (body_top + 1) * k)], fill=color + (255,))
+    draw.ellipse(((cx - r) * k, (cy - r) * k, (cx + r) * k, (cy + r) * k), fill=ink)
+    rr = r - line
+    draw.ellipse(((cx - rr) * k, (cy - rr) * k, (cx + rr) * k, (cy + rr) * k),
+                 fill=(color if level else (62, 58, 78)) + (255,))
+    draw.ellipse(((cx - rr + 3) * k, (cy - rr + 2.5) * k, (cx - rr + 8) * k, (cy - rr + 6.5) * k),
+                 fill=(255, 255, 255, 150))  # shine
+    draw.text((cx * k, (cy + 1) * k), "M", font=_font("Bold", 19 * k), fill=ink if level else (150, 146, 170, 255),
+              anchor="mm")
+    stub.alpha_composite(layer.resize((TAB_W, h), Image.LANCZOS))
+    screen.paste(stub, (0, 0))
 
 
 # Background behind each Mindscape picture (Syphex): M0 the card's dark panel, M3 black, M6 white
@@ -169,35 +192,79 @@ MINDSCAPE_FACES = {
 MINDSCAPE_BG = {1: (8, 6, 16, 200), 2: (0, 0, 0, 255), 3: (255, 255, 255, 255)}
 
 
+def _content(pictures: list[Image.Image]) -> tuple[int, int, int, int] | None:
+    """The part of the pictures that isn't see-through (they share one layout)."""
+    boxes = [p.getchannel("A").point(lambda a: 255 if a > 40 else 0).getbbox() for p in pictures]
+    boxes = [b for b in boxes if b]
+    if not boxes:
+        return None
+    return min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes)
+
+
 def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level: int = 0,
                      upcoming: Image.Image | None = None, thirds: int = 0,
                      face: tuple[float, float] | None = None) -> None:
-    """ZZZ: the Mindscape Cinema picture in a rounded panel, the next one taking over a part per copy, with a
-    glow around it."""
-    if picture is None:
-        return
-    _glow(card, box, level)
-    x0, y0, x1, y1 = box
-    w, h = x1 - x0, y1 - y0
+    """ZZZ: an arcade screen: the Mindscape bar at the left, the Mindscape Cinema picture beside it with scanlines, the
+    next picture taking over a part per copy."""
+    tx0, y0, x1, y1 = box
+    tw, h = x1 - tx0, y1 - y0
+    base = 3 if level >= 6 else max(level, 0) // 3 + 1  # which of the three pictures is shown
+    screen = Image.new("RGBA", (tw, h), MINDSCAPE_BG[base])  # the picture runs under the bar too
+    if picture is not None:
+        _mindscape_picture(screen, picture, level, base, upcoming, thirds, face)
+    for y in range(0, h, 3):  # CRT scanlines over the picture
+        screen.alpha_composite(Image.new("RGBA", (tw - TAB_W, 1), (0, 0, 0, 32)), (TAB_W, y))
+    _mindscape_bar(screen, level)
+    # an arcade screen: corners cut like pixel art, a dark bezel with a neon trim in the level's colour, and the same
+    # bezel between the bar and the picture
+    c = CHAMFER
+    outline = [(c, 0), (tw - 1 - c, 0), (tw - 1, c), (tw - 1, h - 1 - c), (tw - 1 - c, h - 1), (c, h - 1),
+               (0, h - 1 - c), (0, c)]
+    mask = Image.new("L", (tw * 4, h * 4), 0)
+    ImageDraw.Draw(mask).polygon([(x * 4, y * 4) for x, y in outline], fill=255)
+    mask = mask.resize((tw, h), Image.LANCZOS)
+    screen.putalpha(ImageChops.multiply(screen.getchannel("A"), mask))
+    neon = MINDSCAPE_COLORS.get(min(level, 6), (120, 116, 140))
+    draw = ImageDraw.Draw(screen)
+    draw.line(outline + [outline[0]], fill=(14, 10, 24, 255), width=5)
+    draw.rectangle((TAB_W - 2, 0, TAB_W + 1, h), fill=(14, 10, 24, 255))
+    inset = [(c + 1, 3), (tw - 4 - c + 2, 3), (tw - 4, c + 1), (tw - 4, h - 4 - c + 2), (tw - 4 - c + 2, h - 4),
+             (c + 1, h - 4), (3, h - 4 - c + 2), (3, c + 1)]
+    draw.line(inset + [inset[0]], fill=neon + (230,), width=1)
+    draw.line([(TAB_W, 3), (TAB_W, h - 4)], fill=neon + (230,), width=1)
+    card.alpha_composite(screen, (tx0, y0))
+
+
+def _mindscape_picture(tile: Image.Image, picture: Image.Image, level: int, base: int,
+                       upcoming: Image.Image | None, thirds: int, face: tuple[float, float] | None) -> None:
+    """The Mindscape picture filling the tile, with the next one's slice over it."""
+    w, h = tile.size
+    picture = picture.convert("RGBA")
+    nxt = upcoming.convert("RGBA") if upcoming is not None and thirds else None
+    # the pictures have see-through margins; only their drawn part is zoomed to fill the panel
+    pw, ph = picture.size
+    area = _content([picture] + ([nxt.resize((pw, ph))] if nxt else [])) or (0, 0, pw, ph)
+    if area[2] - area[0] < pw // 4 or area[3] - area[1] < ph // 4:  # nearly empty: keep the whole picture
+        area = (0, 0, pw, ph)
 
     def fill(pic: Image.Image) -> Image.Image:
-        pic = pic.convert("RGBA")
+        k = pic.width / pw
+        pic = pic.crop(tuple(round(v * k) for v in area))
         scale = max(w / pic.width, h / pic.height)
         pic = pic.resize((round(pic.width * scale), round(pic.height * scale)), Image.LANCZOS)
         left, top = (pic.width - w) // 2, (pic.height - h) // 2
         return pic.crop((left, top, left + w, top + h))
 
-    base = 3 if level >= 6 else max(level, 0) // 3 + 1  # which of the three pictures is shown
-    tile = Image.new("RGBA", (w, h), MINDSCAPE_BG[base])
     tile.alpha_composite(fill(picture))
     # Like the game's Mindscape Cinema, each copy uncovers a part of the next picture: first a slice shaped like a
     # stretched V lying on its side, its wide end on the agent's face, then everything above it, then (the next level)
     # the rest
-    if upcoming is not None and thirds:
-        scale = max(w / upcoming.width, h / upcoming.height)
-        fx, fy = face if face else (0.0, 0.7)  # unknown face: wide end at the left
-        fx = fx * upcoming.width * scale - (upcoming.width * scale - w) / 2
-        fy = fy * upcoming.height * scale - (upcoming.height * scale - h) / 2
+    if nxt is not None:
+        aw, ah = area[2] - area[0], area[3] - area[1]
+        scale = max(w / aw, h / ah)
+        fx, fy = (face[0] * pw, face[1] * ph) if face else (area[0], area[1] + 0.7 * ah)  # unknown: wide end at left
+        fx = (fx - area[0]) * scale - (aw * scale - w) / 2
+        fy = (fy - area[1]) * scale - (ah * scale - h) / 2
         right = fx > w / 2
         # the V's point is in the corner diagonally across from the face, and its middle line runs through the face
         tip = (0 if right else w, -h * 0.02 if fy > h / 2 else h * 1.02)
@@ -211,15 +278,9 @@ def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level:
         ImageDraw.Draw(cut).polygon([(x * 4, y * 4) for x, y in region], fill=255)
         cut = cut.resize((w, h), Image.LANCZOS)
         tile.paste(Image.new("RGBA", (w, h), MINDSCAPE_BG[base + 1]), (0, 0), cut)  # the next picture's background
-        nxt = fill(upcoming)
-        over = nxt.copy()
-        over.putalpha(ImageChops.multiply(nxt.getchannel("A"), cut))
+        over = fill(nxt)
+        over.putalpha(ImageChops.multiply(over.getchannel("A"), cut))
         tile.alpha_composite(over)
-    mask = Image.new("L", (w * 4, h * 4), 0)
-    ImageDraw.Draw(mask).rounded_rectangle((0, 0, w * 4 - 1, h * 4 - 1), 14 * 4, fill=255)
-    tile.putalpha(ImageChops.multiply(tile.getchannel("A"), mask.resize((w, h), Image.LANCZOS)))
-    card.alpha_composite(tile, (x0, y0))
-    ImageDraw.Draw(card).rounded_rectangle(box, 14, outline=(255, 255, 255, 40), width=1)
 
 
 def _fit_text(draw: ImageDraw.ImageDraw, text: str, font, width: int) -> str:
@@ -1046,8 +1107,10 @@ BADGE_FILL = "stars"  # behind the badge number: "face", "weapon", "symbol" (ele
 def _cons_marks(card: Image.Image, build: CharacterBuild, accent, light, images: dict[str, Image.Image]) -> None:
     """The six constellation / eidolon / mindscape marks down the left of the art, owned ones lit. With SHOW_BADGE the
     old round badge with the number sits above them (BADGE_FILL picks what's in its disc)."""
+    if build.game == "zzz":  # the M1-M6 tab beside the Mindscape picture shows it
+        return
     n = max(0, min(build.constellation, 6))
-    if build.game != "zzz" and not SHOW_BADGE:  # ZZZ's mindscapes have no icons, so it keeps the badge
+    if not SHOW_BADGE:
         _cons_column(card, build, n, accent, light, images, PAD + 26, CONS_TOP + 14)
         return
     icon = None
