@@ -170,6 +170,13 @@ class PatchCardTest(unittest.TestCase):
         self.assertEqual(info.banners[0].items[0][:2], ("Cyrene", True))
 
 
+class UnknownCharactersTest(unittest.TestCase):
+    def test_running_featured_not_in_game_data(self):
+        info = patch.hsr_patch(calendar())
+        self.assertEqual(patch.unknown_characters(info, ["Acheron", "Bronya"], info.now), ["Cyrene"])  # "Next One" isn't out yet
+        self.assertEqual(patch.unknown_characters(info, ["Acheron", "Cyrene"], info.now), [])
+
+
 class UnitTraitsTest(unittest.TestCase):
     def test_symbols(self):
         import tempfile

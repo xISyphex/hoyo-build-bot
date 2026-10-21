@@ -88,6 +88,7 @@ class HoyoBot(discord.Client):
         self.hoyolab.traits = self.traits
         # Where each server wants new videos from the official YouTube channels (/<game>-news).
         self.news = news.NewsStore(os.path.join(cache_dir, "news.json"))
+        self._banner_refresh = -3600.0  # when a new character on a banner last made the game data download again
         self.set_emojis: SetEmojis | None = None
         self.cards: CardMaker | None = None
 
@@ -141,8 +142,17 @@ class HoyoBot(discord.Client):
 
     @tasks.loop(minutes=30)
     async def warm_calendars(self) -> None:
-        """The patch commands' calendars, read ahead so the commands answer at once."""
+        """The patch commands' calendars, read ahead so the commands answer at once. A character on a running banner
+        that the game data doesn't know yet (a new release) makes the bot download the game data again, at most once
+        an hour, so the new character can be looked up without waiting for the twice-daily refresh."""
         await self.hoyolab.warm_calendars(GAME_NAMES)
+        missing = {game: patch.unknown_characters(info, self.assets.character_names(game))
+                   for game in GAME_NAMES if (info := self.hoyolab.cached_patch(game))}
+        missing = {game: names for game, names in missing.items() if names}
+        if missing and time.monotonic() - self._banner_refresh > 3600:
+            self._banner_refresh = time.monotonic()
+            log.info("New characters on the banners, reading the game data again: %s", missing)
+            await self.assets.refresh(self.session)
 
     @tasks.loop(minutes=10)
     async def check_news(self) -> None:
