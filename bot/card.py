@@ -126,16 +126,20 @@ TAB_W = 40  # ZZZ: the ticket stub with M1-M6 at the left of the Mindscape pictu
 NOTCH_R = 7  # the half-round notches where the stub tears off
 
 
-def _ticket_stub(level: int, h: int) -> Image.Image:
-    """The ticket's stub: M1 to M6 from top to bottom, the unlocked ones lit in their level's colour."""
-    stub = Image.new("RGBA", (TAB_W, h), (14, 11, 24, 235))
+def _ticket_stub(ticket: Image.Image, level: int) -> None:
+    """The ticket's stub over the left of the picture: the picture shows through it frosted and darkened, with M1 to M6
+    from top to bottom, the unlocked ones lit in the colour of the highest."""
+    h = ticket.height
+    stub = ticket.crop((0, 0, TAB_W, h)).filter(ImageFilter.GaussianBlur(4))
+    stub.alpha_composite(Image.new("RGBA", (TAB_W, h), (10, 8, 20, 185)))
     draw = ImageDraw.Draw(stub)
     font = _font("Bold", 17)
     row = h / 6
+    lit = MINDSCAPE_COLORS.get(min(level, 6))
     for n in range(1, 7):
-        color = MINDSCAPE_COLORS[n] + (255,) if n <= level else (120, 116, 140, 150)
+        color = lit + (255,) if n <= level else (120, 116, 140, 150)
         draw.text((TAB_W / 2, row * (n - 0.5)), f"M{n}", font=font, fill=color, anchor="mm")
-    return stub
+    ticket.paste(stub, (0, 0))
 
 
 # Background behind each Mindscape picture (Syphex): M0 the card's dark panel, M3 black, M6 white
@@ -173,16 +177,12 @@ def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level:
     """ZZZ: a movie ticket: the stub with the Mindscape levels at the left, torn along a perforation from the Mindscape
     Cinema picture, the next picture taking over a part per copy."""
     tx0, y0, x1, y1 = box
-    x0 = tx0 + TAB_W
-    w, h = x1 - x0, y1 - y0
+    tw, h = x1 - tx0, y1 - y0
     base = 3 if level >= 6 else max(level, 0) // 3 + 1  # which of the three pictures is shown
-    tile = Image.new("RGBA", (w, h), MINDSCAPE_BG[base])
+    ticket = Image.new("RGBA", (tw, h), MINDSCAPE_BG[base])  # the picture runs under the stub too
     if picture is not None:
-        _mindscape_picture(tile, picture, level, base, upcoming, thirds, face)
-    ticket = Image.new("RGBA", (x1 - tx0, h), (0, 0, 0, 0))
-    ticket.paste(_ticket_stub(level, h), (0, 0))
-    ticket.paste(tile, (TAB_W, 0))
-    tw = ticket.width
+        _mindscape_picture(ticket, picture, level, base, upcoming, thirds, face)
+    _ticket_stub(ticket, level)
     mask = Image.new("L", (tw * 4, h * 4), 0)
     md = ImageDraw.Draw(mask)
     md.rounded_rectangle((0, 0, tw * 4 - 1, h * 4 - 1), 14 * 4, fill=255)

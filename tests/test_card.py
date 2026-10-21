@@ -204,8 +204,8 @@ class FaceTest(unittest.TestCase):
 
 def _panel_box() -> tuple[int, int, int, int]:
     """The Mindscape picture's panel on the ZZZ card: x, y, width, height."""
-    from bot.card import ART_W, TAB_W
-    x = 24 + TAB_W
+    from bot.card import ART_W
+    x = 24  # the picture runs under the stub too
     return x, 720 - 24 - 150, ART_W - 6 - x, 150
 
 
@@ -231,7 +231,7 @@ class MindscapeTest(unittest.TestCase):
                             upcoming: Image.new("RGBA", (1920, 1080), (50, 50, 200, 255))})
         card = Image.open(io.BytesIO(png)).convert("RGB")
         self.assertEqual(card.size, (W, H))
-        band, below = card.getpixel(_in_panel(0.1, 0.7)), card.getpixel(_in_panel(0.9, 0.9))
+        band, below = card.getpixel(_in_panel(0.2, 0.7)), card.getpixel(_in_panel(0.9, 0.9))
         self.assertGreater(band[2], band[0])  # M4: the diagonal band through the middle shows the next picture
         self.assertGreater(below[0], below[2])  # the rest: this one
 
@@ -248,7 +248,7 @@ class MindscapeTest(unittest.TestCase):
         b = dataclasses.replace(build, constellation=4, character_id="9999")  # the unlocked band shows the M6 picture's white
         shown, upcoming, _ = mindscape_urls(b)
         card = Image.open(io.BytesIO(draw_card(b, {shown: clear, upcoming: clear}))).convert("RGB")
-        self.assertEqual(card.getpixel(_in_panel(0.1, 0.7)), (255, 255, 255))
+        self.assertEqual(card.getpixel(_in_panel(0.2, 0.7)), (255, 255, 255))
         self.assertEqual(card.getpixel(_in_panel(0.9, 0.9)), (0, 0, 0))
 
     def test_first_slice_opens_on_the_face(self):
@@ -284,17 +284,19 @@ class MindscapeTest(unittest.TestCase):
 
 
 class MindscapeTabTest(unittest.TestCase):
-    def test_unlocked_levels_lit_in_their_colour(self):
+    def test_unlocked_levels_lit_in_the_highest_ones_colour(self):
         import dataclasses
         from bot.card import MINDSCAPE_COLORS, TAB_W
         build = zenless.parse_profile(load_assets(), "1300003409", fixture("zzz_live.json")).characters[0]
-        card = Image.open(io.BytesIO(draw_card(dataclasses.replace(build, constellation=1), {}))).convert("RGB")
+        card = Image.open(io.BytesIO(draw_card(dataclasses.replace(build, constellation=3), {}))).convert("RGB")
         top, row = 720 - 24 - 150, 150 / 6
 
         def colours(n):  # the colours in the M{n} label's row
             y = round(top + row * (n - 0.5))
             return {card.getpixel((x, yy)) for x in range(24, 24 + TAB_W) for yy in range(y - 6, y + 6)}
 
-        self.assertIn(MINDSCAPE_COLORS[1], colours(1))  # M1 unlocked: red
-        self.assertFalse(any(c[0] > 200 and c[1] < 80 for c in colours(2)))  # M2 still dim
+        for n in (1, 2, 3):
+            self.assertIn(MINDSCAPE_COLORS[3], colours(n))  # M1-M3 all in M3's yellow
+        self.assertNotIn(MINDSCAPE_COLORS[1], colours(1))
+        self.assertNotIn(MINDSCAPE_COLORS[3], colours(4))  # M4 still dim
 
