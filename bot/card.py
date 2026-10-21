@@ -171,7 +171,7 @@ def _flame(card: Image.Image, box, level: int, seed: str) -> None:
 
 def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level: int = 0, seed: str = "",
                      upcoming: Image.Image | None = None, thirds: int = 0) -> None:
-    """ZZZ: the Mindscape Cinema picture in a rounded panel, the next one taking over a third per copy, with a
+    """ZZZ: the Mindscape Cinema picture in a rounded panel, the next one taking over a part per copy, with a
     flame around it."""
     if picture is None:
         return
@@ -188,19 +188,28 @@ def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level:
 
     tile = Image.new("RGBA", (w, h), (8, 6, 16, 200))
     tile.alpha_composite(fill(picture))
-    # Each copy shows one more slanted third of the next picture over this one, until the next one is complete
+    # Like the game's Mindscape Cinema, each copy uncovers a part of the next picture: first a diagonal band
+    # rising through the middle, then everything above it, then (the next level) the rest
     if upcoming is not None and thirds:
-        slant = h * 0.25
-        step = (w + slant) / 3
-        edge = -slant + thirds * step  # the next picture covers everything left of this slanted line
-        cut = Image.new("L", (w, h), 0)
-        ImageDraw.Draw(cut).polygon([(0, 0), (edge + slant, 0), (edge, h), (0, h)], fill=255)
-        nxt = fill(upcoming)
+        rise = w * 0.45  # how much higher the band's edges are at the right than at the left
+
+        def edge(at: float) -> list[tuple[float, float]]:  # a line of the band, at this height on the left
+            return [(0, at), (w, at - rise)]
+
+        upper, lower = edge(h * 0.55), edge(h * 0.55 + h * 0.62)
+        top = [(0, -rise - h), (w, -rise - h)]
+        region = (upper[0], upper[1], lower[1], lower[0]) if thirds == 1 else (top[0], top[1], lower[1], lower[0])
+        cut = Image.new("L", (w * 4, h * 4), 0)
+        ImageDraw.Draw(cut).polygon([(x * 4, y * 4) for x, y in region], fill=255)
+        cut = cut.resize((w, h), Image.LANCZOS)
         tile.paste(Image.new("RGBA", (w, h), (8, 6, 16, 200)), (0, 0), cut)  # clear this picture under it
+        nxt = fill(upcoming)
         over = nxt.copy()
         over.putalpha(ImageChops.multiply(nxt.getchannel("A"), cut))
         tile.alpha_composite(over)
-        ImageDraw.Draw(tile).line([(edge + slant, 0), (edge, h)], fill=(255, 255, 255, 110), width=2)
+        seams = ImageDraw.Draw(tile)
+        for line in ((upper, lower) if thirds == 1 else (lower,)):
+            seams.line(line, fill=(255, 255, 255, 120), width=2)
     mask = Image.new("L", (w * 4, h * 4), 0)
     ImageDraw.Draw(mask).rounded_rectangle((0, 0, w * 4 - 1, h * 4 - 1), 14 * 4, fill=255)
     tile.putalpha(ImageChops.multiply(tile.getchannel("A"), mask.resize((w, h), Image.LANCZOS)))

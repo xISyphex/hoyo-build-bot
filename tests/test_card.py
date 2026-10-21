@@ -219,9 +219,10 @@ class MindscapeTest(unittest.TestCase):
                             upcoming: Image.new("RGBA", (1920, 1080), (50, 50, 200, 255))})
         card = Image.open(io.BytesIO(png)).convert("RGB")
         self.assertEqual(card.size, (W, H))
-        y = 720 - 24 - 85
-        self.assertGreater(card.getpixel((40, y))[2], card.getpixel((40, y))[0])  # left third: the next picture
-        self.assertGreater(card.getpixel((370, y))[0], card.getpixel((370, y))[2])  # the rest: this one
+        top = 720 - 24 - 170  # the panel's top
+        band, below = card.getpixel((24 + 176, top + 70)), card.getpixel((24 + 340, top + 160))
+        self.assertGreater(band[2], band[0])  # M4: the diagonal band through the middle shows the next picture
+        self.assertGreater(below[0], below[2])  # the rest: this one
 
     def test_other_games_have_none(self):
         from bot.card import mindscape_urls
