@@ -176,7 +176,6 @@ def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level:
     glow around it."""
     if picture is None:
         return
-    _glow(card, box, level)
     x0, y0, x1, y1 = box
     w, h = x1 - x0, y1 - y0
 
@@ -187,17 +186,34 @@ def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level:
         left, top = (pic.width - w) // 2, (pic.height - h) // 2
         return pic.crop((left, top, left + w, top + h))
 
+    # The panel shrinks to where the pictures actually are (they have see-through margins), keeping their size, and
+    # stays in the space's bottom left corner
+    shown, nxt = fill(picture), fill(upcoming) if upcoming is not None and thirds else None
+    spots = [p.getchannel("A").point(lambda a: 255 if a > 40 else 0).getbbox() for p in (shown, nxt) if p]
+    spots = [b for b in spots if b]
+    cx0, cy0 = min((b[0] for b in spots), default=0), min((b[1] for b in spots), default=0)
+    cx1, cy1 = max((b[2] for b in spots), default=w), max((b[3] for b in spots), default=h)
+    if cx1 - cx0 < w // 3 or cy1 - cy0 < h // 3:  # nearly empty pictures keep the whole space
+        cx0, cy0, cx1, cy1 = 0, 0, w, h
+    shown = shown.crop((cx0, cy0, cx1, cy1))
+    nxt = nxt.crop((cx0, cy0, cx1, cy1)) if nxt else None
+    full_w, full_h = w, h
+    w, h = cx1 - cx0, cy1 - cy0
+    box = (x0, y1 - h, x0 + w, y1)
+    x0, y0 = box[0], box[1]
+    _glow(card, box, level)
+
     base = 3 if level >= 6 else max(level, 0) // 3 + 1  # which of the three pictures is shown
     tile = Image.new("RGBA", (w, h), MINDSCAPE_BG[base])
-    tile.alpha_composite(fill(picture))
+    tile.alpha_composite(shown)
     # Like the game's Mindscape Cinema, each copy uncovers a part of the next picture: first a slice shaped like a
     # stretched V lying on its side, its wide end on the agent's face, then everything above it, then (the next level)
     # the rest
-    if upcoming is not None and thirds:
-        scale = max(w / upcoming.width, h / upcoming.height)
+    if nxt is not None:
+        scale = max(full_w / upcoming.width, full_h / upcoming.height)
         fx, fy = face if face else (0.0, 0.7)  # unknown face: wide end at the left
-        fx = fx * upcoming.width * scale - (upcoming.width * scale - w) / 2
-        fy = fy * upcoming.height * scale - (upcoming.height * scale - h) / 2
+        fx = fx * upcoming.width * scale - (upcoming.width * scale - full_w) / 2 - cx0
+        fy = fy * upcoming.height * scale - (upcoming.height * scale - full_h) / 2 - cy0
         right = fx > w / 2
         # the V's point is in the corner diagonally across from the face, and its middle line runs through the face
         tip = (0 if right else w, -h * 0.02 if fy > h / 2 else h * 1.02)
@@ -211,7 +227,6 @@ def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level:
         ImageDraw.Draw(cut).polygon([(x * 4, y * 4) for x, y in region], fill=255)
         cut = cut.resize((w, h), Image.LANCZOS)
         tile.paste(Image.new("RGBA", (w, h), MINDSCAPE_BG[base + 1]), (0, 0), cut)  # the next picture's background
-        nxt = fill(upcoming)
         over = nxt.copy()
         over.putalpha(ImageChops.multiply(nxt.getchannel("A"), cut))
         tile.alpha_composite(over)

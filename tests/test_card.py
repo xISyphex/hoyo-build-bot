@@ -259,6 +259,16 @@ class MindscapeTest(unittest.TestCase):
             py = round(fy * 1080 * scale - (1080 * scale - h) / 2)
             self.assertEqual(card.getpixel((x0 + px, y0 + py)), (255, 255, 255), cid)
 
+    def test_panel_shrinks_to_the_picture(self):
+        from bot.card import _mindscape_panel
+        card = Image.new("RGBA", (W, H), (0, 0, 0, 255))
+        pic = Image.new("RGBA", (1920, 1080), (0, 0, 0, 0))
+        pic.paste((200, 50, 50, 255), (0, 300, 1100, 1080))  # see-through on the right and at the top
+        _mindscape_panel(card, pic, (24, 520, 424, 690), 3)
+        self.assertEqual(card.getpixel((200, 650))[:3], (200, 50, 50))  # the picture keeps its place and size
+        self.assertEqual(card.getpixel((380, 650))[:3], (0, 0, 0))  # no empty panel to the right of it
+        self.assertEqual(card.getpixel((200, 530))[:3], (0, 0, 0))  # nor above it
+
     def test_other_games_have_none(self):
         from bot.card import mindscape_urls
         build = genshin.parse_profile(load_assets(), "618285856", fixture("genshin_live.json")).characters[0]
