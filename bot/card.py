@@ -46,6 +46,7 @@ ART_MAX = 1100  # art is kept at most this tall
 FULL_ART_MAX = 2600  # except ZZZ's, which the head close-up enlarges: kept at full size
 ICON_MAX = 192
 MINDSCAPE_H = 150  # ZZZ: the Mindscape picture's panel, bottom left where other games show the weapon
+NAME_H = 96  # ZZZ: the name and info row, in the top of the same arcade screen
 FACE_SIZE = 240  # ZZZ art is scaled so the face is this big
 FACE_X, FACE_Y = 210, 380  # and its centre lands here
 
@@ -192,20 +193,23 @@ def _content(pictures: list[Image.Image]) -> tuple[int, int, int, int] | None:
 
 def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level: int = 0,
                      upcoming: Image.Image | None = None, thirds: int = 0,
-                     face: tuple[float, float] | None = None, color: tuple[int, int, int] = (120, 116, 140)) -> None:
+                     face: tuple[float, float] | None = None, color: tuple[int, int, int] = (120, 116, 140),
+                     header: int = 0) -> None:
     """ZZZ: an arcade screen: the Mindscape bar at the left, the Mindscape Cinema picture beside it with scanlines, the
-    next picture taking over a part per copy."""
+    next picture taking over a part per copy. header: a dark strip this tall across the top (for the name)."""
     tx0, y0, x1, y1 = box
     tw, h = x1 - tx0, y1 - y0
     base = 3 if level >= 6 else max(level, 0) // 3 + 1  # which of the three pictures is shown
     screen = Image.new("RGBA", (tw, h), (14, 11, 24, 255))  # the meter's panel; the picture only fills the box beside it
-    tile = Image.new("RGBA", (tw - TAB_W, h), MINDSCAPE_BG[base])
+    lower = Image.new("RGBA", (tw, h - header), (14, 11, 24, 255))
+    tile = Image.new("RGBA", (tw - TAB_W, h - header), MINDSCAPE_BG[base])
     if picture is not None:
         _mindscape_picture(tile, picture, level, base, upcoming, thirds, face)
-    screen.paste(tile, (TAB_W, 0))
-    for y in range(0, h, 3):  # CRT scanlines over the picture
-        screen.alpha_composite(Image.new("RGBA", (tw - TAB_W, 1), (0, 0, 0, 32)), (TAB_W, y))
-    _mindscape_bar(screen, level, color)
+    lower.paste(tile, (TAB_W, 0))
+    for y in range(0, h - header, 3):  # CRT scanlines over the picture
+        lower.alpha_composite(Image.new("RGBA", (tw - TAB_W, 1), (0, 0, 0, 32)), (TAB_W, y))
+    _mindscape_bar(lower, level, color)
+    screen.paste(lower, (0, header))
     # an arcade screen: corners cut like pixel art, a dark bezel with a neon trim in the element's colour, and the same
     # bezel between the bar and the picture
     c = CHAMFER
@@ -218,11 +222,15 @@ def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level:
     neon = color
     draw = ImageDraw.Draw(screen)
     draw.line(outline + [outline[0]], fill=(14, 10, 24, 255), width=5)
-    draw.rectangle((TAB_W - 2, 0, TAB_W + 1, h), fill=(14, 10, 24, 255))
+    draw.rectangle((TAB_W - 2, header, TAB_W + 1, h), fill=(14, 10, 24, 255))
+    if header:
+        draw.rectangle((0, header - 2, tw, header + 1), fill=(14, 10, 24, 255))
     inset = [(c + 1, 3), (tw - 4 - c + 2, 3), (tw - 4, c + 1), (tw - 4, h - 4 - c + 2), (tw - 4 - c + 2, h - 4),
              (c + 1, h - 4), (3, h - 4 - c + 2), (3, c + 1)]
     draw.line(inset + [inset[0]], fill=neon + (230,), width=1)
-    draw.line([(TAB_W, 3), (TAB_W, h - 4)], fill=neon + (230,), width=1)
+    draw.line([(TAB_W, header + 3 if header else 3), (TAB_W, h - 4)], fill=neon + (230,), width=1)
+    if header:
+        draw.line([(3, header), (tw - 4, header)], fill=neon + (230,), width=1)
     card.alpha_composite(screen, (tx0, y0))
 
 
@@ -321,7 +329,7 @@ def _draw_rarity(draw, build: CharacterBuild, f, x: float, cy: float) -> None:
 
 
 def _info_row(card: Image.Image, build: CharacterBuild, f, accent, light, y: int,
-              element: Image.Image | None = None, path: Image.Image | None = None) -> None:
+              element: Image.Image | None = None, path: Image.Image | None = None, x0: int = PAD + 4) -> None:
     """Element and path / specialty / weapon type symbols, level and rarity under the name, on a see-through
     backing so they read on any art. Without an element symbol the element's name is written instead."""
     draw = ImageDraw.Draw(card)
@@ -342,7 +350,6 @@ def _info_row(card: Image.Image, build: CharacterBuild, f, accent, light, y: int
     lv = f"Lv. {build.level}"
     lw = draw.textlength(lv, font=f.meta)
     rw = _rarity_width(draw, build, f)
-    x0 = PAD + 4
     cy = y + h / 2
     dark = (12, 10, 20)
     # a slanted dark band with an element-coloured edge
@@ -519,14 +526,15 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     _shade(card, (0, H - 280, W, H), 0, 225)
     draw = ImageDraw.Draw(card)
 
-    # Name, then element · level · constellation and the rarity.
-    for size, font in f.name.items():
-        if draw.textlength(build.name, font=font) <= ART_W - PAD or size == 32:
-            break
-    name = _fit_text(draw, build.name, font, ART_W - PAD)
-    draw.text((PAD + 4, 28), name, font=font, fill=TEXT)
-    y = 28 + font.size + 16
-    _info_row(card, build, f, accent, light, y, images.get(build.element_icon or ""), images.get(build.path_icon or ""))
+    # Name, then element · level · constellation and the rarity (ZZZ: in the Mindscape screen, further down).
+    if build.game != "zzz":
+        for size, font in f.name.items():
+            if draw.textlength(build.name, font=font) <= ART_W - PAD or size == 32:
+                break
+        name = _fit_text(draw, build.name, font, ART_W - PAD)
+        draw.text((PAD + 4, 28), name, font=font, fill=TEXT)
+        y = 28 + font.size + 16
+        _info_row(card, build, f, accent, light, y, images.get(build.element_icon or ""), images.get(build.path_icon or ""))
 
     _cons_marks(card, build, accent, light, images)
 
@@ -536,9 +544,17 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     zzz = build.game == "zzz"
     if zzz:
         shown, upcoming, thirds = mindscape_urls(build)
-        _mindscape_panel(card, images.get(shown or ""), (PAD, H - PAD - MINDSCAPE_H, ART_W - 6, H - PAD),
+        top = H - PAD - MINDSCAPE_H - NAME_H
+        _mindscape_panel(card, images.get(shown or ""), (PAD, top, ART_W - 6, H - PAD),
                          build.constellation, images.get(upcoming or ""), thirds,
-                         MINDSCAPE_FACES.get(int(build.character_id)) if upcoming else None, _accent(build))
+                         MINDSCAPE_FACES.get(int(build.character_id)) if upcoming else None, _accent(build), NAME_H)
+        draw = ImageDraw.Draw(card)
+        room = ART_W - 6 - PAD - 32
+        font = next((fn for size, fn in f.name.items() if size <= 38 and draw.textlength(build.name, font=fn) <= room),
+                    f.name[32])
+        draw.text((PAD + 16, top + 6), _fit_text(draw, build.name, font, room), font=font, fill=TEXT)
+        _info_row(card, build, f, accent, light, top + 50, images.get(build.element_icon or ""),
+                  images.get(build.path_icon or ""), PAD + 14)
     weapon_box = None
     if build.weapon:
         w = build.weapon

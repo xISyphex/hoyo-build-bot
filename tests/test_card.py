@@ -206,7 +206,7 @@ def _panel_box() -> tuple[int, int, int, int]:
     """The Mindscape picture's panel on the ZZZ card: x, y, width, height."""
     from bot.card import ART_W, TAB_W
     x = 24 + TAB_W  # the picture's box, right of the meter
-    return x, 720 - 24 - 150, ART_W - 6 - x, 150
+    return x, 720 - 24 - 150, ART_W - 6 - x, 150  # the picture sits at the bottom, under the name
 
 
 def _in_panel(fx: float, fy: float) -> tuple[int, int]:
