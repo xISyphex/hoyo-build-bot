@@ -203,34 +203,42 @@ class FaceTest(unittest.TestCase):
 
 
 class MindscapeTest(unittest.TestCase):
-    def test_picture_follows_the_mindscape_level(self):
+    def test_next_picture_takes_over_a_third_per_copy(self):
         import dataclasses
-        from bot.card import mindscape_url
+        from bot.card import mindscape_urls
         build = zenless.parse_profile(load_assets(), "1300003409", fixture("zzz_live.json")).characters[0]
-        stages = {m: mindscape_url(dataclasses.replace(build, constellation=m)) for m in range(7)}
-        self.assertTrue(stages[0].endswith(f"Mindscape_{build.character_id}_1.png"))
-        self.assertEqual(stages[2], stages[0])
-        self.assertTrue(stages[3].endswith("_2.png") and stages[5].endswith("_2.png"))
-        self.assertTrue(stages[6].endswith("_3.png"))
-        png = draw_card(build, {stages[0]: Image.new("RGBA", (1920, 1080), (200, 50, 50, 255))})
-        self.assertEqual(Image.open(io.BytesIO(png)).size, (W, H))
+        got = {}
+        for m in range(7):
+            shown, upcoming, thirds = mindscape_urls(dataclasses.replace(build, constellation=m))
+            got[m] = (shown[-5], upcoming[-5] if upcoming else None, thirds)
+        self.assertEqual(got, {0: ("1", None, 0), 1: ("1", "2", 1), 2: ("1", "2", 2), 3: ("2", None, 0),
+                               4: ("2", "3", 1), 5: ("2", "3", 2), 6: ("3", None, 0)})
+        b = dataclasses.replace(build, constellation=4)
+        shown, upcoming, _ = mindscape_urls(b)
+        png = draw_card(b, {shown: Image.new("RGBA", (1920, 1080), (200, 50, 50, 255)),
+                            upcoming: Image.new("RGBA", (1920, 1080), (50, 50, 200, 255))})
+        card = Image.open(io.BytesIO(png)).convert("RGB")
+        self.assertEqual(card.size, (W, H))
+        y = 720 - 24 - 85
+        self.assertGreater(card.getpixel((40, y))[2], card.getpixel((40, y))[0])  # left third: the next picture
+        self.assertGreater(card.getpixel((370, y))[0], card.getpixel((370, y))[2])  # the rest: this one
 
     def test_other_games_have_none(self):
-        from bot.card import mindscape_url
+        from bot.card import mindscape_urls
         build = genshin.parse_profile(load_assets(), "618285856", fixture("genshin_live.json")).characters[0]
-        self.assertIsNone(mindscape_url(build))
+        self.assertEqual(mindscape_urls(build), (None, None, 0))
 
 
 class FlameTest(unittest.TestCase):
     def test_flame_colour_climbs_with_the_mindscape(self):
         import dataclasses
-        from bot.card import mindscape_url
+        from bot.card import mindscape_urls
         build = zenless.parse_profile(load_assets(), "1300003409", fixture("zzz_live.json")).characters[0]
         picture = Image.new("RGBA", (1920, 1080), (0, 0, 0, 0))
         pixels = {}
         for m in (0, 1, 6):
             b = dataclasses.replace(build, constellation=m)
-            card = Image.open(io.BytesIO(draw_card(b, {mindscape_url(b): picture})))
+            card = Image.open(io.BytesIO(draw_card(b, {mindscape_urls(b)[0]: picture})))
             pixels[m] = card.convert("RGB").getpixel((200, 720 - 24 - 170 - 4))  # just above the picture's panel
         r0, g0, b0 = pixels[0]
         self.assertGreater(pixels[1][0], r0 + 20)  # M1: red

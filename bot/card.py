@@ -106,12 +106,16 @@ def _background(accent) -> Image.Image:
     return small.resize((W, H), Image.BILINEAR).convert("RGBA")
 
 
-def mindscape_url(build: CharacterBuild) -> str | None:
-    """ZZZ: the agent's Mindscape Cinema picture for their Mindscape level (M0-2 the 1st, M3-5 the 2nd, M6 the 3rd)."""
+def mindscape_urls(build: CharacterBuild) -> tuple[str | None, str | None, int]:
+    """ZZZ: the agent's Mindscape Cinema pictures for their Mindscape level: the picture shown, the next one, and
+    how many thirds of the next one show over it. M0 the 1st, M1-2 a third / two thirds of the 2nd over it, M3 the
+    2nd, M4-5 thirds of the 3rd, M6 the 3rd."""
     if build.game != "zzz" or not str(build.character_id).isdigit():
-        return None
-    stage = 3 if build.constellation >= 6 else 2 if build.constellation >= 3 else 1
-    return f"https://enka.network/ui/zzz/Mindscape_{build.character_id}_{stage}.png"
+        return None, None, 0
+    level = min(max(build.constellation, 0), 6)
+    base, thirds = (3, 0) if level == 6 else (level // 3 + 1, level % 3)
+    url = f"https://enka.network/ui/zzz/Mindscape_{build.character_id}_{{}}.png"
+    return url.format(base), url.format(base + 1) if thirds else None, thirds
 
 
 # Flame colours by Mindscape level, coolest to hottest like a flame's temperature: red, orange, yellow, white, blue
@@ -165,39 +169,38 @@ def _flame(card: Image.Image, box, level: int, seed: str) -> None:
     card.alpha_composite(crop, (max(left, 0), max(top, 0)))
 
 
-def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level: int = 0, seed: str = "") -> None:
-    """ZZZ: the Mindscape Cinema picture in a rounded panel, unveiled a slice per copy, with a flame around it."""
+def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level: int = 0, seed: str = "",
+                     upcoming: Image.Image | None = None, thirds: int = 0) -> None:
+    """ZZZ: the Mindscape Cinema picture in a rounded panel, the next one taking over a third per copy, with a
+    flame around it."""
     if picture is None:
         return
     _flame(card, box, level, seed)
     x0, y0, x1, y1 = box
     w, h = x1 - x0, y1 - y0
-    picture = picture.convert("RGBA")
-    scale = max(w / picture.width, h / picture.height)
-    picture = picture.resize((round(picture.width * scale), round(picture.height * scale)), Image.LANCZOS)
-    left, top = (picture.width - w) // 2, (picture.height - h) // 2
-    picture = picture.crop((left, top, left + w, top + h))
-    # Like the game's Mindscape Cinema, each copy unveils one of six slanted slices; the rest show only a dark shadow
-    shown = min(max(level, 0), 6)
-    cut = Image.new("L", (w, h), 0)
-    d = ImageDraw.Draw(cut)
-    slant = h * 0.25
-    step = (w + slant) / 6
-    for i in range(shown):
-        a = -slant + i * step
-        d.polygon([(a + slant, 0), (a + slant + step, 0), (a + step, h), (a, h)], fill=255)
-    shadow = Image.new("RGBA", (w, h), (70, 64, 100, 0))
-    shadow.putalpha(picture.getchannel("A").point(lambda v: v * 120 // 255))
+
+    def fill(pic: Image.Image) -> Image.Image:
+        pic = pic.convert("RGBA")
+        scale = max(w / pic.width, h / pic.height)
+        pic = pic.resize((round(pic.width * scale), round(pic.height * scale)), Image.LANCZOS)
+        left, top = (pic.width - w) // 2, (pic.height - h) // 2
+        return pic.crop((left, top, left + w, top + h))
+
     tile = Image.new("RGBA", (w, h), (8, 6, 16, 200))
-    tile.alpha_composite(shadow)
-    shown_part = picture.copy()
-    shown_part.putalpha(ImageChops.multiply(picture.getchannel("A"), cut))
-    tile.alpha_composite(shown_part)
-    if 0 < shown < 6:  # a thin bright seam where the unveiled part ends
-        seam = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-        a = -slant + shown * step
-        ImageDraw.Draw(seam).line([(a + slant, 0), (a, h)], fill=(255, 255, 255, 90), width=2)
-        tile.alpha_composite(seam)
+    tile.alpha_composite(fill(picture))
+    # Each copy shows one more slanted third of the next picture over this one, until the next one is complete
+    if upcoming is not None and thirds:
+        slant = h * 0.25
+        step = (w + slant) / 3
+        edge = -slant + thirds * step  # the next picture covers everything left of this slanted line
+        cut = Image.new("L", (w, h), 0)
+        ImageDraw.Draw(cut).polygon([(0, 0), (edge + slant, 0), (edge, h), (0, h)], fill=255)
+        nxt = fill(upcoming)
+        tile.paste(Image.new("RGBA", (w, h), (8, 6, 16, 200)), (0, 0), cut)  # clear this picture under it
+        over = nxt.copy()
+        over.putalpha(ImageChops.multiply(nxt.getchannel("A"), cut))
+        tile.alpha_composite(over)
+        ImageDraw.Draw(tile).line([(edge + slant, 0), (edge, h)], fill=(255, 255, 255, 110), width=2)
     mask = Image.new("L", (w * 4, h * 4), 0)
     ImageDraw.Draw(mask).rounded_rectangle((0, 0, w * 4 - 1, h * 4 - 1), 14 * 4, fill=255)
     tile.putalpha(ImageChops.multiply(tile.getchannel("A"), mask.resize((w, h), Image.LANCZOS)))
@@ -466,8 +469,9 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     # at the foot of the stats column.
     zzz = build.game == "zzz"
     if zzz:
-        _mindscape_panel(card, images.get(mindscape_url(build) or ""), (PAD, H - PAD - MINDSCAPE_H, ART_W - 6, H - PAD),
-                         build.constellation, build.character_id)
+        shown, upcoming, thirds = mindscape_urls(build)
+        _mindscape_panel(card, images.get(shown or ""), (PAD, H - PAD - MINDSCAPE_H, ART_W - 6, H - PAD),
+                         build.constellation, build.character_id, images.get(upcoming or ""), thirds)
     weapon_box = None
     if build.weapon:
         w = build.weapon
@@ -1121,9 +1125,9 @@ class CardMaker:
         urls |= {p.piece_icon for p in build.gear} | set(build.cons_icons)
         urls.discard(None)
         art_max = FULL_ART_MAX if build.game == "zzz" else ART_MAX
-        backdrop = mindscape_url(build)
-        urls |= {backdrop} - {None}
-        loaded = await asyncio.gather(*(self._image(u, art_max if u in (build.art_url, backdrop) else ICON_MAX) for u in urls))
+        mindscape = set(mindscape_urls(build)[:2]) - {None}
+        urls |= mindscape
+        loaded = await asyncio.gather(*(self._image(u, art_max if u == build.art_url or u in mindscape else ICON_MAX) for u in urls))
         images = {u: img for u, img in zip(urls, loaded) if img is not None}
         face = await self._face(build, images) if build.game == "zzz" else None
         png = await asyncio.to_thread(draw_card, build, images, profile.uid, wanted, face)
