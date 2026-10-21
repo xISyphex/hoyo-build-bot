@@ -122,23 +122,35 @@ def mindscape_urls(build: CharacterBuild) -> tuple[str | None, str | None, int]:
 # the M1-M6 tab beside the picture
 MINDSCAPE_COLORS = {1: (232, 48, 32), 2: (255, 122, 24), 3: (255, 206, 52), 4: (255, 244, 226), 5: (150, 205, 255),
                     6: (70, 130, 255)}
-TAB_W = 40  # ZZZ: the ticket stub with M1-M6 at the left of the Mindscape picture
+TAB_W = 44  # ZZZ: the ticket stub with the M1-M6 progress bar at the left of the Mindscape picture
 NOTCH_R = 7  # the half-round notches where the stub tears off
 
 
 def _ticket_stub(ticket: Image.Image, level: int) -> None:
-    """The ticket's stub over the left of the picture: the picture shows through it frosted and darkened, with M1 to M6
-    from top to bottom, the unlocked ones lit in the colour of the highest."""
+    """The ticket's stub over the left of the picture, frosted and darkened: a progress bar of six slanted segments
+    filling from M1 at the bottom to M6 at the top, the unlocked ones in the colour of the highest."""
     h = ticket.height
     stub = ticket.crop((0, 0, TAB_W, h)).filter(ImageFilter.GaussianBlur(4))
     stub.alpha_composite(Image.new("RGBA", (TAB_W, h), (10, 8, 20, 185)))
-    draw = ImageDraw.Draw(stub)
-    font = _font("Bold", 17)
-    row = h / 6
     lit = MINDSCAPE_COLORS.get(min(level, 6))
+    k = 4  # drawn at 4x for smooth slants
+    layer = Image.new("RGBA", (TAB_W * k, h * k), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(layer)
+    font = _font("Bold", 15 * k)
+    left, right, top, bottom, gap, slant = 6, TAB_W - 7, 8, h - 8, 4, 5
+    seg = (bottom - top - gap * 5) / 6
     for n in range(1, 7):
-        color = lit + (255,) if n <= level else (120, 116, 140, 150)
-        draw.text((TAB_W / 2, row * (n - 0.5)), f"M{n}", font=font, fill=color, anchor="mm")
+        y1 = bottom - (n - 1) * (seg + gap)
+        y0 = y1 - seg
+        shape = [(left * k, y1 * k), ((left + slant) * k, y0 * k), (right * k, y0 * k), ((right - slant) * k, y1 * k)]
+        if n <= level:
+            draw.polygon(shape, fill=lit + (255,))
+            text = (16, 12, 26, 255)
+        else:
+            draw.polygon(shape, fill=(255, 255, 255, 16), outline=(255, 255, 255, 60), width=k)
+            text = (150, 146, 170, 170)
+        draw.text(((left + right) / 2 * k, (y0 + y1) / 2 * k), f"M{n}", font=font, fill=text, anchor="mm")
+    stub.alpha_composite(layer.resize((TAB_W, h), Image.LANCZOS))
     ticket.paste(stub, (0, 0))
 
 

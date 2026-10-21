@@ -291,8 +291,8 @@ class MindscapeTabTest(unittest.TestCase):
         card = Image.open(io.BytesIO(draw_card(dataclasses.replace(build, constellation=3), {}))).convert("RGB")
         top, row = 720 - 24 - 150, 150 / 6
 
-        def colours(n):  # the colours in the M{n} label's row
-            y = round(top + row * (n - 0.5))
+        def colours(n):  # the colours in the M{n} segment's row; the bar fills from the bottom
+            y = round(top + 150 - row * (n - 0.5))
             return {card.getpixel((x, yy)) for x in range(24, 24 + TAB_W) for yy in range(y - 6, y + 6)}
 
         for n in (1, 2, 3):
