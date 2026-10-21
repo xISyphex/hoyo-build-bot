@@ -118,22 +118,17 @@ def mindscape_urls(build: CharacterBuild) -> tuple[str | None, str | None, int]:
     return url.format(base), url.format(base + 1) if thirds else None, thirds
 
 
-# Mindscape level colours, coolest to hottest like a flame's temperature: red, orange, yellow, white, blue; used for
-# the M1-M6 tab beside the picture
-MINDSCAPE_COLORS = {1: (232, 48, 32), 2: (255, 122, 24), 3: (255, 206, 52), 4: (255, 244, 226), 5: (150, 205, 255),
-                    6: (70, 130, 255)}
 TAB_W = 44  # ZZZ: the Mindscape bar's strip at the left of the picture at the left of the Mindscape picture
 CHAMFER = 7  # the cut corners of the arcade screen
 
 
-def _mindscape_bar(screen: Image.Image, level: int) -> None:
+def _mindscape_bar(screen: Image.Image, level: int, color: tuple[int, int, int]) -> None:
     """The strip over the left of the picture, frosted and darkened, holding a caution-style meter: one tall chamfered
-    gauge filling from the bottom with diagonal hazard stripes in the level's colour, tick marks between the six
+    gauge filling from the bottom with diagonal hazard stripes in the agent's element colour, tick marks between the six
     levels, and a plate with the level under it."""
     h = screen.height
     stub = screen.crop((0, 0, TAB_W, h)).filter(ImageFilter.GaussianBlur(4))
     stub.alpha_composite(Image.new("RGBA", (TAB_W, h), (10, 8, 20, 200)))
-    color = MINDSCAPE_COLORS.get(min(level, 6), (96, 92, 116)) if level else (96, 92, 116)
     rim = (200, 196, 220, 255)
     k = 4  # drawn at 4x and shrunk, for smooth slants
     layer = Image.new("RGBA", (TAB_W * k, h * k), (0, 0, 0, 0))
@@ -160,7 +155,7 @@ def _mindscape_bar(screen: Image.Image, level: int) -> None:
         draw.rectangle(((x0 - 4) * k, y - k // 2, (x0 - 1) * k, y + k // 2), fill=rim)
         draw.rectangle(((x1 + 1) * k, y - k // 2, (x1 + 4) * k, y + k // 2), fill=rim)
     plate = (7 * k, (h - 28) * k, (TAB_W - 8) * k, (h - 8) * k)
-    draw.rectangle(plate, fill=color + (255,) if level else (60, 56, 76, 255))
+    draw.rectangle(plate, fill=color + (255,) if level else (60, 56, 76, 255))  # M0: a grey plate
     draw.text(((plate[0] + plate[2]) / 2, (plate[1] + plate[3]) / 2), f"M{level}", font=_font("Bold", 16 * k),
               fill=(14, 10, 22, 255), anchor="mm")
     stub.alpha_composite(layer.resize((TAB_W, h), Image.LANCZOS))
@@ -198,7 +193,7 @@ def _content(pictures: list[Image.Image]) -> tuple[int, int, int, int] | None:
 
 def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level: int = 0,
                      upcoming: Image.Image | None = None, thirds: int = 0,
-                     face: tuple[float, float] | None = None) -> None:
+                     face: tuple[float, float] | None = None, color: tuple[int, int, int] = (120, 116, 140)) -> None:
     """ZZZ: an arcade screen: the Mindscape bar at the left, the Mindscape Cinema picture beside it with scanlines, the
     next picture taking over a part per copy."""
     tx0, y0, x1, y1 = box
@@ -209,8 +204,8 @@ def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level:
         _mindscape_picture(screen, picture, level, base, upcoming, thirds, face)
     for y in range(0, h, 3):  # CRT scanlines over the picture
         screen.alpha_composite(Image.new("RGBA", (tw - TAB_W, 1), (0, 0, 0, 32)), (TAB_W, y))
-    _mindscape_bar(screen, level)
-    # an arcade screen: corners cut like pixel art, a dark bezel with a neon trim in the level's colour, and the same
+    _mindscape_bar(screen, level, color)
+    # an arcade screen: corners cut like pixel art, a dark bezel with a neon trim in the element's colour, and the same
     # bezel between the bar and the picture
     c = CHAMFER
     outline = [(c, 0), (tw - 1 - c, 0), (tw - 1, c), (tw - 1, h - 1 - c), (tw - 1 - c, h - 1), (c, h - 1),
@@ -219,7 +214,7 @@ def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level:
     ImageDraw.Draw(mask).polygon([(x * 4, y * 4) for x, y in outline], fill=255)
     mask = mask.resize((tw, h), Image.LANCZOS)
     screen.putalpha(ImageChops.multiply(screen.getchannel("A"), mask))
-    neon = MINDSCAPE_COLORS.get(min(level, 6), (120, 116, 140))
+    neon = color
     draw = ImageDraw.Draw(screen)
     draw.line(outline + [outline[0]], fill=(14, 10, 24, 255), width=5)
     draw.rectangle((TAB_W - 2, 0, TAB_W + 1, h), fill=(14, 10, 24, 255))
@@ -542,7 +537,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
         shown, upcoming, thirds = mindscape_urls(build)
         _mindscape_panel(card, images.get(shown or ""), (PAD, H - PAD - MINDSCAPE_H, ART_W - 6, H - PAD),
                          build.constellation, images.get(upcoming or ""), thirds,
-                         MINDSCAPE_FACES.get(int(build.character_id)) if upcoming else None)
+                         MINDSCAPE_FACES.get(int(build.character_id)) if upcoming else None, _accent(build))
     weapon_box = None
     if build.weapon:
         w = build.weapon
