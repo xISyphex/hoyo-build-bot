@@ -286,18 +286,17 @@ class MindscapeTest(unittest.TestCase):
 
 
 class MindscapeTabTest(unittest.TestCase):
-    def test_bar_fills_with_the_highest_levels_colour(self):
+    def test_meter_fills_in_the_element_colour(self):
         import dataclasses
-        from bot.card import MINDSCAPE_COLORS, TAB_W
+        from bot.card import TAB_W, _accent
         build = zenless.parse_profile(load_assets(), "1300003409", fixture("zzz_live.json")).characters[0]
-        top = 720 - 24 - 150
+        color, top = _accent(build), 720 - 24 - 150
 
-        def count(level, color):  # pixels in the stub close to this colour
+        def count(level):  # pixels in the strip close to the element colour
             card = Image.open(io.BytesIO(draw_card(dataclasses.replace(build, constellation=level), {}))).convert("RGB")
             return sum(1 for x in range(24, 24 + TAB_W) for y in range(top, top + 150)
                        if all(abs(a - b) < 16 for a, b in zip(card.getpixel((x, y)), color)))
 
-        self.assertGreater(count(3, MINDSCAPE_COLORS[3]), 100)  # M3: the circle and three cells in yellow
-        self.assertEqual(count(3, MINDSCAPE_COLORS[1]), 0)  # nothing in M1's red
-        self.assertEqual(count(0, MINDSCAPE_COLORS[3]), 0)
-        self.assertGreater(count(6, MINDSCAPE_COLORS[6]), count(3, MINDSCAPE_COLORS[3]))  # M6: every cell
+        empty, three, full = count(0), count(3), count(6)
+        self.assertGreater(three, empty + 200)  # M3: the plate and half the gauge
+        self.assertGreater(full, three + 100)  # M6: the whole gauge
