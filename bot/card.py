@@ -45,6 +45,7 @@ LINE = (255, 255, 255, 22)
 ART_MAX = 1100  # art is kept at most this tall
 FULL_ART_MAX = 2600  # except ZZZ's, which the head close-up enlarges: kept at full size
 ICON_MAX = 192
+BACKDROP_ALPHA = 0.3  # how strongly the Mindscape picture shows behind the ZZZ card
 FACE_SIZE = 240  # ZZZ art is scaled so the face is this big
 FACE_X, FACE_Y = 210, 380  # and its centre lands here
 
@@ -103,6 +104,27 @@ def _background(accent) -> Image.Image:
             d = math.hypot((x - cx) / small.width, (y - cy) / small.height)
             px[x, y] = _mix(deep, dark, min(d / 0.75, 1))
     return small.resize((W, H), Image.BILINEAR).convert("RGBA")
+
+
+def mindscape_url(build: CharacterBuild) -> str | None:
+    """ZZZ: the agent's Mindscape Cinema picture for their Mindscape level (M0-2 the 1st, M3-5 the 2nd, M6 the 3rd)."""
+    if build.game != "zzz" or not str(build.character_id).isdigit():
+        return None
+    stage = 3 if build.constellation >= 6 else 2 if build.constellation >= 3 else 1
+    return f"https://enka.network/ui/zzz/Mindscape_{build.character_id}_{stage}.png"
+
+
+def _paste_backdrop(card: Image.Image, picture: Image.Image | None) -> None:
+    """A wide picture behind the whole card, dimmed so the panels on top stay readable."""
+    if picture is None:
+        return
+    picture = picture.convert("RGBA")
+    scale = max(W / picture.width, H / picture.height)
+    picture = picture.resize((round(picture.width * scale), round(picture.height * scale)), Image.LANCZOS)
+    left, top = picture.width - W, (picture.height - H) // 2  # its right side: the left is the agent's own art
+    picture = picture.crop((left, top, left + W, top + H))
+    picture.putalpha(picture.getchannel("A").point(lambda a: round(a * BACKDROP_ALPHA)))
+    card.alpha_composite(picture)
 
 
 def _fit_text(draw: ImageDraw.ImageDraw, text: str, font, width: int) -> str:
@@ -345,6 +367,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     labels = GAME_LABELS[build.game]
 
     card = _background(accent)
+    _paste_backdrop(card, images.get(mindscape_url(build) or ""))
     _paste_art(card, images.get(build.art_url or "") or images.get(build.icon_url or ""), face)
     _shade(card, (0, 0, W, 210), 215, 0)
     _shade(card, (0, H - 280, W, H), 0, 225)
@@ -1004,7 +1027,9 @@ class CardMaker:
         urls |= {p.piece_icon for p in build.gear} | set(build.cons_icons)
         urls.discard(None)
         art_max = FULL_ART_MAX if build.game == "zzz" else ART_MAX
-        loaded = await asyncio.gather(*(self._image(u, art_max if u == build.art_url else ICON_MAX) for u in urls))
+        backdrop = mindscape_url(build)
+        urls |= {backdrop} - {None}
+        loaded = await asyncio.gather(*(self._image(u, art_max if u in (build.art_url, backdrop) else ICON_MAX) for u in urls))
         images = {u: img for u, img in zip(urls, loaded) if img is not None}
         face = await self._face(build, images) if build.game == "zzz" else None
         png = await asyncio.to_thread(draw_card, build, images, profile.uid, wanted, face)

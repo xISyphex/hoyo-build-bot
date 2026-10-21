@@ -200,3 +200,22 @@ class FaceTest(unittest.TestCase):
         art, _ = self._figure()
         png = draw_card(build, {build.art_url: art}, face=(250, 200, 120))
         self.assertEqual(Image.open(io.BytesIO(png)).size, (W, H))
+
+
+class MindscapeTest(unittest.TestCase):
+    def test_picture_follows_the_mindscape_level(self):
+        import dataclasses
+        from bot.card import mindscape_url
+        build = zenless.parse_profile(load_assets(), "1300003409", fixture("zzz_live.json")).characters[0]
+        stages = {m: mindscape_url(dataclasses.replace(build, constellation=m)) for m in range(7)}
+        self.assertTrue(stages[0].endswith(f"Mindscape_{build.character_id}_1.png"))
+        self.assertEqual(stages[2], stages[0])
+        self.assertTrue(stages[3].endswith("_2.png") and stages[5].endswith("_2.png"))
+        self.assertTrue(stages[6].endswith("_3.png"))
+        png = draw_card(build, {stages[0]: Image.new("RGBA", (1920, 1080), (200, 50, 50, 255))})
+        self.assertEqual(Image.open(io.BytesIO(png)).size, (W, H))
+
+    def test_other_games_have_none(self):
+        from bot.card import mindscape_url
+        build = genshin.parse_profile(load_assets(), "618285856", fixture("genshin_live.json")).characters[0]
+        self.assertIsNone(mindscape_url(build))
