@@ -126,64 +126,44 @@ TAB_W = 44  # ZZZ: the Mindscape bar's strip at the left of the picture at the l
 CHAMFER = 7  # the cut corners of the arcade screen
 
 
-PIXEL = 2  # the Mindscape bar is pixel art, each art pixel this many card pixels
-M_GLYPH = ("10001", "11011", "10101", "10001", "10001")  # a pixel "M"
-
-
 def _mindscape_bar(screen: Image.Image, level: int) -> None:
-    """The strip over the left of the picture, frosted and darkened, holding a pixel-art bar standing upright: an M in
-    a circle at the bottom and six cells going up, the unlocked ones filled in the colour of the highest."""
+    """The strip over the left of the picture, frosted and darkened, holding a caution-style meter: one tall chamfered
+    gauge filling from the bottom with diagonal hazard stripes in the level's colour, tick marks between the six
+    levels, and a plate with the level under it."""
     h = screen.height
     stub = screen.crop((0, 0, TAB_W, h)).filter(ImageFilter.GaussianBlur(4))
-    stub.alpha_composite(Image.new("RGBA", (TAB_W, h), (10, 8, 20, 185)))
+    stub.alpha_composite(Image.new("RGBA", (TAB_W, h), (10, 8, 20, 200)))
     color = MINDSCAPE_COLORS.get(min(level, 6), (96, 92, 116)) if level else (96, 92, 116)
-    light, shade = _mix(color, (255, 255, 255), 0.5) + (255,), _mix(color, (0, 0, 0), 0.4) + (255,)
-    fill, ink = color + (255,), (12, 8, 20, 255)
-    empty, empty_shade = (52, 48, 66, 255), (38, 35, 50, 255)
-    gw, gh = TAB_W // PIXEL, h // PIXEL
-    art = Image.new("RGBA", (gw, gh), (0, 0, 0, 0))  # drawn on the small grid, no smoothing, then blown up
-    d = ImageDraw.Draw(art)
-    cx = gw // 2  # the bar runs over columns cx-4 .. cx+3: a 1px outline round 6px of cells
-    r = 7
-    cy = gh - 2 - r  # the circle's centre
-    bar_x0, bar_x1, top, bottom = cx - 4, cx + 3, 6, cy - r + 1
-    d.rectangle((bar_x0, top, bar_x1, bottom), fill=ink)
-    for i in range(4):  # the pointed top, a pixel arrow
-        d.line((cx - 3 + i, top - 1 - i, cx + 2 - i, top - 1 - i), fill=ink)
-    inner = bottom - 1 - top  # rows inside the outline, split into six cells with 1px walls between them
-    cell = (inner - 5) // 6
-    for n in range(1, 7):
-        y1 = bottom - 1 - (n - 1) * (cell + 1)
-        y0 = y1 - cell + 1
-        x0, x1 = bar_x0 + 1, bar_x1 - 1
-        lit = n <= level
-        d.rectangle((x0, y0, x1, y1), fill=fill if lit else empty)
-        d.line((x0, y1, x1, y1), fill=shade if lit else empty_shade)  # shade along the bottom
-        d.line((x1, y0, x1, y1), fill=shade if lit else empty_shade)  # and the right
-        if lit:
-            d.line((x0, y0, x1 - 1, y0), fill=light)  # highlight along the top
-            d.point((x0, y0 + 1), fill=light)
-    if level >= 6:  # the arrow fills too once every level is unlocked
-        for i in range(3):
-            d.line((cx - 2 + i, top - 1 - i, cx + 1 - i, top - 1 - i), fill=fill)
-        d.line((cx - 2, top - 1, cx, top - 1), fill=light)
-    for y in range(-r, r + 1):  # the circle, edge pixels by hand so it stays crisp
-        for x in range(-r, r + 1):
-            dist = (x + 0.5) ** 2 + (y + 0.5) ** 2
-            if dist <= r * r:
-                outer = dist > (r - 1.2) ** 2
-                pix = ink if outer else fill
-                if not outer and dist > (r - 2.2) ** 2:
-                    pix = light if x + y < -2 else shade if x + y > 1 else fill
-                d.point((cx + x, cy + y), fill=pix)
-    for row, bits in enumerate(M_GLYPH):
-        for col, bit in enumerate(bits):
-            if bit == "1":
-                d.point((cx - 3 + col, cy - 2 + row), fill=ink)
-    rim = Image.new("RGBA", (gw, gh), (255, 255, 255, 0))  # a faint 1px rim so the dark outline shows on the dark strip
-    rim.putalpha(art.getchannel("A").filter(ImageFilter.MaxFilter(3)).point(lambda a: 70 if a else 0))
-    rim.alpha_composite(art)
-    stub.alpha_composite(rim.resize((gw * PIXEL, gh * PIXEL), Image.NEAREST))
+    rim = (200, 196, 220, 255)
+    k = 4  # drawn at 4x and shrunk, for smooth slants
+    layer = Image.new("RGBA", (TAB_W * k, h * k), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(layer)
+    x0, x1, top, bottom, c = 10, TAB_W - 11, 8, h - 34, 4
+    frame = [(x0 + c, top), (x1, top), (x1, bottom - c), (x1 - c, bottom), (x0, bottom), (x0, top + c)]
+    draw.polygon([(x * k, y * k) for x, y in frame], fill=(18, 14, 28, 255), outline=rim, width=k * 2)
+    inner = ((x0 + 3) * k, (top + 3) * k, (x1 - 3) * k, (bottom - 3) * k)
+    step = (bottom - top - 6) / 6
+    if level:
+        fill_top = (bottom - 3 - step * min(level, 6)) * k
+        stripes = Image.new("RGBA", layer.size, color + (255,))
+        dark = _mix(color, (0, 0, 0), 0.55) + (255,)
+        sd = ImageDraw.Draw(stripes)
+        span = (x1 - x0) * k
+        for y in range(int(fill_top) - span, inner[3] + span, 8 * k):  # stripes rising to the right
+            sd.polygon([(inner[0], y + 4 * k), (inner[0], y + 8 * k), (inner[2], y + 8 * k - span),
+                        (inner[2], y + 4 * k - span)], fill=dark)
+        cut = Image.new("L", layer.size, 0)
+        ImageDraw.Draw(cut).rectangle((inner[0], fill_top, inner[2], inner[3]), fill=255)
+        layer.paste(stripes, (0, 0), cut)
+    for n in range(1, 6):  # tick marks between the levels
+        y = (bottom - 3 - step * n) * k
+        draw.rectangle(((x0 - 4) * k, y - k // 2, (x0 - 1) * k, y + k // 2), fill=rim)
+        draw.rectangle(((x1 + 1) * k, y - k // 2, (x1 + 4) * k, y + k // 2), fill=rim)
+    plate = (7 * k, (h - 28) * k, (TAB_W - 8) * k, (h - 8) * k)
+    draw.rectangle(plate, fill=color + (255,) if level else (60, 56, 76, 255))
+    draw.text(((plate[0] + plate[2]) / 2, (plate[1] + plate[3]) / 2), f"M{level}", font=_font("Bold", 16 * k),
+              fill=(14, 10, 22, 255), anchor="mm")
+    stub.alpha_composite(layer.resize((TAB_W, h), Image.LANCZOS))
     screen.paste(stub, (0, 0))
 
 
