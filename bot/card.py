@@ -29,6 +29,7 @@ log = logging.getLogger("hoyo-bot")
 W, H = 1200, 720
 ART_W = 400  # left column: character art, name and weapon
 STATS_X, STATS_W = 420, 284
+FADE_X = 300  # the art starts fading here and is gone by STATS_X
 GEAR_X = 722
 PAD = 24
 FONT_DIR = Path(__file__).parent / "fonts"
@@ -202,7 +203,8 @@ def _info_row(card: Image.Image, build: CharacterBuild, f, accent, light, y: int
 
 
 def _paste_art(card: Image.Image, art: Image.Image | None, full_body: bool = False) -> None:
-    """Character art across the left column, fading out to the right.
+    """Character art across the left column, fading out to the right before the stats box, so wide art (wings,
+    weapons) never shows through it.
 
     full_body (ZZZ): every agent is scaled to the same height, starts below the name, and is
     lined up on its head, so tall, wide (wings) and off-centre art all sit the same way.
@@ -236,7 +238,7 @@ def _paste_art(card: Image.Image, art: Image.Image | None, full_body: bool = Fal
         art = art.crop((left, top, left + width, top + H))
     fade = Image.new("L", (width, 1))
     for x in range(width):
-        fade.putpixel((x, 0), 255 if x < width * 0.55 else round(255 * max(0, 1 - (x - width * 0.55) / (width * 0.45))))
+        fade.putpixel((x, 0), 255 if x < FADE_X else round(255 * max(0, 1 - (x - FADE_X) / (STATS_X - FADE_X))))
     art.putalpha(ImageChops.multiply(art.getchannel("A"), fade.resize(art.size)))
     card.alpha_composite(art, (0, 0))
 
