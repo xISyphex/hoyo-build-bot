@@ -204,8 +204,8 @@ class FaceTest(unittest.TestCase):
 
 def _panel_box() -> tuple[int, int, int, int]:
     """The Mindscape picture's panel on the ZZZ card: x, y, width, height."""
-    from bot.card import ART_W
-    x = 24  # the picture runs under the stub too
+    from bot.card import ART_W, TAB_W
+    x = 24 + TAB_W  # the picture's box, right of the meter
     return x, 720 - 24 - 150, ART_W - 6 - x, 150
 
 
@@ -275,8 +275,8 @@ class MindscapeTest(unittest.TestCase):
         card = Image.new("RGBA", (W, H), (0, 0, 0, 255))
         pic = Image.new("RGBA", (1920, 1080), (0, 0, 0, 0))
         pic.paste((200, 50, 50, 255), (0, 300, 1100, 1080))  # see-through on the right and at the top
-        _mindscape_panel(card, pic, (30, 520, 400, 670), 3)  # the picture part starts after the 40px stub
-        for x, y in ((80, 530), (390, 530), (390, 660)):  # the drawn part is zoomed to reach every corner
+        _mindscape_panel(card, pic, (30, 520, 400, 670), 3)  # the picture's box starts after the 44px meter
+        for x, y in ((84, 530), (390, 530), (390, 660)):  # the drawn part is zoomed to reach every corner
             self.assertEqual(card.getpixel((x, y))[:3], (200, 50, 50))
 
     def test_other_games_have_none(self):
