@@ -152,3 +152,13 @@ class CardTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MirrorUrlTest(unittest.TestCase):
+    def test_enka_pictures_map_to_hakushin(self):
+        from bot.card import mirror_url
+        self.assertEqual(mirror_url("https://enka.network/ui/zzz/IconRole1641.png"),
+                         "https://static.nanoka.cc/assets/zzz/IconRole1641.webp")
+        self.assertEqual(mirror_url("https://enka.network/ui/UI_Gacha_AvatarImg_Furina.png"),
+                         "https://static.nanoka.cc/assets/gi/UI_Gacha_AvatarImg_Furina.webp")
+        self.assertIsNone(mirror_url("https://raw.githubusercontent.com/Mar-7th/StarRailRes/master/x.png"))

@@ -1037,15 +1037,24 @@ class CardMaker:
             return await asyncio.to_thread(_open, path)
         if url in self.failed:
             return None
-        try:
-            async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=20)) as resp:
-                resp.raise_for_status()
-                data = await resp.read()
-            return await asyncio.to_thread(_shrink_and_save, data, path, ART_MAX if big else ICON_MAX)
-        except Exception as exc:
-            log.warning("Could not load card image %s: %s", url, exc)
-            self.failed.add(url)
-            return None
+        for source in filter(None, (url, mirror_url(url))):  # Enka uploads a new character's pictures late
+            try:
+                async with self.session.get(source, timeout=aiohttp.ClientTimeout(total=20)) as resp:
+                    resp.raise_for_status()
+                    data = await resp.read()
+                return await asyncio.to_thread(_shrink_and_save, data, path, ART_MAX if big else ICON_MAX)
+            except Exception as exc:
+                log.warning("Could not load card image %s: %s", source, exc)
+        self.failed.add(url)
+        return None
+
+
+def mirror_url(url: str) -> str | None:
+    """The same game picture on Hakushin's asset host, for when Enka doesn't have it yet (new characters)."""
+    for prefix, folder in (("https://enka.network/ui/zzz/", "zzz"), ("https://enka.network/ui/", "gi")):
+        if url.startswith(prefix) and url.endswith(".png") and "/" not in url[len(prefix):]:
+            return f"https://static.nanoka.cc/assets/{folder}/{url[len(prefix):-4]}.webp"
+    return None
 
 
 def _open(path: Path) -> Image.Image:
