@@ -213,7 +213,7 @@ class MindscapeTest(unittest.TestCase):
             got[m] = (shown[-5], upcoming[-5] if upcoming else None, thirds)
         self.assertEqual(got, {0: ("1", None, 0), 1: ("1", "2", 1), 2: ("1", "2", 2), 3: ("2", None, 0),
                                4: ("2", "3", 1), 5: ("2", "3", 2), 6: ("3", None, 0)})
-        b = dataclasses.replace(build, constellation=4)
+        b = dataclasses.replace(build, constellation=4, character_id="9999")  # no known face: the V opens at the left
         shown, upcoming, _ = mindscape_urls(b)
         png = draw_card(b, {shown: Image.new("RGBA", (1920, 1080), (200, 50, 50, 255)),
                             upcoming: Image.new("RGBA", (1920, 1080), (50, 50, 200, 255))})
@@ -235,11 +235,29 @@ class MindscapeTest(unittest.TestCase):
             shown, _, _ = mindscape_urls(b)
             card = Image.open(io.BytesIO(draw_card(b, {shown: clear}))).convert("RGB")
             self.assertEqual(card.getpixel((24 + 200, top + 85)), want)
-        b = dataclasses.replace(build, constellation=4)  # the unlocked band shows the M6 picture's white
+        b = dataclasses.replace(build, constellation=4, character_id="9999")  # the unlocked band shows the M6 picture's white
         shown, upcoming, _ = mindscape_urls(b)
         card = Image.open(io.BytesIO(draw_card(b, {shown: clear, upcoming: clear}))).convert("RGB")
         self.assertEqual(card.getpixel((24 + 176, top + 70)), (255, 255, 255))
         self.assertEqual(card.getpixel((24 + 340, top + 160)), (0, 0, 0))
+
+    def test_first_slice_opens_on_the_face(self):
+        import dataclasses
+        from bot.card import ART_W, MINDSCAPE_FACES, mindscape_urls
+        build = zenless.parse_profile(load_assets(), "1300003409", fixture("zzz_live.json")).characters[0]
+        h = 170  # see-through pictures, so the slice shows the next picture's white background
+        for cid in (1191, 1201):  # face at the right, face at the left
+            b = dataclasses.replace(build, constellation=4, character_id=str(cid))
+            shown, upcoming, _ = mindscape_urls(b)
+            clear = Image.new("RGBA", (1920, 1080), (0, 0, 0, 0))
+            card = Image.open(io.BytesIO(draw_card(b, {shown: clear, upcoming: clear}))).convert("RGB")
+            x0, y0 = 24, 720 - 24 - 170
+            w = ART_W - 6 - 24
+            scale = max(w / 1920, h / 1080)
+            fx, fy = MINDSCAPE_FACES[cid]
+            px = round(fx * 1920 * scale - (1920 * scale - w) / 2)
+            py = round(fy * 1080 * scale - (1080 * scale - h) / 2)
+            self.assertEqual(card.getpixel((x0 + px, y0 + py)), (255, 255, 255), cid)
 
     def test_other_games_have_none(self):
         from bot.card import mindscape_urls

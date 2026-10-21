@@ -150,12 +150,28 @@ def _glow(card: Image.Image, box, level: int) -> None:
 
 
 # Background behind each Mindscape picture (Syphex): M0 the card's dark panel, M3 black, M6 white
-V_TOP, V_BOTTOM = 0.32, 1.06  # where the first slice's edges start on the left, as shares of the panel height
+V_HALF = 0.4  # half the first slice's width at its wide end, as a share of the panel height
+# Where each agent's face is in their Mindscape pictures (the 2nd and 3rd are drawn alike), as shares of the
+# picture's width and height, read off the pictures by eye; the first slice opens around it
+MINDSCAPE_FACES = {
+    1011: (0.43, 0.27), 1021: (0.52, 0.33), 1031: (0.52, 0.37), 1041: (0.58, 0.38), 1061: (0.48, 0.45),
+    1071: (0.33, 0.44), 1091: (0.54, 0.45), 1101: (0.5, 0.3), 1111: (0.49, 0.22), 1121: (0.38, 0.37),
+    1131: (0.54, 0.55), 1141: (0.79, 0.28), 1151: (0.42, 0.33), 1161: (0.62, 0.3), 1181: (0.71, 0.41),
+    1191: (0.71, 0.28), 1201: (0.19, 0.31), 1211: (0.6, 0.31), 1221: (0.64, 0.28), 1241: (0.6, 0.33),
+    1251: (0.56, 0.33), 1261: (0.58, 0.26), 1271: (0.38, 0.22), 1281: (0.56, 0.37), 1291: (0.62, 0.3),
+    1311: (0.52, 0.33), 1321: (0.31, 0.26), 1331: (0.44, 0.33), 1351: (0.71, 0.31), 1361: (0.56, 0.35),
+    1371: (0.34, 0.37), 1381: (0.56, 0.48), 1391: (0.29, 0.28), 1401: (0.45, 0.3), 1411: (0.49, 0.54),
+    1421: (0.6, 0.26), 1431: (0.3, 0.35), 1441: (0.6, 0.26), 1451: (0.22, 0.5), 1461: (0.62, 0.28),
+    1481: (0.51, 0.31), 1491: (0.47, 0.33), 1501: (0.48, 0.41), 1511: (0.44, 0.37), 1521: (0.53, 0.41),
+    1531: (0.53, 0.15), 1541: (0.81, 0.33), 1561: (0.35, 0.22), 1571: (0.45, 0.31), 1581: (0.47, 0.3),
+    1591: (0.6, 0.31), 1611: (0.45, 0.33), 1621: (0.34, 0.35), 1631: (0.71, 0.31), 1641: (0.22, 0.39),
+}
 MINDSCAPE_BG = {1: (8, 6, 16, 200), 2: (0, 0, 0, 255), 3: (255, 255, 255, 255)}
 
 
 def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level: int = 0,
-                     upcoming: Image.Image | None = None, thirds: int = 0) -> None:
+                     upcoming: Image.Image | None = None, thirds: int = 0,
+                     face: tuple[float, float] | None = None) -> None:
     """ZZZ: the Mindscape Cinema picture in a rounded panel, the next one taking over a part per copy, with a
     glow around it."""
     if picture is None:
@@ -174,15 +190,22 @@ def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level:
     base = 3 if level >= 6 else max(level, 0) // 3 + 1  # which of the three pictures is shown
     tile = Image.new("RGBA", (w, h), MINDSCAPE_BG[base])
     tile.alpha_composite(fill(picture))
-    # Like the game's Mindscape Cinema, each copy uncovers a part of the next picture: first a diagonal band
-    # rising through the middle, then everything above it, then (the next level) the rest
+    # Like the game's Mindscape Cinema, each copy uncovers a part of the next picture: first a slice shaped like a
+    # stretched V lying on its side, its wide end on the agent's face, then everything above it, then (the next level)
+    # the rest
     if upcoming is not None and thirds:
-        # The first slice is a stretched V lying on its side: wide at the left, its two edges meeting in a point at
-        # the top right corner. The next copy uncovers everything above it.
-        tip = (w, -h * 0.02)
-        upper, lower = (0, h * V_TOP), (0, h * V_BOTTOM)
-        top = [(0, -h), (w, -h)]
-        region = (upper, tip, lower) if thirds == 1 else (top[0], top[1], tip, lower)
+        scale = max(w / upcoming.width, h / upcoming.height)
+        fx, fy = face if face else (0.0, 0.7)  # unknown face: wide end at the left
+        fx = fx * upcoming.width * scale - (upcoming.width * scale - w) / 2
+        fy = fy * upcoming.height * scale - (upcoming.height * scale - h) / 2
+        right = fx > w / 2
+        # the V's point is in the corner across from the face, and its middle line runs through the face
+        tip, end = ((0, h * 1.02), w) if right else ((w, -h * 0.02), 0)
+        mid = tip[1] + (fy - tip[1]) * (end - tip[0]) / ((fx - tip[0]) or 1)
+        mid = min(max(mid, -h * 0.1), h * 1.1)
+        upper, lower = (end, mid - h * V_HALF), (end, mid + h * V_HALF)
+        sides = (lower, tip) if right else (tip, lower)  # the points on the right edge, then the left
+        region = (tip, upper, lower) if thirds == 1 else ((0, -h), (w, -h)) + sides
         cut = Image.new("L", (w * 4, h * 4), 0)
         ImageDraw.Draw(cut).polygon([(x * 4, y * 4) for x, y in region], fill=255)
         cut = cut.resize((w, h), Image.LANCZOS)
@@ -461,7 +484,8 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     if zzz:
         shown, upcoming, thirds = mindscape_urls(build)
         _mindscape_panel(card, images.get(shown or ""), (PAD, H - PAD - MINDSCAPE_H, ART_W - 6, H - PAD),
-                         build.constellation, images.get(upcoming or ""), thirds)
+                         build.constellation, images.get(upcoming or ""), thirds,
+                         MINDSCAPE_FACES.get(int(build.character_id)) if upcoming else None)
     weapon_box = None
     if build.weapon:
         w = build.weapon
