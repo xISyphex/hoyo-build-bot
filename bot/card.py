@@ -123,12 +123,11 @@ CHAMFER = 7  # the cut corners of the arcade screen
 
 
 def _mindscape_bar(screen: Image.Image, level: int, color: tuple[int, int, int]) -> None:
-    """The strip over the left of the picture, frosted and darkened, holding a caution-style meter: one tall chamfered
+    """The dark strip left of the picture, holding a caution-style meter: one tall chamfered
     gauge filling from the bottom with diagonal hazard stripes in the agent's element colour, tick marks between the six
     levels, and a plate with the level under it."""
     h = screen.height
-    stub = screen.crop((0, 0, TAB_W, h)).filter(ImageFilter.GaussianBlur(4))
-    stub.alpha_composite(Image.new("RGBA", (TAB_W, h), (10, 8, 20, 200)))
+    stub = screen.crop((0, 0, TAB_W, h))
     rim = (200, 196, 220, 255)
     k = 4  # drawn at 4x and shrunk, for smooth slants
     layer = Image.new("RGBA", (TAB_W * k, h * k), (0, 0, 0, 0))
@@ -199,9 +198,11 @@ def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level:
     tx0, y0, x1, y1 = box
     tw, h = x1 - tx0, y1 - y0
     base = 3 if level >= 6 else max(level, 0) // 3 + 1  # which of the three pictures is shown
-    screen = Image.new("RGBA", (tw, h), MINDSCAPE_BG[base])  # the picture runs under the bar too
+    screen = Image.new("RGBA", (tw, h), (14, 11, 24, 255))  # the meter's panel; the picture only fills the box beside it
+    tile = Image.new("RGBA", (tw - TAB_W, h), MINDSCAPE_BG[base])
     if picture is not None:
-        _mindscape_picture(screen, picture, level, base, upcoming, thirds, face)
+        _mindscape_picture(tile, picture, level, base, upcoming, thirds, face)
+    screen.paste(tile, (TAB_W, 0))
     for y in range(0, h, 3):  # CRT scanlines over the picture
         screen.alpha_composite(Image.new("RGBA", (tw - TAB_W, 1), (0, 0, 0, 32)), (TAB_W, y))
     _mindscape_bar(screen, level, color)
