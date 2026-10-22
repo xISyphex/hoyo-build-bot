@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import functools
 import io
-import math
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
@@ -70,6 +69,8 @@ class Fonts:
         self.silk = _rubik(11, 700)
         self.label = _rubik(15, 600)
         self.slot = _rubik(13, 700)
+        self.plate = _rubik(11, 600)
+        self.plate_s = _rubik(9, 600)
 
 
 FONTS: Fonts | None = None
@@ -304,41 +305,46 @@ def _nameplate(card: Image.Image, build: CharacterBuild, box, accent, images) ->
     _text(card, (tx + 31, y), str(build.level), f.mid, light, "lm")
 
 
-def _dial(card: Image.Image, box, label: str, value: str, fraction: float, color, top: str | None = None) -> None:
-    """An analog gauge: a 240-degree scale, a needle at the fraction and the value on a small readout under it."""
+PLATE_SHORT = {"CRIT RATE": "CR", "CRIT DMG": "CD"}
+
+
+def _gauges(card: Image.Image, box, strips, counts) -> None:
+    """Linear strip gauges, like a fuel and a temperature gauge: per strip (label, value, fraction, colour, max) a
+    filled track with ticks and a red pointer, the value at the right. Under them, one plate per effective substat
+    with its roll count."""
     f = FONTS
     sx0, sy0, sx1, sy1 = _bezel(card, box, 12, 6, (14, 13, 20))
-    w, h = sx1 - sx0, sy1 - sy0
-    k = SS
-    layer = Image.new("RGBA", (w * k, h * k), (0, 0, 0, 0))
-    d = ImageDraw.Draw(layer)
-    cx, cy, r = w / 2 * k, (h * 0.46) * k, min(w * 0.4, h * 0.4) * k
-    start, sweep = 150, 240
-    d.arc((cx - r, cy - r, cx + r, cy + r), start, start + sweep, fill=(60, 58, 74, 255), width=round(3 * k))
-    d.arc((cx - r, cy - r, cx + r, cy + r), start, start + sweep * fraction, fill=color + (255,), width=round(5 * k))
-    for i in range(11):
-        a = math.radians(start + sweep * i / 10)
-        r0 = r - (12 if i % 5 == 0 else 7) * k
-        d.line((cx + r0 * math.cos(a), cy + r0 * math.sin(a), cx + (r - 4 * k) * math.cos(a), cy + (r - 4 * k) * math.sin(a)),
-               fill=(200, 196, 220, 255) if i % 5 == 0 else (120, 116, 140, 255), width=round(1.5 * k))
-    a = math.radians(start + sweep * min(max(fraction, 0), 1))
-    tip = (cx + (r - 14 * k) * math.cos(a), cy + (r - 14 * k) * math.sin(a))
-    side = math.radians(90)
-    bw = 3 * k
-    d.polygon([tip, (cx + bw * math.cos(a + side), cy + bw * math.sin(a + side)),
-               (cx - 10 * k * math.cos(a), cy - 10 * k * math.sin(a)),
-               (cx + bw * math.cos(a - side), cy + bw * math.sin(a - side))], fill=(255, 92, 72, 255))
-    d.ellipse((cx - 6 * k, cy - 6 * k, cx + 6 * k, cy + 6 * k), fill=(70, 68, 84, 255), outline=(20, 18, 26, 255), width=k)
-    card.alpha_composite(layer.resize((w, h), Image.LANCZOS), (sx0, sy0))
     draw = ImageDraw.Draw(card)
-    # the value, then the most possible in small type after it, centred together under the needle
-    most = f" /{top}" if top else ""
-    vw, mw = draw.textlength(value, font=f.mid), draw.textlength(most, font=f.tiny)
-    vx = sx0 + (w - vw - mw) / 2
-    _text(card, (vx, sy1 - 30), value, f.mid, color, "lm")
-    if most:
-        draw.text((vx + vw, sy1 - 27), most, font=f.tiny, fill=SILK, anchor="lm")
-    _silk(draw, (sx0 + w / 2, sy1 - 6), label, SILK, True)
+    y = sy0 + 16
+    for label, value, frac, color, top in strips:
+        _silk(draw, (sx0 + 10, y), label)
+        x = sx1 - 10
+        if top:
+            draw.text((x, y + 1), f"/{top}", font=f.tiny, fill=SILK, anchor="rs")
+            x -= draw.textlength(f"/{top}", font=f.tiny) + 4
+        draw.text((x, y + 1), value, font=f.read, fill=color, anchor="rs")
+        gx0, gx1, gy = sx0 + 12, sx1 - 12, y + 12
+        draw.rectangle((gx0, gy, gx1, gy + 6), fill=(40, 38, 52))
+        draw.rectangle((gx0, gy, gx0 + (gx1 - gx0) * frac, gy + 6), fill=color)
+        for i in range(11):
+            tx = gx0 + (gx1 - gx0) * i / 10
+            draw.line((tx, gy + 8, tx, gy + (14 if i % 5 == 0 else 11)), fill=SILK if i % 5 == 0 else (90, 88, 108))
+        px = gx0 + (gx1 - gx0) * frac
+        draw.polygon([(px, gy - 1), (px - 5, gy - 8), (px + 5, gy - 8)], fill=(255, 92, 72))
+        y += 42
+    if not counts:
+        return
+    gap, h = 6, 34
+    w = (sx1 - sx0 - 20 - gap * (len(counts) - 1)) / len(counts)
+    py = sy1 - 8 - h
+    for i, (name, n) in enumerate(counts):
+        x = sx0 + 10 + i * (w + gap)
+        draw.rounded_rectangle((x, py, x + w, py + h), 4, fill=(24, 22, 32), outline=(52, 50, 66))
+        if draw.textlength(name, font=f.plate_s) > w - 6:
+            name = PLATE_SHORT.get(name, name)  # narrow plates: the short forms players use
+        font = next((fn for fn in (f.plate, f.plate_s) if draw.textlength(name, font=fn) <= w - 6), f.plate_s)
+        draw.text((x + w / 2, py + 10), base._fit_text(draw, name, font, w - 6), font=font, fill=SILK, anchor="mm")
+        draw.text((x + w / 2, py + 24), str(n), font=f.small, fill=AMBER, anchor="mm")
 
 
 def _readout(card: Image.Image, build: CharacterBuild, box, accent, wanted) -> None:
@@ -461,7 +467,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     # middle: the W-Engine, the readout and two dials
     value = base.gear_value(build, wanted)
     effective = sum(piece_count(p, wanted) for p in build.gear) if wanted and build.gear else None
-    dials = []
+    strips = []
     if value:
         label, text = value
         try:
@@ -469,17 +475,21 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
         except ValueError:
             amount = 0
         top = VALUE_MAX.get(label)
-        dials.append((label, text, amount / top if top else 0, TEAL, f"{top:g}" if top else None))
+        strips.append((label, text, min(amount / top, 1) if top else 0, TEAL, f"{top:g}" if top else None))
+    counts = []
     if effective is not None:
         top = effective_max(wanted)
-        dials.append(("EFFECTIVE SUBS", str(effective), effective / top if top else 0, AMBER, str(top)))
+        strips.append(("EFFECTIVE SUBS", str(effective), min(effective / top, 1) if top else 0, AMBER, str(top)))
+        rolls = {}
+        for p in build.gear:
+            for s in p.subs:
+                if s.name in wanted:
+                    rolls[_name(s).upper()] = rolls.get(_name(s).upper(), 0) + max(s.rolls, 1)
+        counts = sorted(rolls.items(), key=lambda kv: -kv[1])
     mx0, mx1 = 420, 704
-    bottom = H - 16  # the readout on top, then the W-Engine, the dials at the foot
-    if dials:
-        dw = (mx1 - mx0 - 10 * (len(dials) - 1)) / len(dials)
-        for i, (label, text, frac, color, most) in enumerate(dials):
-            x = round(mx0 + i * (dw + 10))
-            _dial(card, (x, H - 16 - 148, round(x + dw), H - 16), label, text, min(frac, 1), color, most)
+    bottom = H - 16  # the readout on top, then the W-Engine, the gauges at the foot
+    if strips:
+        _gauges(card, (mx0, H - 16 - 148, mx1, H - 16), strips, counts)
         bottom = H - 16 - 156
     if build.weapon:
         _weapon(card, build, (mx0, bottom - 140, mx1, bottom), accent, images)
