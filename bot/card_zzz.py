@@ -316,7 +316,7 @@ def _nameplate(card: Image.Image, build: CharacterBuild, box, accent, images) ->
     _text(card, (tx + 31, y), str(build.level), f.mid, light, "lm")
 
 
-PLATE_SHORT = {"CRIT RATE": "CR", "CRIT DMG": "CD"}
+PLATE_SHORT = {"CRIT RATE": "CR", "CRIT DMG": "CD"}  # the short forms players use
 
 
 def _gauges(card: Image.Image, box, strips, counts) -> None:
@@ -354,8 +354,7 @@ def _gauges(card: Image.Image, box, strips, counts) -> None:
 
         def width(text, font):
             return sum(draw.textlength(ch, font=font) for ch in text) + 0.5 * (len(text) - 1)
-        if width(name, f.plate_s) > w - 4:
-            name = PLATE_SHORT.get(name, name)  # narrow plates: the short forms players use
+        name = PLATE_SHORT.get(name, name)
         font = next((fn for fn in (f.plate, f.plate_s) if width(name, fn) <= w - 4), f.plate_s)
         base._spaced(draw, (x + w / 2 - width(name, font) / 2, py + 9), name, font, SILK, 0.5, "lm")
         draw.text((x + w / 2, py + 24), str(n), font=f.count, fill=AMBER, anchor="mm")
