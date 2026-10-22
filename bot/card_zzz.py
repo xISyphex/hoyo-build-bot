@@ -265,20 +265,21 @@ def _weapon(card: Image.Image, build: CharacterBuild, box, accent, images) -> No
     sx0, sy0, sx1, sy1 = _bezel(card, box, 12, 6)
     draw = ImageDraw.Draw(card)
     w = build.weapon
-    _silk(draw, (sx0 + 12, sy1 - 8), "W-ENGINE")
-    pic = (sx0 + 10, sy0 + 8, sx0 + 92, sy1 - 24)
+    pic = (sx0 + 10, sy0 + 10, sx0 + 92, sy1 - 10)
     draw.rounded_rectangle(pic, 8, fill=(20, 19, 28, 255), outline=(50, 48, 64, 255))
     base._icon(card, images.get(w.icon_url or ""), (pic[0] + 4, pic[1] + 4, pic[2] - 4, pic[3] - 4))
     tx, room = pic[2] + 12, sx1 - pic[2] - 22
     lines = base._wrap(draw, w.name.upper(), f.sub, room, 2)
-    y = sy0 + 14
+    stats = w.stats[:2]
+    block = 20 * len(lines) + 22 + 20 * len(stats)  # centred top to bottom beside the picture
+    y = (sy0 + sy1 - block) / 2 + 10
     light = base._mix(accent, (255, 255, 255), 0.35)
     for line in lines:
         _glow_text(card, (tx, y), line, f.sub, light, "lm", 3)
         y += 20
     draw.text((tx, y), f"P{w.refinement} · LV. {w.level}", font=f.small, fill=SILK, anchor="lm")
     y += 22
-    for s in w.stats[:2]:
+    for s in stats:
         draw.text((tx, y), _name(s).upper(), font=f.small, fill=SILK, anchor="lm")
         _glow_text(card, (sx1 - 12, y), s.value, f.sub, base.TEXT, "rm", 2)
         y += 20
