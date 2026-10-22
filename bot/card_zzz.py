@@ -86,7 +86,8 @@ def _bezel(card: Image.Image, box, r: int = 12, inset: int = 6, screen=GLASS, bu
     x0, y0, x1, y1 = box
     if bump:
         bx, by, br = bump
-        x0, y0, x1, y1 = min(x0, round(bx - br) - 2), min(y0, round(by - br) - 2), max(x1, round(bx + br) + 2), max(y1, round(by + br) + 2)
+        pad = 12  # room for the fillet blur, so the layer's edge never flattens the circle
+        x0, y0, x1, y1 = min(x0, round(bx - br) - pad), min(y0, round(by - br) - pad), max(x1, round(bx + br) + pad), max(y1, round(by + br) + pad)
     w, h = (x1 - x0) * SS, (y1 - y0) * SS
     px0, py0, px1, py1 = ((v - o) * SS for v, o in zip(box, (x0, y0, x0, y0)))
 
@@ -98,7 +99,9 @@ def _bezel(card: Image.Image, box, r: int = 12, inset: int = 6, screen=GLASS, bu
         if bump:
             cx, cy, rr = (bx - x0) * SS, (by - y0) * SS + dy, br * SS - grow
             d.ellipse((cx - rr, cy - rr, cx + rr, cy + rr), fill=255)
-            m = m.filter(ImageFilter.GaussianBlur(5 * SS)).point(lambda v: 255 if v > 110 else 0)  # fillet the join
+            exact = m.copy()  # the blur only fills the inner corners; the outer edges stay exactly round and straight
+            fillet = m.filter(ImageFilter.GaussianBlur(5 * SS)).point(lambda v: 255 if v > 110 else 0)
+            m = ImageChops.lighter(exact, fillet)
         return m
 
     layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
@@ -255,20 +258,21 @@ def _nameplate(card: Image.Image, build: CharacterBuild, box, accent, images) ->
     warning lamps in round sockets, and the level beside them."""
     f = FONTS
     sx0, sy0, sx1, sy1 = _bezel(card, box, 10, 5)
-    draw = ImageDraw.Draw(card)
     light = base._mix(accent, (255, 255, 255), 0.35)
-    room = sx1 - sx0 - 28
-    draw = ImageDraw.Draw(card)
-    font = next((fn for fn in f.name.values() if draw.textlength(build.name.upper(), font=fn) <= room), f.name[34])
-    _glow_text(card, (sx0 + 14, sy0 + 42), base._fit_text(draw, build.name.upper(), font, room), font, light, "ls", 6)
-    x, y = sx0 + 30, sy1 - 20
-    for url, color in ((build.element_icon, accent), (build.path_icon, AMBER)):
+    lx, mid = sx0 + 24, (sy0 + sy1) / 2
+    for y, (url, color) in zip((mid - 19, mid + 19), ((build.element_icon, accent), (build.path_icon, AMBER))):
         symbol = images.get(url or "")
         if symbol is not None:
-            _lamp(card, symbol, x, y, color)
-            x += 40
-    ImageDraw.Draw(card).text((x - 6, y), "LV", font=f.small, fill=SILK, anchor="lm")
-    _glow_text(card, (x + 18, y), str(build.level), f.mid, light, "lm", 4)
+            _lamp(card, symbol, lx, y, color)
+    tx = lx + 28
+    draw = ImageDraw.Draw(card)
+    draw.line((tx - 6, sy0 + 10, tx - 6, sy1 - 10), fill=(40, 38, 52), width=1)
+    room = sx1 - tx - 12
+    font = next((fn for fn in f.name.values() if draw.textlength(build.name.upper(), font=fn) <= room), f.name[34])
+    _glow_text(card, (tx + 6, sy0 + 44), base._fit_text(draw, build.name.upper(), font, room), font, light, "ls", 6)
+    y = sy1 - 17
+    ImageDraw.Draw(card).text((tx + 7, y), "LV", font=f.small, fill=SILK, anchor="lm")
+    _glow_text(card, (tx + 31, y), str(build.level), f.mid, light, "lm", 4)
 
 
 def _dial(card: Image.Image, box, label: str, value: str, fraction: float, color, top: str | None = None) -> None:
