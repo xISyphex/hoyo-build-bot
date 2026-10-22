@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import math
+import re
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
@@ -172,31 +173,56 @@ def _monitor(card: Image.Image, art: Image.Image | None, face, box, accent) -> N
     card.alpha_composite(glare.filter(ImageFilter.GaussianBlur(20)), (sx0, sy0))
 
 
+def _specialty(build: CharacterBuild) -> str | None:
+    """The specialty's name, read off its icon's file name (IconAttack.png -> ATTACK)."""
+    m = re.search(r"Icon([A-Za-z]+)\.\w+$", build.path_icon or "")
+    return m.group(1).upper() if m else None
+
+
 def _nameplate(card: Image.Image, build: CharacterBuild, box, accent, images) -> None:
-    """A VFD strip: the name lit up, then element, specialty, level and rank."""
+    """The agent as a TV programme listing: a channel block in the element colour with its symbol, an ON AIR
+    lamp, the name as the programme title, specialty and level as the episode line, and the rank as a rating."""
     f = FONTS
     sx0, sy0, sx1, sy1 = _bezel(card, box, 10, 5)
     draw = ImageDraw.Draw(card)
-    room = sx1 - sx0 - 28
-    font = next((fn for fn in f.name.values() if draw.textlength(build.name.upper(), font=fn) <= room), f.name[40])
-    name = base._fit_text(draw, build.name.upper(), font, room)
-    light = base._mix(accent, (255, 255, 255), 0.35)
-    _glow_text(card, (sx0 + 14, sy0 + 42), name, font, light, "ls", 6)  # on its baseline, clear of the row under it
-    y = sy0 + 64
-    x = sx0 + 14
-    for url in (build.element_icon, build.path_icon):
-        icon = images.get(url or "")
-        if icon is not None:
-            icon = icon.convert("RGBA")
-            icon = icon.crop(icon.getchannel("A").getbbox() or (0, 0, *icon.size))
-            icon.thumbnail((22, 22), Image.LANCZOS)
-            card.alpha_composite(icon, (x, round(y - icon.height / 2)))
-            x += icon.width + 8
-    parts = [build.element.upper(), f"LV.{build.level}"]
-    text = "  ".join(parts)
-    _glow_text(card, (x, y), text, f.sub, base._mix(accent, (255, 255, 255), 0.2), "lm", 3)
+    dark = (14, 12, 20)
+    # the channel block
+    ch = (sx0 + 6, sy0 + 6, sx0 + 70, sy1 - 6)
+    draw.rounded_rectangle(ch, 6, fill=accent + (255,))
+    draw.rounded_rectangle((ch[0], ch[1], ch[2], ch[1] + 16), 6, fill=base._mix(accent, (0, 0, 0), 0.35) + (255,))
+    draw.rectangle((ch[0], ch[1] + 10, ch[2], ch[1] + 16), fill=base._mix(accent, (0, 0, 0), 0.35) + (255,))
+    _silk(draw, ((ch[0] + ch[2]) / 2, ch[1] + 12), "CH", (240, 238, 248), True)
+    icon = images.get(build.element_icon or "")
+    if icon is not None:
+        icon = icon.convert("RGBA")
+        icon = icon.crop(icon.getchannel("A").getbbox() or (0, 0, *icon.size))
+        icon.thumbnail((24, 24), Image.LANCZOS)
+        backing = Image.new("RGBA", card.size, (0, 0, 0, 0))  # a dark disc so the symbol reads on its own colour
+        cx, cy = (ch[0] + ch[2]) / 2, ch[1] + 33
+        ImageDraw.Draw(backing).ellipse((cx - 15, cy - 15, cx + 15, cy + 15), fill=dark + (255,))
+        card.alpha_composite(backing)
+        card.alpha_composite(icon, (round(cx - icon.width / 2), round(cy - icon.height / 2)))
+    draw = ImageDraw.Draw(card)
+    el = build.element.upper()
+    el_font = f.small if draw.textlength(el, font=f.small) <= ch[2] - ch[0] - 6 else f.tiny  # ELECTRIC, PHYSICAL
+    draw.text(((ch[0] + ch[2]) / 2, ch[3] - 9), base._fit_text(draw, el, el_font, ch[2] - ch[0] - 4), font=el_font,
+              fill=dark, anchor="mm")
+    # the listing
+    tx, tx1 = ch[2] + 12, sx1 - 12
+    draw.ellipse((tx, sy0 + 9, tx + 9, sy0 + 18), fill=(255, 64, 64, 255))
+    _silk(draw, (tx + 15, sy0 + 18), "ON AIR", (255, 120, 110))
     rank = f"{ZZZ_RARITY.get(build.rarity, '?')}-RANK"
-    _glow_text(card, (sx1 - 14, y), rank, f.sub, base.GOLD, "rm", 3)
+    rw = draw.textlength(rank, font=f.small) + 14
+    rate = (tx1 - rw, sy0 + 5, tx1, sy0 + 23)
+    draw.rectangle(rate, outline=base.GOLD + (255,), width=2)
+    draw.text(((rate[0] + rate[2]) / 2, (rate[1] + rate[3]) / 2), rank, font=f.small, fill=base.GOLD, anchor="mm")
+    room = tx1 - tx
+    font = next((fn for fn in f.name.values() if draw.textlength(build.name.upper(), font=fn) <= room), f.name[34])
+    font = f.name[46] if font.size > f.name[46].size else font
+    light = base._mix(accent, (255, 255, 255), 0.35)
+    _glow_text(card, (tx, sy0 + 58), base._fit_text(draw, build.name.upper(), font, room), font, light, "ls", 5)
+    episode = " · ".join(p for p in (_specialty(build), f"LV.{build.level}") if p)
+    ImageDraw.Draw(card).text((tx, sy1 - 10), episode, font=f.small, fill=SILK, anchor="lm")
 
 
 def _dial(card: Image.Image, box, label: str, value: str, fraction: float, color, top: str | None = None) -> None:
