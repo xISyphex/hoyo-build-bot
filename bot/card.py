@@ -506,6 +506,9 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
               wanted: set[str] | None = None, face: tuple[float, float, float] | None = None) -> bytes:
     """wanted: the substats this character wants; they're counted and highlighted (left out if unknown).
     face: where the face is in the art (ZZZ), for the head close-up."""
+    if build.game == "zzz":  # its own retro dashboard design
+        from . import card_zzz
+        return card_zzz.draw_card(build, images, uid, wanted, face)
     global FONTS
     FONTS = FONTS or Fonts()
     f = FONTS
