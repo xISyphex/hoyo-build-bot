@@ -79,19 +79,42 @@ def _glow_text(card: Image.Image, xy, text: str, font, color, anchor: str = "la"
     card.alpha_composite(layer)
 
 
-def _bezel(card: Image.Image, box, r: int = 12, inset: int = 6, screen=GLASS) -> tuple[int, int, int, int]:
-    """A panel cut into the console: a raised rim lit from above, and a dark screen inside it. Returns the screen."""
+def _bezel(card: Image.Image, box, r: int = 12, inset: int = 6, screen=GLASS, bump=None) -> tuple[int, int, int, int]:
+    """A panel cut into the console: a raised rim lit from above, and a dark screen inside it. Returns the screen.
+    bump: (cx, cy, radius) of a round housing the rim grows out to, one outline with the panel's (the screen stays
+    clear of it)."""
     x0, y0, x1, y1 = box
-    layer = Image.new("RGBA", ((x1 - x0) * SS, (y1 - y0) * SS), (0, 0, 0, 0))
-    d = ImageDraw.Draw(layer)
-    w, h = layer.size
-    d.rounded_rectangle((0, 0, w - 1, h - 1), r * SS, fill=(48, 46, 60, 255))
-    d.rounded_rectangle((0, 2 * SS, w - 1, h - 1), r * SS, fill=(12, 11, 16, 255))  # the rim's shadowed lower edge
-    d.rounded_rectangle((SS, SS, w - 1 - SS, h - 1 - SS), (r - 1) * SS, fill=(36, 34, 46, 255))
+    if bump:
+        bx, by, br = bump
+        x0, y0, x1, y1 = min(x0, round(bx - br) - 2), min(y0, round(by - br) - 2), max(x1, round(bx + br) + 2), max(y1, round(by + br) + 2)
+    w, h = (x1 - x0) * SS, (y1 - y0) * SS
+    px0, py0, px1, py1 = ((v - o) * SS for v, o in zip(box, (x0, y0, x0, y0)))
+
+    def shape(grow: float, dy: float = 0) -> Image.Image:
+        """The rim's outline shrunk by grow: the rounded panel, joined to the bump with a smooth curve."""
+        m = Image.new("L", (w, h), 0)
+        d = ImageDraw.Draw(m)
+        d.rounded_rectangle((px0 + grow, py0 + grow + dy, px1 - 1 - grow, py1 - 1 - grow), max(r * SS - grow, 1), fill=255)
+        if bump:
+            cx, cy, rr = (bx - x0) * SS, (by - y0) * SS + dy, br * SS - grow
+            d.ellipse((cx - rr, cy - rr, cx + rr, cy + rr), fill=255)
+            m = m.filter(ImageFilter.GaussianBlur(5 * SS)).point(lambda v: 255 if v > 110 else 0)  # fillet the join
+        return m
+
+    layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    outline = shape(0)
+    layer.paste((48, 46, 60, 255), (0, 0), outline)
+    layer.paste((12, 11, 16, 255), (0, 0), ImageChops.multiply(outline, shape(0, 2 * SS)))  # shadowed lower edge
+    layer.paste((36, 34, 46, 255), (0, 0), shape(SS))
     i = inset * SS
-    d.rounded_rectangle((i, i, w - 1 - i, h - 1 - i), max(r - inset, 3) * SS, fill=screen + (255,))
+    hole = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(hole).rounded_rectangle((px0 + i, py0 + i, px1 - 1 - i, py1 - 1 - i), max(r - inset, 3) * SS, fill=255)
+    if bump:
+        ImageDraw.Draw(hole).ellipse(((bx - x0 - br) * SS, (by - y0 - br) * SS, (bx - x0 + br) * SS, (by - y0 + br) * SS), fill=0)
+    layer.paste(screen + (255,), (0, 0), hole)
     card.alpha_composite(layer.resize((x1 - x0, y1 - y0), Image.LANCZOS), (x0, y0))
-    return x0 + inset, y0 + inset, x1 - inset, y1 - inset
+    bx0, by0, bx1, by1 = box
+    return bx0 + inset, by0 + inset, bx1 - inset, by1 - inset
 
 
 def _scanlines(card: Image.Image, box, alpha: int = 40) -> None:
@@ -136,9 +159,10 @@ def _console(accent) -> Image.Image:
     return card
 
 
-def _monitor(card: Image.Image, art: Image.Image | None, face, box, accent) -> None:
-    """The agent on a CRT: a head close-up when the face is known, scanlines and a dark vignette on the glass."""
-    sx0, sy0, sx1, sy1 = _bezel(card, box, 18, 10, (10, 10, 18))
+def _monitor(card: Image.Image, art: Image.Image | None, face, box, accent, bump=None) -> None:
+    """The agent on a CRT: a head close-up when the face is known, scanlines and a dark vignette on the glass.
+    bump: a round housing grown out of the frame (see _bezel); the glass stops short of it."""
+    sx0, sy0, sx1, sy1 = _bezel(card, box, 18, 10, (10, 10, 18), bump)
     w, h = sx1 - sx0, sy1 - sy0
     glass = Image.new("RGBA", (w, h), (12, 12, 22, 255))
     # a faint glow of the element colour behind the agent
@@ -163,9 +187,15 @@ def _monitor(card: Image.Image, art: Image.Image | None, face, box, accent) -> N
     glass.alpha_composite(Image.merge("RGBA", (*Image.new("RGB", (w, h), (0, 0, 0)).split(), vignette.point(lambda v: v * 3 // 4))))
     mask = Image.new("L", (w * SS, h * SS), 0)
     ImageDraw.Draw(mask).rounded_rectangle((0, 0, w * SS - 1, h * SS - 1), 22 * SS, fill=255)
+    if bump:
+        bx, by, br = ((bump[0] - sx0) * SS, (bump[1] - sy0) * SS, bump[2] * SS)
+        ImageDraw.Draw(mask).ellipse((bx - br, by - br, bx + br, by + br), fill=0)
+    glass.putalpha(mask.resize((w, h), Image.LANCZOS))
+    lines = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    _scanlines(lines, (0, 0, w, h), 34)
+    glass.alpha_composite(lines)  # on the glass only, not on the housing
     glass.putalpha(mask.resize((w, h), Image.LANCZOS))
     card.alpha_composite(glass, (sx0, sy0))
-    _scanlines(card, (sx0, sy0, sx1, sy1), 34)
     # a glare across the top left of the glass
     glare = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     ImageDraw.Draw(glare).ellipse((-w * 0.4, -h * 0.5, w * 0.7, h * 0.35), fill=(255, 255, 255, 14))
@@ -187,11 +217,15 @@ def _lamp(card: Image.Image, symbol: Image.Image, cx: float, cy: float, color) -
     card.alpha_composite(lit, (round(cx - im.width / 2), round(cy - im.height / 2)))
 
 
-def _rank_lamp(card: Image.Image, build: CharacterBuild, cx: float, cy: float, r: float = 30) -> None:
+RANK_LAMP = (382, 410, 26)  # the rank lamp's centre and glass radius, on the monitor's bottom right corner
+RANK_HOUSING = 9  # the frame round the lamp's glass
+
+
+def _rank_lamp(card: Image.Image, build: CharacterBuild, cx: float, cy: float, r: float = 26) -> None:
     """The rank as a big dome lamp set into the monitor's frame: a glowing gold glass dome with a shine on it and
     the letter printed on the glass."""
     k = SS
-    size = round(2 * r + 40)
+    size = round(2 * r + 12)
     c = size * k / 2
     layer = Image.new("RGBA", (size * k, size * k), (0, 0, 0, 0))
     dome = r * k
@@ -199,11 +233,6 @@ def _rank_lamp(card: Image.Image, build: CharacterBuild, cx: float, cy: float, r
     def disc(radius, fill, dx=0, dy=0):
         ImageDraw.Draw(layer).ellipse((c - radius + dx, c - radius + dy, c + radius + dx, c + radius + dy), fill=fill)
 
-    # its housing is the monitor's own frame (the same rim colours as _bezel), bulging out round the corner
-    rim = (r + 10) * k
-    disc(rim, (48, 46, 60, 255))
-    disc(rim, (12, 11, 16, 255), 0, 2 * k)  # the frame's shadowed lower edge
-    disc(rim - k, (36, 34, 46, 255))
     disc(dome + 2 * k, (40, 30, 10, 255))
     # the glass dome: bright in the middle, deeper amber towards its edge
     glass = Image.radial_gradient("L").resize((round(2 * dome),) * 2)
@@ -214,7 +243,7 @@ def _rank_lamp(card: Image.Image, build: CharacterBuild, cx: float, cy: float, r
     lens.putalpha(lmask)
     layer.alpha_composite(lens, (round(c - dome), round(c - dome)))
     d = ImageDraw.Draw(layer)
-    d.text((c, c + 2 * k), ZZZ_RARITY.get(build.rarity, "?"), font=base._font("Bold", 40 * k), fill=(90, 44, 0, 235), anchor="mm")
+    d.text((c, c + 2 * k), ZZZ_RARITY.get(build.rarity, "?"), font=base._font("Bold", round(r * 1.35) * k), fill=(90, 44, 0, 235), anchor="mm")
     shine = Image.new("RGBA", layer.size, (0, 0, 0, 0))  # the shine on the glass, top left
     ImageDraw.Draw(shine).ellipse((c - dome * 0.7, c - dome * 0.8, c + dome * 0.1, c - dome * 0.25), fill=(255, 255, 255, 150))
     layer.alpha_composite(shine.filter(ImageFilter.GaussianBlur(2 * k)))
@@ -384,9 +413,11 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     draw = ImageDraw.Draw(card)
 
     # left: the monitor, the nameplate and the Mindscape screen
-    _monitor(card, images.get(build.art_url or "") or images.get(build.icon_url or ""), face, (16, 16, 404, 424), accent)
+    lx, ly, lr = RANK_LAMP
+    _monitor(card, images.get(build.art_url or "") or images.get(build.icon_url or ""), face, (16, 16, 404, 424), accent,
+             (lx, ly, lr + RANK_HOUSING))
     _nameplate(card, build, (16, 432, 404, 524), accent, images)
-    _rank_lamp(card, build, 384, 410)  # on the monitor's bottom right corner, over its edge
+    _rank_lamp(card, build, lx, ly, lr)  # set in the monitor's frame, over its bottom right corner
     shown, upcoming, thirds = base.mindscape_urls(build)
     _bezel(card, (16, 532, 404, 704), 12, 0, BODY_DARK)
     base._mindscape_panel(card, images.get(shown or ""), (22, 538, 398, 698), build.constellation,
