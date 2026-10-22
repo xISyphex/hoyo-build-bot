@@ -2,6 +2,7 @@
 two dial gauges, a stat readout, the W-Engine module and six disc cartridges."""
 from __future__ import annotations
 
+import functools
 import io
 import math
 
@@ -44,22 +45,31 @@ def effective_max(wanted: set[str]) -> int:
     return total
 
 
-def _vfd(size: int):
-    return base.ImageFont.truetype(str(base.FONT_DIR / "VT323-Regular.ttf"), size)
+@functools.lru_cache(maxsize=None)
+def _rubik(size: int, weight: int = 700, italic: bool = False):
+    """Rubik (OFL), a free stand-in for ZZZ's in-game type: heavy, geometric, with softly rounded corners."""
+    name = "Rubik-Italic-Variable.ttf" if italic else "Rubik-Variable.ttf"
+    try:
+        font = base.ImageFont.truetype(str(base.FONT_DIR / name), size)
+        font.set_variation_by_axes([weight])
+        return font
+    except OSError:
+        return base.ImageFont.load_default(size)
 
 
 class Fonts:
     def __init__(self) -> None:
-        self.name = {s: _vfd(s) for s in (52, 46, 40, 34)}
-        self.big = _vfd(44)
-        self.mid = _vfd(30)
-        self.read = _vfd(28)
-        self.sub = _vfd(23)
-        self.small = _vfd(20)
-        self.tiny = _vfd(16)
-        self.silk = base._font("Bold", 12)
-        self.label = base._font("SemiBold", 17)
-        self.slot = base._font("Bold", 15)
+        self.name = {s: _rubik(s, 800) for s in (40, 36, 32, 28)}
+        self.big = _rubik(34, 700)
+        self.mid = _rubik(24, 700)
+        self.mid_i = _rubik(24, 800, True)
+        self.read = _rubik(21, 600)
+        self.sub = _rubik(18, 600)
+        self.small = _rubik(16, 600)
+        self.tiny = _rubik(13, 600)
+        self.silk = _rubik(11, 700)
+        self.label = _rubik(15, 600)
+        self.slot = _rubik(13, 700)
 
 
 FONTS: Fonts | None = None
@@ -300,7 +310,7 @@ def _nameplate(card: Image.Image, build: CharacterBuild, box, accent, images) ->
     draw = ImageDraw.Draw(card)
     draw.line((tx - 6, sy0 + 10, tx - 6, sy1 - 10), fill=(40, 38, 52), width=1)
     room = sx1 - tx - 12
-    font = next((fn for fn in f.name.values() if draw.textlength(build.name.upper(), font=fn) <= room), f.name[34])
+    font = next((fn for fn in f.name.values() if draw.textlength(build.name.upper(), font=fn) <= room), f.name[28])
     _glow_text(card, (tx + 6, sy0 + 44), base._fit_text(draw, build.name.upper(), font, room), font, light, "ls", 6)
     y = sy1 - 17
     ImageDraw.Draw(card).text((tx + 7, y), "LV", font=f.small, fill=SILK, anchor="lm")
@@ -407,8 +417,9 @@ def _cartridge(card: Image.Image, piece: Gear, icon, box, accent, max_level: int
     draw.text(((key[0] + key[2]) / 2, (key[1] + key[3]) / 2 + 1), slot, font=f.slot, fill=(14, 12, 20), anchor="mm")
     tx = sx0 + 86
     counter = bool(wanted and piece.subs)
-    draw.text((tx, sy0 + 18), base._fit_text(draw, _name(piece.main).upper(), f.sub, sx1 - tx - (52 if counter else 8)),
-              font=f.sub, fill=SILK, anchor="lm")
+    room, main = sx1 - tx - (40 if counter else 8), _name(piece.main).upper()
+    font = f.sub if draw.textlength(main, font=f.sub) <= room else f.small
+    draw.text((tx, sy0 + 18), base._fit_text(draw, main, font, room), font=font, fill=SILK, anchor="lm")
     _glow_text(card, (tx, sy0 + 52), piece.main.value, f.big, light, "lm", 5)
     if piece.level < max_level:
         draw.text((tx + draw.textlength(piece.main.value, font=f.big) + 8, sy0 + 58), f"+{piece.level}", font=f.sub,
@@ -458,7 +469,8 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     _bezel(card, (16, 532, 404, 704), 12, 0, BODY_DARK)
     base._mindscape_panel(card, images.get(shown or ""), (22, 538, 398, 698), build.constellation,
                           images.get(upcoming or ""), thirds,
-                          base.MINDSCAPE_FACES.get(int(build.character_id)) if upcoming else None, accent)
+                          base.MINDSCAPE_FACES.get(int(build.character_id)) if upcoming else None, accent,
+                          lambda size: _rubik(size, 800, True))
 
     # middle: the W-Engine, the readout and two dials
     value = base.gear_value(build, wanted)
@@ -507,7 +519,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
         foot = f"{server} · UID {uid}" if server else f"UID {uid}"
         if build.source == "hoyolab":
             foot = f"via HoYoLAB · {foot}"
-        ImageDraw.Draw(card).text((W - 8, H - 3), foot, font=base.FONTS.stamp, fill=SILK, anchor="rd")
+        ImageDraw.Draw(card).text((W - 8, H - 3), foot, font=f.tiny, fill=SILK, anchor="rd")
 
     out = io.BytesIO()
     card.convert("RGB").save(out, "PNG", compress_level=3)
