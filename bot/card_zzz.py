@@ -222,11 +222,15 @@ def _lamp(card: Image.Image, symbol: Image.Image, cx: float, cy: float, color) -
 
 RANK_LAMP = (382, 410, 26)  # the rank lamp's centre and glass radius, on the monitor's bottom right corner
 RANK_HOUSING = 9  # the frame round the lamp's glass
+RANK_GLASS = {  # per rank: the ring under the glass, each colour channel's (centre value, fall-off divisor) and the ink
+    "S": ((40, 30, 10, 255), ((255, 8), (240, 3), (140, 2)), (90, 44, 0, 235)),
+    "A": ((30, 14, 44, 255), ((225, 4), (170, 2), (255, 8)), (52, 12, 86, 235)),
+}
 
 
 def _rank_lamp(card: Image.Image, build: CharacterBuild, cx: float, cy: float, r: float = 26) -> None:
-    """The rank as a big dome lamp set into the monitor's frame: a glowing gold glass dome with a shine on it and
-    the letter printed on the glass."""
+    """The rank as a big dome lamp set into the monitor's frame: a glowing glass dome (gold for S, purple for A)
+    with a shine on it and the letter printed on the glass in italics."""
     k = SS
     size = round(2 * r + 12)
     c = size * k / 2
@@ -236,17 +240,21 @@ def _rank_lamp(card: Image.Image, build: CharacterBuild, cx: float, cy: float, r
     def disc(radius, fill, dx=0, dy=0):
         ImageDraw.Draw(layer).ellipse((c - radius + dx, c - radius + dy, c + radius + dx, c + radius + dy), fill=fill)
 
-    disc(dome + 2 * k, (40, 30, 10, 255))
-    # the glass dome: bright in the middle, deeper amber towards its edge
+    letter = ZZZ_RARITY.get(build.rarity, "?")
+    ring, tint, ink = RANK_GLASS.get(letter, RANK_GLASS["S"])
+    disc(dome + 2 * k, ring)
+    # the glass dome: bright in the middle, deeper towards its edge
     glass = Image.radial_gradient("L").resize((round(2 * dome),) * 2)
-    lens = Image.merge("RGBA", (glass.point(lambda v: 255 - v // 8), glass.point(lambda v: 240 - v // 3),
-                                glass.point(lambda v: 140 - v // 2), Image.new("L", glass.size, 0)))
+    lens = Image.merge("RGBA", tuple(glass.point(lambda v, top=top, fall=fall: top - v // fall) for top, fall in tint)
+                       + (Image.new("L", glass.size, 0),))
     lmask = Image.new("L", glass.size, 0)
     ImageDraw.Draw(lmask).ellipse((0, 0, glass.width - 1, glass.height - 1), fill=255)
     lens.putalpha(lmask)
     layer.alpha_composite(lens, (round(c - dome), round(c - dome)))
-    d = ImageDraw.Draw(layer)
-    d.text((c, c + 2 * k), ZZZ_RARITY.get(build.rarity, "?"), font=base._font("Bold", round(r * 1.35) * k), fill=(90, 44, 0, 235), anchor="mm")
+    text = Image.new("RGBA", layer.size, (0, 0, 0, 0))
+    ImageDraw.Draw(text).text((c, c + 2 * k), letter, font=base._font("Bold", round(r * 1.35) * k), fill=ink, anchor="mm")
+    slant = 0.2  # italics: lean the letter right, pivoting on its middle
+    layer.alpha_composite(text.transform(text.size, Image.AFFINE, (1, slant, -slant * c, 0, 1, 0), Image.BICUBIC))
     shine = Image.new("RGBA", layer.size, (0, 0, 0, 0))  # the shine on the glass, top left
     ImageDraw.Draw(shine).ellipse((c - dome * 0.7, c - dome * 0.8, c + dome * 0.1, c - dome * 0.25), fill=(255, 255, 255, 150))
     layer.alpha_composite(shine.filter(ImageFilter.GaussianBlur(2 * k)))
