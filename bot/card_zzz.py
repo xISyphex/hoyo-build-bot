@@ -206,18 +206,26 @@ def _monitor(card: Image.Image, art: Image.Image | None, face, box, accent, bump
 
 
 def _lamp(card: Image.Image, symbol: Image.Image, cx: float, cy: float, color) -> None:
-    """A dashboard warning lamp: a round dark socket with the symbol lit up in one colour, glowing."""
-    ImageDraw.Draw(card).ellipse((cx - 16, cy - 16, cx + 16, cy + 16), fill=(4, 4, 7), outline=(50, 48, 64), width=1)
+    """A dashboard warning lamp: a round dark socket with the symbol lit up in one colour, glowing. Drawn on one
+    supersampled tile so the symbol sits exactly in the socket's middle."""
+    k, half = SS, 22
+    n = 2 * half * k
+    tile = Image.new("RGBA", (n, n), (0, 0, 0, 0))
+    ImageDraw.Draw(tile).ellipse((n / 2 - 16 * k, n / 2 - 16 * k, n / 2 + 16 * k, n / 2 + 16 * k), fill=(4, 4, 7, 255),
+                                 outline=(50, 48, 64, 255), width=k)
     im = symbol.convert("RGBA")
-    im = im.crop(im.getchannel("A").getbbox() or (0, 0, *im.size))
-    im.thumbnail((20, 20), Image.LANCZOS)
+    im = im.crop(im.getchannel("A").point(lambda v: 255 if v > 40 else 0).getbbox() or (0, 0, *im.size))
+    scale = 20 * k / max(im.size)  # fit 20 x 20, growing small icons too
+    im = im.resize((max(1, round(im.width * scale)), max(1, round(im.height * scale))), Image.LANCZOS)
     lit = Image.new("RGBA", im.size, color + (255,))
     lit.putalpha(im.getchannel("A"))
-    pad = 10
-    halo = Image.new("RGBA", (im.width + 2 * pad, im.height + 2 * pad), (0, 0, 0, 0))
-    halo.alpha_composite(lit, (pad, pad))
-    card.alpha_composite(halo.filter(ImageFilter.GaussianBlur(4)), (round(cx - halo.width / 2), round(cy - halo.height / 2)))
-    card.alpha_composite(lit, (round(cx - im.width / 2), round(cy - im.height / 2)))
+    glow = Image.new("RGBA", (n, n), (0, 0, 0, 0))
+    glow.alpha_composite(lit, ((n - im.width) // 2, (n - im.height) // 2))
+    halo = glow.filter(ImageFilter.GaussianBlur(4 * k))
+    tile.alpha_composite(halo)
+    tile.alpha_composite(halo)
+    tile.alpha_composite(glow)
+    card.alpha_composite(tile.resize((2 * half, 2 * half), Image.LANCZOS), (round(cx) - half, round(cy) - half))
 
 
 RANK_LAMP = (382, 410, 26)  # the rank lamp's centre and glass radius, on the monitor's bottom right corner
