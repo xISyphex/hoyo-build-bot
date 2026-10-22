@@ -132,7 +132,8 @@ def _mindscape_bar(screen: Image.Image, level: int, color: tuple[int, int, int])
     k = 4  # drawn at 4x and shrunk, for smooth slants
     layer = Image.new("RGBA", (TAB_W * k, h * k), (0, 0, 0, 0))
     draw = ImageDraw.Draw(layer)
-    x0, x1, top, bottom, c = 10, TAB_W - 11, 8, h - 34, 4
+    mid = (5 + TAB_W - 2) / 2  # centred between the screen's bezel and the divider
+    x0, x1, top, bottom, c = round(mid - 11.5), round(mid + 11.5), 8, h - 38, 4
     frame = [(x0 + c, top), (x1, top), (x1, bottom - c), (x1 - c, bottom), (x0, bottom), (x0, top + c)]
     draw.polygon([(x * k, y * k) for x, y in frame], fill=(18, 14, 28, 255), outline=rim, width=k * 2)
     inner = ((x0 + 3) * k, (top + 3) * k, (x1 - 3) * k, (bottom - 3) * k)
@@ -153,10 +154,23 @@ def _mindscape_bar(screen: Image.Image, level: int, color: tuple[int, int, int])
         y = (bottom - 3 - step * n) * k
         draw.rectangle(((x0 - 4) * k, y - k // 2, (x0 - 1) * k, y + k // 2), fill=rim)
         draw.rectangle(((x1 + 1) * k, y - k // 2, (x1 + 4) * k, y + k // 2), fill=rim)
-    plate = (7 * k, (h - 28) * k, (TAB_W - 8) * k, (h - 8) * k)
-    draw.rectangle(plate, fill=color + (255,) if level else (60, 56, 76, 255))  # M0: a grey plate
-    draw.text(((plate[0] + plate[2]) / 2, (plate[1] + plate[3]) / 2), f"M{level}", font=_font("Bold", 16 * k),
-              fill=(14, 10, 22, 255), anchor="mm")
+    # the level on a push button like an old TV's: a dark recess, and in it a rounded button lit from above
+    face = color if level else (60, 56, 76)  # M0: a grey button
+    px0, px1, py0, py1 = mid - 15, mid + 15, h - 29, h - 8
+    draw.rounded_rectangle(((px0 - 2) * k, (py0 - 2) * k, (px1 + 2) * k, (py1 + 2) * k), 6 * k, fill=(6, 5, 10, 255))
+    bw, bh = round((px1 - px0) * k), round((py1 - py0) * k)
+    shade = Image.linear_gradient("L").resize((bw, bh))  # light at the top, darker towards the bottom
+    button = Image.composite(Image.new("RGBA", (bw, bh), _mix(face, (0, 0, 0), 0.35) + (255,)),
+                             Image.new("RGBA", (bw, bh), _mix(face, (255, 255, 255), 0.35) + (255,)), shade)
+    shape = Image.new("L", (bw, bh), 0)
+    ImageDraw.Draw(shape).rounded_rectangle((0, 0, bw - 1, bh - 1), 5 * k, fill=255)
+    gloss = Image.new("RGBA", (bw, bh), (0, 0, 0, 0))  # a shine across the top half
+    ImageDraw.Draw(gloss).rounded_rectangle((3 * k, k, bw - 3 * k, bh * 0.42), 4 * k, fill=(255, 255, 255, 70))
+    button.alpha_composite(gloss)
+    layer.paste(button, (round(px0 * k), round(py0 * k)), shape)
+    draw.rounded_rectangle((px0 * k, py0 * k, px1 * k, py1 * k), 5 * k, outline=(10, 8, 16, 255), width=k)
+    draw.text((mid * k, ((py0 + py1) / 2 + 0.5) * k), f"M{level}", font=_font("Bold", 15 * k),
+              fill=(14, 10, 22, 255) if level else (176, 172, 196, 255), anchor="mm")
     stub.alpha_composite(layer.resize((TAB_W, h), Image.LANCZOS))
     screen.paste(stub, (0, 0))
 
@@ -506,6 +520,9 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
               wanted: set[str] | None = None, face: tuple[float, float, float] | None = None) -> bytes:
     """wanted: the substats this character wants; they're counted and highlighted (left out if unknown).
     face: where the face is in the art (ZZZ), for the head close-up."""
+    if build.game == "zzz":  # its own retro dashboard design
+        from . import card_zzz
+        return card_zzz.draw_card(build, images, uid, wanted, face)
     global FONTS
     FONTS = FONTS or Fonts()
     f = FONTS

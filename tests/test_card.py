@@ -204,9 +204,9 @@ class FaceTest(unittest.TestCase):
 
 def _panel_box() -> tuple[int, int, int, int]:
     """The Mindscape picture's panel on the ZZZ card: x, y, width, height."""
-    from bot.card import ART_W, TAB_W
-    x = 24 + TAB_W  # the picture's box, right of the meter
-    return x, 720 - 24 - 150, ART_W - 6 - x, 150
+    from bot.card import TAB_W
+    x = 22 + TAB_W  # the picture's box on the dashboard, right of the meter
+    return x, 538, 398 - x, 160
 
 
 def _in_panel(fx: float, fy: float) -> tuple[int, int]:
@@ -290,13 +290,27 @@ class MindscapeTabTest(unittest.TestCase):
         import dataclasses
         from bot.card import TAB_W, _accent
         build = zenless.parse_profile(load_assets(), "1300003409", fixture("zzz_live.json")).characters[0]
-        color, top = _accent(build), 720 - 24 - 150
+        color, top = _accent(build), 538
 
         def count(level):  # pixels in the strip close to the element colour
             card = Image.open(io.BytesIO(draw_card(dataclasses.replace(build, constellation=level), {}))).convert("RGB")
-            return sum(1 for x in range(24, 24 + TAB_W) for y in range(top, top + 150)
+            return sum(1 for x in range(22, 22 + TAB_W) for y in range(top, top + 160)
                        if all(abs(a - b) < 16 for a, b in zip(card.getpixel((x, y)), color)))
 
         empty, three, full = count(0), count(3), count(6)
         self.assertGreater(three, empty + 200)  # M3: the plate and half the gauge
         self.assertGreater(full, three + 100)  # M6: the whole gauge
+
+
+class DashboardDialTest(unittest.TestCase):
+    def test_crit_value_tops_out_at_a_perfect_set(self):
+        from bot.card_zzz import VALUE_MAX
+        self.assertAlmostEqual(VALUE_MAX["CRIT VALUE"], 244.8)
+
+    def test_effective_max_counts_what_fits_beside_each_main_stat(self):
+        from bot.card_zzz import effective_max
+        self.assertEqual(effective_max({"CRIT Rate", "CRIT DMG"}), 6 * (2 + 5))
+        # flat HP can't roll beside disc 1's HP main stat, so only two of these fit there
+        self.assertEqual(effective_max({"CRIT Rate", "CRIT DMG", "HP"}), (2 + 5) + 5 * (3 + 5))
+        self.assertEqual(effective_max({"CRIT Rate", "CRIT DMG", "ATK%", "HP", "ATK"}), 6 * (4 + 5))
+        self.assertEqual(effective_max({"Impact"}), 0)
