@@ -300,3 +300,17 @@ class MindscapeTabTest(unittest.TestCase):
         empty, three, full = count(0), count(3), count(6)
         self.assertGreater(three, empty + 200)  # M3: the plate and half the gauge
         self.assertGreater(full, three + 100)  # M6: the whole gauge
+
+
+class DashboardDialTest(unittest.TestCase):
+    def test_crit_value_tops_out_at_a_perfect_set(self):
+        from bot.card_zzz import VALUE_MAX
+        self.assertAlmostEqual(VALUE_MAX["CRIT VALUE"], 244.8)
+
+    def test_effective_max_counts_what_fits_beside_each_main_stat(self):
+        from bot.card_zzz import effective_max
+        self.assertEqual(effective_max({"CRIT Rate", "CRIT DMG"}), 6 * (2 + 5))
+        # flat HP can't roll beside disc 1's HP main stat, so only two of these fit there
+        self.assertEqual(effective_max({"CRIT Rate", "CRIT DMG", "HP"}), (2 + 5) + 5 * (3 + 5))
+        self.assertEqual(effective_max({"CRIT Rate", "CRIT DMG", "ATK%", "HP", "ATK"}), 6 * (4 + 5))
+        self.assertEqual(effective_max({"Impact"}), 0)

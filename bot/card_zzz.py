@@ -22,6 +22,27 @@ AMBER = (255, 184, 64)  # effective substats, like an amber warning lamp
 TEAL = base.TEAL
 SS = 4
 
+# The most each dial can show: every roll of a fully upgraded S-rank set in that stat. Crit Value: 41 crit rolls
+# (both crit substats on every disc, with all five upgrades, but only one beside a crit main on disc 4) at 4.8 each,
+# plus the 48% CRIT DMG main stat (Syphex). The others count the substat roll and the best main stats the same way.
+VALUE_MAX = {"CRIT VALUE": 4.8 * 41 + 48, "AP VALUE": 9 * 30 + 92, "ATK VALUE": 3 * 18 + 90, "HP VALUE": 3 * 18 + 90,
+             "DEF VALUE": 4.8 * 18 + 144, "ENERGY VALUE": 60}
+SUBSTATS = {"HP", "ATK", "DEF", "HP%", "ATK%", "DEF%", "CRIT Rate", "CRIT DMG", "PEN", "AP"}
+# Main stats on each disc slot; a substat can't be the same as its disc's main stat
+MAINS = {1: ["HP"], 2: ["ATK"], 3: ["DEF"], 4: ["HP%", "ATK%", "DEF%", "CRIT Rate", "CRIT DMG", "AP"],
+         5: ["HP%", "ATK%", "DEF%", "PEN Ratio", "DMG Bonus"], 6: ["HP%", "ATK%", "DEF%", "AM", "Impact", "ER"]}
+UPGRADES = 5  # a disc's upgrades on the way to +15, each adding a roll to one of its four substats
+
+
+def effective_max(wanted: set[str]) -> int:
+    """The most effective rolls a set of six discs can have: on each disc, as many wanted substats as fit beside
+    the best main stat for it, each with its first roll, and every upgrade going into one of them."""
+    total = 0
+    for options in MAINS.values():
+        fit = max(min(4, len((wanted & SUBSTATS) - {main})) for main in options)
+        total += fit + UPGRADES if fit else 0
+    return total
+
 
 def _vfd(size: int):
     return base.ImageFont.truetype(str(base.FONT_DIR / "VT323-Regular.ttf"), size)
@@ -35,6 +56,7 @@ class Fonts:
         self.read = _vfd(28)
         self.sub = _vfd(23)
         self.small = _vfd(20)
+        self.tiny = _vfd(16)
         self.silk = base._font("Bold", 12)
         self.label = base._font("SemiBold", 17)
         self.slot = base._font("Bold", 15)
@@ -177,7 +199,7 @@ def _nameplate(card: Image.Image, build: CharacterBuild, box, accent, images) ->
     _glow_text(card, (sx1 - 14, y), rank, f.sub, base.GOLD, "rm", 3)
 
 
-def _dial(card: Image.Image, box, label: str, value: str, fraction: float, color) -> None:
+def _dial(card: Image.Image, box, label: str, value: str, fraction: float, color, top: str | None = None) -> None:
     """An analog gauge: a 240-degree scale, a needle at the fraction and the value on a small readout under it."""
     f = FONTS
     sx0, sy0, sx1, sy1 = _bezel(card, box, 12, 6, (14, 13, 20))
@@ -204,6 +226,11 @@ def _dial(card: Image.Image, box, label: str, value: str, fraction: float, color
     d.ellipse((cx - 6 * k, cy - 6 * k, cx + 6 * k, cy + 6 * k), fill=(70, 68, 84, 255), outline=(20, 18, 26, 255), width=k)
     card.alpha_composite(layer.resize((w, h), Image.LANCZOS), (sx0, sy0))
     draw = ImageDraw.Draw(card)
+    if top:  # the scale's ends: 0 and the most possible
+        for a, text in ((start, "0"), (start + sweep, top)):
+            x = sx0 + w / 2 + (r / k + 2) * math.cos(math.radians(a))
+            y = sy0 + h * 0.46 + (r / k + 2) * math.sin(math.radians(a)) + 12
+            draw.text((x, y), text, font=f.tiny, fill=SILK, anchor="mm")
     _glow_text(card, (sx0 + w / 2, sy1 - 30), value, f.mid, color, "mm", 4)
     _silk(draw, (sx0 + w / 2, sy1 - 6), label, SILK, True)
 
@@ -328,16 +355,18 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
             amount = float(text.replace(",", ""))
         except ValueError:
             amount = 0
-        dials.append((label, text, amount / 300, TEAL))
+        top = VALUE_MAX.get(label)
+        dials.append((label, text, amount / top if top else 0, TEAL, f"{top:g}" if top else None))
     if effective is not None:
-        dials.append(("EFFECTIVE SUBS", str(effective), effective / 30, AMBER))
+        top = effective_max(wanted)
+        dials.append(("EFFECTIVE SUBS", str(effective), effective / top if top else 0, AMBER, str(top)))
     mx0, mx1 = 420, 704
     top = 16
     if dials:
         dw = (mx1 - mx0 - 10 * (len(dials) - 1)) / len(dials)
-        for i, (label, text, frac, color) in enumerate(dials):
+        for i, (label, text, frac, color, most) in enumerate(dials):
             x = round(mx0 + i * (dw + 10))
-            _dial(card, (x, 16, round(x + dw), 164), label, text, min(frac, 1), color)
+            _dial(card, (x, 16, round(x + dw), 164), label, text, min(frac, 1), color, most)
         top = 172
     weapon_top = H - 16 - 140 if build.weapon else H - 16
     _readout(card, build, (mx0, top, mx1, weapon_top - 8), accent, wanted)
