@@ -222,6 +222,11 @@ def _lamp(card: Image.Image, symbol: Image.Image, cx: float, cy: float, color) -
 
 RANK_LAMP = (382, 410, 26)  # the rank lamp's centre and glass radius, on the monitor's bottom right corner
 RANK_HOUSING = 9  # the frame round the lamp's glass
+BLOCK_LETTERS = {  # squared rank letters on a 10 x 12 grid with chamfered corners: an outline, then any holes
+    "A": ([(2, 0), (8, 0), (10, 2), (10, 12), (7, 12), (7, 8), (3, 8), (3, 12), (0, 12), (0, 2)], [(3, 3), (7, 3), (7, 5.5), (3, 5.5)]),
+    "S": ([(2, 0), (10, 0), (10, 3), (3, 3), (3, 4.5), (8, 4.5), (10, 6.5), (10, 10), (8, 12), (0, 12), (0, 9), (7, 9),
+           (7, 7.5), (2, 7.5), (0, 5.5), (0, 2)],),
+}
 RANK_GLASS = {  # per rank: the ring under the glass, each colour channel's (centre value, fall-off divisor) and the ink
     "S": ((40, 30, 10, 255), ((255, 8), (240, 3), (140, 2)), (90, 44, 0, 235)),
     "A": ((30, 14, 44, 255), ((225, 4), (170, 2), (255, 8)), (52, 12, 86, 235)),
@@ -252,7 +257,18 @@ def _rank_lamp(card: Image.Image, build: CharacterBuild, cx: float, cy: float, r
     lens.putalpha(lmask)
     layer.alpha_composite(lens, (round(c - dome), round(c - dome)))
     text = Image.new("RGBA", layer.size, (0, 0, 0, 0))
-    ImageDraw.Draw(text).text((c, c + 2 * k), letter, font=base._font("Bold", round(r * 1.35) * k), fill=ink, anchor="mm")
+    shape = BLOCK_LETTERS.get(letter)
+    if shape:  # a squared block letter, 10 x 12 units, centred on the glass
+        u = r * 0.075 * k
+        outer, *holes = shape
+        mask = Image.new("L", layer.size, 0)
+        md = ImageDraw.Draw(mask)
+        md.polygon([(c + (x - 5) * u, c + (y - 6) * u) for x, y in outer], fill=255)
+        for hole in holes:
+            md.polygon([(c + (x - 5) * u, c + (y - 6) * u) for x, y in hole], fill=0)
+        text.paste(ink, (0, 0), mask)
+    else:
+        ImageDraw.Draw(text).text((c, c + 2 * k), letter, font=base._font("Bold", round(r * 1.35) * k), fill=ink, anchor="mm")
     slant = 0.2  # italics: lean the letter right, pivoting on its middle
     layer.alpha_composite(text.transform(text.size, Image.AFFINE, (1, slant, -slant * c, 0, 1, 0), Image.BICUBIC))
     shine = Image.new("RGBA", layer.size, (0, 0, 0, 0))  # the shine on the glass, top left
