@@ -314,3 +314,9 @@ class DashboardDialTest(unittest.TestCase):
         self.assertEqual(effective_max({"CRIT Rate", "CRIT DMG", "HP"}), (2 + 5) + 5 * (3 + 5))
         self.assertEqual(effective_max({"CRIT Rate", "CRIT DMG", "ATK%", "HP", "ATK"}), 6 * (4 + 5))
         self.assertEqual(effective_max({"Impact"}), 0)
+
+    def test_value_gauge_reads_percent_values(self):
+        from bot.card_zzz import value_fraction
+        self.assertAlmostEqual(value_fraction("ATK VALUE", "100.0%"), 100 / 144)
+        self.assertAlmostEqual(value_fraction("CRIT VALUE", "122.4"), 0.5)
+        self.assertEqual(value_fraction("CRIT VALUE", "999"), 1)

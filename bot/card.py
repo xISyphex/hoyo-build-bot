@@ -122,7 +122,7 @@ TAB_W = 44  # ZZZ: the Mindscape bar's strip at the left of the picture at the l
 CHAMFER = 7  # the cut corners of the arcade screen
 
 
-def _mindscape_bar(screen: Image.Image, level: int, color: tuple[int, int, int]) -> None:
+def _mindscape_bar(screen: Image.Image, level: int, color: tuple[int, int, int], font=None) -> None:
     """The dark strip left of the picture, holding a caution-style meter: one tall chamfered
     gauge filling from the bottom with diagonal hazard stripes in the agent's element colour, tick marks between the six
     levels, and a plate with the level under it."""
@@ -169,7 +169,7 @@ def _mindscape_bar(screen: Image.Image, level: int, color: tuple[int, int, int])
     button.alpha_composite(gloss)
     layer.paste(button, (round(px0 * k), round(py0 * k)), shape)
     draw.rounded_rectangle((px0 * k, py0 * k, px1 * k, py1 * k), 5 * k, outline=(10, 8, 16, 255), width=k)
-    draw.text((mid * k, ((py0 + py1) / 2 + 0.5) * k), f"M{level}", font=_font("Bold", 15 * k),
+    draw.text((mid * k, ((py0 + py1) / 2 + 0.5) * k), f"M{level}", font=(font or (lambda size: _font("Bold", size)))(15 * k),
               fill=(14, 10, 22, 255) if level else (176, 172, 196, 255), anchor="mm")
     stub.alpha_composite(layer.resize((TAB_W, h), Image.LANCZOS))
     screen.paste(stub, (0, 0))
@@ -206,9 +206,10 @@ def _content(pictures: list[Image.Image]) -> tuple[int, int, int, int] | None:
 
 def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level: int = 0,
                      upcoming: Image.Image | None = None, thirds: int = 0,
-                     face: tuple[float, float] | None = None, color: tuple[int, int, int] = (120, 116, 140)) -> None:
+                     face: tuple[float, float] | None = None, color: tuple[int, int, int] = (120, 116, 140),
+                     font=None) -> None:
     """ZZZ: an arcade screen: the Mindscape bar at the left, the Mindscape Cinema picture beside it with scanlines, the
-    next picture taking over a part per copy."""
+    next picture taking over a part per copy. font: makes the level button's font at a given size."""
     tx0, y0, x1, y1 = box
     tw, h = x1 - tx0, y1 - y0
     base = 3 if level >= 6 else max(level, 0) // 3 + 1  # which of the three pictures is shown
@@ -219,7 +220,7 @@ def _mindscape_panel(card: Image.Image, picture: Image.Image | None, box, level:
     screen.paste(tile, (TAB_W, 0))
     for y in range(0, h, 3):  # CRT scanlines over the picture
         screen.alpha_composite(Image.new("RGBA", (tw - TAB_W, 1), (0, 0, 0, 32)), (TAB_W, y))
-    _mindscape_bar(screen, level, color)
+    _mindscape_bar(screen, level, color, font)
     # an arcade screen: corners cut like pixel art, a dark bezel with a neon trim in the element's colour, and the same
     # bezel between the bar and the picture
     c = CHAMFER

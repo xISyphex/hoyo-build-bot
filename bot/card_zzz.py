@@ -2,8 +2,8 @@
 two dial gauges, a stat readout, the W-Engine module and six disc cartridges."""
 from __future__ import annotations
 
+import functools
 import io
-import math
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
@@ -34,6 +34,16 @@ MAINS = {1: ["HP"], 2: ["ATK"], 3: ["DEF"], 4: ["HP%", "ATK%", "DEF%", "CRIT Rat
 UPGRADES = 5  # a disc's upgrades on the way to +15, each adding a roll to one of its four substats
 
 
+def value_fraction(label: str, text: str) -> float:
+    """How full the value gauge is: the value (like "100.8" or "100.0%") over its best possible total."""
+    top = VALUE_MAX.get(label)
+    try:
+        amount = float(text.rstrip("%").replace(",", ""))
+    except ValueError:
+        return 0
+    return min(max(amount / top, 0), 1) if top else 0
+
+
 def effective_max(wanted: set[str]) -> int:
     """The most effective rolls a set of six discs can have: on each disc, as many wanted substats as fit beside
     the best main stat for it, each with its first roll, and every upgrade going into one of them."""
@@ -44,39 +54,41 @@ def effective_max(wanted: set[str]) -> int:
     return total
 
 
-def _vfd(size: int):
-    return base.ImageFont.truetype(str(base.FONT_DIR / "VT323-Regular.ttf"), size)
+@functools.lru_cache(maxsize=None)
+def _rubik(size: int, weight: int = 700, italic: bool = False):
+    """Rubik (OFL), a free stand-in for ZZZ's in-game type: heavy, geometric, with softly rounded corners."""
+    name = "Rubik-Italic-Variable.ttf" if italic else "Rubik-Variable.ttf"
+    try:
+        font = base.ImageFont.truetype(str(base.FONT_DIR / name), size)
+        font.set_variation_by_axes([weight])
+        return font
+    except OSError:
+        return base.ImageFont.load_default(size)
 
 
 class Fonts:
     def __init__(self) -> None:
-        self.name = {s: _vfd(s) for s in (52, 46, 40, 34)}
-        self.big = _vfd(44)
-        self.mid = _vfd(30)
-        self.read = _vfd(28)
-        self.sub = _vfd(23)
-        self.small = _vfd(20)
-        self.tiny = _vfd(16)
-        self.silk = base._font("Bold", 12)
-        self.label = base._font("SemiBold", 17)
-        self.slot = base._font("Bold", 15)
+        self.name = {s: _rubik(s, 800) for s in (40, 36, 32, 28)}
+        self.big = _rubik(34, 700)
+        self.mid = _rubik(24, 700)
+        self.mid_i = _rubik(24, 800, True)
+        self.read = _rubik(21, 600)
+        self.sub = _rubik(18, 600)
+        self.small = _rubik(16, 600)
+        self.tiny = _rubik(13, 600)
+        self.silk = _rubik(11, 700)
+        self.label = _rubik(15, 600)
+        self.slot = _rubik(13, 700)
+        self.plate = _rubik(10, 600)
+        self.plate_s = _rubik(9, 600)
+        self.count = _rubik(14, 700)
 
 
 FONTS: Fonts | None = None
 
 
-def _glow_text(card: Image.Image, xy, text: str, font, color, anchor: str = "la", glow: float = 5) -> None:
-    """Text lit like a vacuum fluorescent display: a soft halo under the sharp glyphs."""
-    layer = Image.new("RGBA", card.size, (0, 0, 0, 0))
-    ImageDraw.Draw(layer).text(xy, text, font=font, fill=color + (255,), anchor=anchor)
-    box = layer.getbbox()
-    if box:
-        pad = round(glow * 3)
-        box = (max(box[0] - pad, 0), max(box[1] - pad, 0), min(box[2] + pad, card.width), min(box[3] + pad, card.height))
-        halo = layer.crop(box).filter(ImageFilter.GaussianBlur(glow))
-        halo.putalpha(halo.getchannel("A").point(lambda a: min(255, a * 1.4)))
-        card.alpha_composite(halo, box[:2])
-    card.alpha_composite(layer)
+def _text(card: Image.Image, xy, text: str, font, color, anchor: str = "la") -> None:
+    ImageDraw.Draw(card).text(xy, text, font=font, fill=color, anchor=anchor)
 
 
 def _bezel(card: Image.Image, box, r: int = 12, inset: int = 6, screen=GLASS, bump=None) -> tuple[int, int, int, int]:
@@ -146,17 +158,14 @@ def _silk(draw: ImageDraw.ImageDraw, xy, text: str, color=SILK, centre: bool = F
     base._spaced(draw, (x, y), text, FONTS.silk, color, 2.4, "ls")
 
 
-def _console(accent) -> Image.Image:
-    """The console body: dark plastic, a faint grain, and a thin accent stripe along the top like a model trim."""
+def _console() -> Image.Image:
+    """The console body: dark plastic with a faint grain, and a screw in each corner."""
     card = Image.new("RGBA", (W, H), BODY + (255,))
     grad = Image.linear_gradient("L").resize((W, H))
     dark = Image.new("RGBA", (W, H), BODY_DARK + (255,))
     card = Image.composite(dark, card, grad)
     noise = Image.effect_noise((W // 2, H // 2), 18).resize((W, H)).point(lambda v: max(0, v - 128) // 6)
     card.alpha_composite(Image.merge("RGBA", (noise, noise, noise, noise)))
-    d = ImageDraw.Draw(card)
-    d.rectangle((0, 0, W, 3), fill=accent + (255,))
-    d.rectangle((0, 4, W, 5), fill=base._mix(accent, BODY, 0.6) + (255,))
     for x, y in ((9, 13), (W - 9, 13), (9, H - 9), (W - 9, H - 9)):
         _screw(card, x, y)
     return card
@@ -300,48 +309,55 @@ def _nameplate(card: Image.Image, build: CharacterBuild, box, accent, images) ->
     draw = ImageDraw.Draw(card)
     draw.line((tx - 6, sy0 + 10, tx - 6, sy1 - 10), fill=(40, 38, 52), width=1)
     room = sx1 - tx - 12
-    font = next((fn for fn in f.name.values() if draw.textlength(build.name.upper(), font=fn) <= room), f.name[34])
-    _glow_text(card, (tx + 6, sy0 + 44), base._fit_text(draw, build.name.upper(), font, room), font, light, "ls", 6)
+    font = next((fn for fn in f.name.values() if draw.textlength(build.name.upper(), font=fn) <= room), f.name[28])
+    _text(card, (tx + 6, sy0 + 44), base._fit_text(draw, build.name.upper(), font, room), font, light, "ls")
     y = sy1 - 17
     ImageDraw.Draw(card).text((tx + 7, y), "LV", font=f.small, fill=SILK, anchor="lm")
-    _glow_text(card, (tx + 31, y), str(build.level), f.mid, light, "lm", 4)
+    _text(card, (tx + 31, y), str(build.level), f.mid, light, "lm")
 
 
-def _dial(card: Image.Image, box, label: str, value: str, fraction: float, color, top: str | None = None) -> None:
-    """An analog gauge: a 240-degree scale, a needle at the fraction and the value on a small readout under it."""
+PLATE_SHORT = {"CRIT RATE": "CR", "CRIT DMG": "CD"}  # the short forms players use
+
+
+def _gauges(card: Image.Image, box, strips, counts) -> None:
+    """Linear strip gauges, like a fuel and a temperature gauge: per strip (label, value, fraction, colour, max) a
+    filled track with ticks and a red pointer, the value at the right. Under them, one plate per effective substat
+    with its roll count."""
     f = FONTS
     sx0, sy0, sx1, sy1 = _bezel(card, box, 12, 6, (14, 13, 20))
-    w, h = sx1 - sx0, sy1 - sy0
-    k = SS
-    layer = Image.new("RGBA", (w * k, h * k), (0, 0, 0, 0))
-    d = ImageDraw.Draw(layer)
-    cx, cy, r = w / 2 * k, (h * 0.46) * k, min(w * 0.4, h * 0.4) * k
-    start, sweep = 150, 240
-    d.arc((cx - r, cy - r, cx + r, cy + r), start, start + sweep, fill=(60, 58, 74, 255), width=round(3 * k))
-    d.arc((cx - r, cy - r, cx + r, cy + r), start, start + sweep * fraction, fill=color + (255,), width=round(5 * k))
-    for i in range(11):
-        a = math.radians(start + sweep * i / 10)
-        r0 = r - (12 if i % 5 == 0 else 7) * k
-        d.line((cx + r0 * math.cos(a), cy + r0 * math.sin(a), cx + (r - 4 * k) * math.cos(a), cy + (r - 4 * k) * math.sin(a)),
-               fill=(200, 196, 220, 255) if i % 5 == 0 else (120, 116, 140, 255), width=round(1.5 * k))
-    a = math.radians(start + sweep * min(max(fraction, 0), 1))
-    tip = (cx + (r - 14 * k) * math.cos(a), cy + (r - 14 * k) * math.sin(a))
-    side = math.radians(90)
-    bw = 3 * k
-    d.polygon([tip, (cx + bw * math.cos(a + side), cy + bw * math.sin(a + side)),
-               (cx - 10 * k * math.cos(a), cy - 10 * k * math.sin(a)),
-               (cx + bw * math.cos(a - side), cy + bw * math.sin(a - side))], fill=(255, 92, 72, 255))
-    d.ellipse((cx - 6 * k, cy - 6 * k, cx + 6 * k, cy + 6 * k), fill=(70, 68, 84, 255), outline=(20, 18, 26, 255), width=k)
-    card.alpha_composite(layer.resize((w, h), Image.LANCZOS), (sx0, sy0))
     draw = ImageDraw.Draw(card)
-    # the value, then the most possible in small type after it, centred together under the needle
-    most = f" /{top}" if top else ""
-    vw, mw = draw.textlength(value, font=f.mid), draw.textlength(most, font=f.tiny)
-    vx = sx0 + (w - vw - mw) / 2
-    _glow_text(card, (vx, sy1 - 30), value, f.mid, color, "lm", 4)
-    if most:
-        draw.text((vx + vw, sy1 - 27), most, font=f.tiny, fill=SILK, anchor="lm")
-    _silk(draw, (sx0 + w / 2, sy1 - 6), label, SILK, True)
+    y = sy0 + 18
+    for label, value, frac, color, top in strips:
+        _silk(draw, (sx0 + 10, y), label)
+        x = sx1 - 10
+        if top:
+            draw.text((x, y + 1), f"/{top}", font=f.tiny, fill=SILK, anchor="rs")
+            x -= draw.textlength(f"/{top}", font=f.tiny) + 4
+        draw.text((x, y + 1), value, font=f.sub, fill=color, anchor="rs")
+        gx0, gx1, gy = sx0 + 12, sx1 - 12, y + 12
+        draw.rectangle((gx0, gy, gx1, gy + 6), fill=(40, 38, 52))
+        draw.rectangle((gx0, gy, gx0 + (gx1 - gx0) * frac, gy + 6), fill=color)
+        for i in range(11):
+            tx = gx0 + (gx1 - gx0) * i / 10
+            draw.line((tx, gy + 8, tx, gy + (12 if i % 5 == 0 else 10)), fill=SILK if i % 5 == 0 else (90, 88, 108))
+        px = gx0 + (gx1 - gx0) * frac
+        draw.polygon([(px, gy - 1), (px - 5, gy - 8), (px + 5, gy - 8)], fill=(255, 92, 72))
+        y += 46
+    if not counts:
+        return
+    gap, h = 6, 33
+    w = (sx1 - sx0 - 20 - gap * (len(counts) - 1)) / len(counts)
+    py = sy1 - 6 - h
+    for i, (name, n) in enumerate(counts):
+        x = sx0 + 10 + i * (w + gap)
+        draw.rounded_rectangle((x, py, x + w, py + h), 4, fill=(24, 22, 32), outline=(52, 50, 66))
+
+        def width(text, font):
+            return sum(draw.textlength(ch, font=font) for ch in text) + 0.5 * (len(text) - 1)
+        name = PLATE_SHORT.get(name, name)
+        font = next((fn for fn in (f.plate, f.plate_s) if width(name, fn) <= w - 4), f.plate_s)
+        base._spaced(draw, (x + w / 2 - width(name, font) / 2, py + 9), name, font, SILK, 0.5, "lm")
+        draw.text((x + w / 2, py + 24), str(n), font=f.count, fill=AMBER, anchor="mm")
 
 
 def _readout(card: Image.Image, build: CharacterBuild, box, accent, wanted) -> None:
@@ -365,7 +381,7 @@ def _readout(card: Image.Image, build: CharacterBuild, box, accent, wanted) -> N
         value_w = draw.textlength(s.value, font=f.read)
         draw.text((sx0 + 38, mid), base._fit_text(draw, name.upper(), f.small, sx1 - sx0 - 70 - value_w), font=f.small,
                   fill=SILK, anchor="lm")
-        _glow_text(card, (sx1 - 12, mid), s.value, f.read, color, "rm", 3)
+        _text(card, (sx1 - 12, mid), s.value, f.read, color, "rm")
 
 
 def _weapon(card: Image.Image, build: CharacterBuild, box, accent, images) -> None:
@@ -383,13 +399,13 @@ def _weapon(card: Image.Image, build: CharacterBuild, box, accent, images) -> No
     y = (sy0 + sy1 - block) / 2 + 10
     light = base._mix(accent, (255, 255, 255), 0.35)
     for line in lines:
-        _glow_text(card, (tx, y), line, f.sub, light, "lm", 3)
+        _text(card, (tx, y), line, f.sub, light, "lm")
         y += 20
     draw.text((tx, y), f"P{w.refinement} · LV. {w.level}", font=f.small, fill=SILK, anchor="lm")
     y += 22
     for s in stats:
         draw.text((tx, y), _name(s).upper(), font=f.small, fill=SILK, anchor="lm")
-        _glow_text(card, (sx1 - 12, y), s.value, f.sub, base.TEXT, "rm", 2)
+        _text(card, (sx1 - 12, y), s.value, f.sub, base.TEXT, "rm")
         y += 20
 
 
@@ -407,15 +423,16 @@ def _cartridge(card: Image.Image, piece: Gear, icon, box, accent, max_level: int
     draw.text(((key[0] + key[2]) / 2, (key[1] + key[3]) / 2 + 1), slot, font=f.slot, fill=(14, 12, 20), anchor="mm")
     tx = sx0 + 86
     counter = bool(wanted and piece.subs)
-    draw.text((tx, sy0 + 18), base._fit_text(draw, _name(piece.main).upper(), f.sub, sx1 - tx - (52 if counter else 8)),
-              font=f.sub, fill=SILK, anchor="lm")
-    _glow_text(card, (tx, sy0 + 52), piece.main.value, f.big, light, "lm", 5)
+    room, main = sx1 - tx - (40 if counter else 8), _name(piece.main).upper()
+    font = f.sub if draw.textlength(main, font=f.sub) <= room else f.small
+    draw.text((tx, sy0 + 18), base._fit_text(draw, main, font, room), font=font, fill=SILK, anchor="lm")
+    _text(card, (tx, sy0 + 52), piece.main.value, f.big, light, "lm")
     if piece.level < max_level:
         draw.text((tx + draw.textlength(piece.main.value, font=f.big) + 8, sy0 + 58), f"+{piece.level}", font=f.sub,
                   fill=SILK, anchor="lm")
     if counter:  # the effective roll count in the top right corner, without a box
         n = str(piece_count(piece, wanted))
-        _glow_text(card, (sx1 - 25, sy0 + 21), n, f.mid, AMBER, "mm", 3)
+        _text(card, (sx1 - 25, sy0 + 21), n, f.mid, AMBER, "mm")
     y = sy0 + 86
     draw.line((sx0 + 8, y - 4, sx1 - 8, y - 4), fill=(44, 42, 58, 255), width=1)
     step = min(36, (sy1 - 6 - y) / 4)  # rows spread over the cartridge, the same for every disc
@@ -429,7 +446,7 @@ def _cartridge(card: Image.Image, piece: Gear, icon, box, accent, max_level: int
         room = value_x - draw.textlength(s.value, font=f.sub) - 8 - (sx0 + 10)
         draw.text((sx0 + 10, mid), base._fit_text(draw, _name(s).upper(), f.sub, room), font=f.sub,
                   fill=AMBER if good else SILK, anchor="lm")
-        _glow_text(card, (value_x, mid), s.value, f.sub, color, "rm", 2 if good else 0.1)
+        _text(card, (value_x, mid), s.value, f.sub, color, "rm")
         ups = min(max(s.rolls - 1, 0), base.DOTS)
         for i in range(base.DOTS):  # one LED per possible upgrade, the used ones lit
             x = leds_x + i * 8
@@ -445,8 +462,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     base.FONTS = base.FONTS or base.Fonts()
     f = FONTS
     accent = base._accent(build)
-    card = _console(accent)
-    draw = ImageDraw.Draw(card)
+    card = _console()
 
     # left: the monitor, the nameplate and the Mindscape screen
     lx, ly, lr = RANK_LAMP
@@ -458,30 +474,31 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     _bezel(card, (16, 532, 404, 704), 12, 0, BODY_DARK)
     base._mindscape_panel(card, images.get(shown or ""), (22, 538, 398, 698), build.constellation,
                           images.get(upcoming or ""), thirds,
-                          base.MINDSCAPE_FACES.get(int(build.character_id)) if upcoming else None, accent)
+                          base.MINDSCAPE_FACES.get(int(build.character_id)) if upcoming else None, accent,
+                          lambda size: _rubik(size, 800, True))
 
     # middle: the W-Engine, the readout and two dials
     value = base.gear_value(build, wanted)
     effective = sum(piece_count(p, wanted) for p in build.gear) if wanted and build.gear else None
-    dials = []
+    strips = []
     if value:
         label, text = value
-        try:
-            amount = float(text.replace(",", ""))
-        except ValueError:
-            amount = 0
         top = VALUE_MAX.get(label)
-        dials.append((label, text, amount / top if top else 0, TEAL, f"{top:g}" if top else None))
+        strips.append((label, text, value_fraction(label, text), TEAL, f"{top:g}" if top else None))
+    counts = []
     if effective is not None:
         top = effective_max(wanted)
-        dials.append(("EFFECTIVE SUBS", str(effective), effective / top if top else 0, AMBER, str(top)))
+        strips.append(("EFFECTIVE SUBS", str(effective), min(effective / top, 1) if top else 0, AMBER, str(top)))
+        rolls = {}
+        for p in build.gear:
+            for s in p.subs:
+                if s.name in wanted:
+                    rolls[_name(s).upper()] = rolls.get(_name(s).upper(), 0) + max(s.rolls, 1)
+        counts = sorted(rolls.items(), key=lambda kv: -kv[1])
     mx0, mx1 = 420, 704
-    bottom = H - 16  # the readout on top, then the W-Engine, the dials at the foot
-    if dials:
-        dw = (mx1 - mx0 - 10 * (len(dials) - 1)) / len(dials)
-        for i, (label, text, frac, color, most) in enumerate(dials):
-            x = round(mx0 + i * (dw + 10))
-            _dial(card, (x, H - 16 - 148, round(x + dw), H - 16), label, text, min(frac, 1), color, most)
+    bottom = H - 16  # the readout on top, then the W-Engine, the gauges at the foot
+    if strips:
+        _gauges(card, (mx0, H - 16 - 148, mx1, H - 16), strips, counts)
         bottom = H - 16 - 156
     if build.weapon:
         _weapon(card, build, (mx0, bottom - 140, mx1, bottom), accent, images)
@@ -500,14 +517,14 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
                    accent, base.GAME_LABELS["zzz"]["max_level"], wanted)
     if not gear:
         sx0, sy0, _, _ = _bezel(card, (gx0, gy0, gx1, gy0 + 80), 12, 6)
-        _glow_text(card, (sx0 + 16, sy0 + 34), "NO DISCS EQUIPPED", f.mid, SILK, "lm", 3)
+        _text(card, (sx0 + 16, sy0 + 34), "NO DISCS EQUIPPED", f.mid, SILK, "lm")
 
     if uid:
         server = base.server_name(build.game, uid)
         foot = f"{server} · UID {uid}" if server else f"UID {uid}"
         if build.source == "hoyolab":
             foot = f"via HoYoLAB · {foot}"
-        ImageDraw.Draw(card).text((W - 8, H - 3), foot, font=base.FONTS.stamp, fill=SILK, anchor="rd")
+        ImageDraw.Draw(card).text((W - 8, H - 3), foot, font=f.tiny, fill=SILK, anchor="rd")
 
     out = io.BytesIO()
     card.convert("RGB").save(out, "PNG", compress_level=3)
