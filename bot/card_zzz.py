@@ -188,33 +188,22 @@ def _lamp(card: Image.Image, symbol: Image.Image, cx: float, cy: float, color) -
 
 
 def _rank_lamp(card: Image.Image, build: CharacterBuild, cx: float, cy: float, r: float = 30) -> None:
-    """The rank as a big dome lamp: a chrome ring, a glowing gold glass dome with a shine on it and the letter
-    printed on the glass, casting a shadow and a warm glow round it."""
+    """The rank as a big dome lamp set into the monitor's frame: a glowing gold glass dome with a shine on it and
+    the letter printed on the glass."""
     k = SS
     size = round(2 * r + 40)
     c = size * k / 2
     layer = Image.new("RGBA", (size * k, size * k), (0, 0, 0, 0))
-    ring, dome = (r + 6) * k, r * k
+    dome = r * k
 
     def disc(radius, fill, dx=0, dy=0):
         ImageDraw.Draw(layer).ellipse((c - radius + dx, c - radius + dy, c + radius + dx, c + radius + dy), fill=fill)
 
-    # the lamp's warm glow on the console, then its shadow
-    glow = Image.new("RGBA", layer.size, (0, 0, 0, 0))
-    ImageDraw.Draw(glow).ellipse((c - ring - 6 * k, c - ring - 6 * k, c + ring + 6 * k, c + ring + 6 * k),
-                                 fill=base.GOLD + (110,))
-    layer.alpha_composite(glow.filter(ImageFilter.GaussianBlur(10 * k)))
-    shadow = Image.new("RGBA", layer.size, (0, 0, 0, 0))
-    ImageDraw.Draw(shadow).ellipse((c - ring + 3 * k, c - ring + 5 * k, c + ring + 3 * k, c + ring + 5 * k), fill=(0, 0, 0, 170))
-    layer.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(3 * k)))
-    # chrome ring: lit from the top left
-    chrome = Image.linear_gradient("L").rotate(45, expand=False).resize(layer.size)
-    ring_img = Image.merge("RGBA", (chrome.point(lambda v: 230 - v // 2), chrome.point(lambda v: 228 - v // 2),
-                                    chrome.point(lambda v: 240 - v // 2), Image.new("L", layer.size, 0)))
-    mask = Image.new("L", layer.size, 0)
-    ImageDraw.Draw(mask).ellipse((c - ring, c - ring, c + ring, c + ring), fill=255)
-    ring_img.putalpha(mask)
-    layer.alpha_composite(ring_img)
+    # its housing is the monitor's own frame (the same rim colours as _bezel), bulging out round the corner
+    rim = (r + 10) * k
+    disc(rim, (48, 46, 60, 255))
+    disc(rim, (12, 11, 16, 255), 0, 2 * k)  # the frame's shadowed lower edge
+    disc(rim - k, (36, 34, 46, 255))
     disc(dome + 2 * k, (40, 30, 10, 255))
     # the glass dome: bright in the middle, deeper amber towards its edge
     glass = Image.radial_gradient("L").resize((round(2 * dome),) * 2)
