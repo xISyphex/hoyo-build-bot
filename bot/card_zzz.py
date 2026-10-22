@@ -181,15 +181,15 @@ def _nameplate(card: Image.Image, build: CharacterBuild, box, accent, images) ->
     font = next((fn for fn in f.name.values() if draw.textlength(build.name.upper(), font=fn) <= room), f.name[40])
     name = base._fit_text(draw, build.name.upper(), font, room)
     light = base._mix(accent, (255, 255, 255), 0.35)
-    _glow_text(card, (sx0 + 14, sy0 + 4), name, font, light, "la", 6)
-    y = sy1 - 14
+    _glow_text(card, (sx0 + 14, sy0 + 42), name, font, light, "ls", 6)  # on its baseline, clear of the row under it
+    y = sy0 + 64
     x = sx0 + 14
     for url in (build.element_icon, build.path_icon):
         icon = images.get(url or "")
         if icon is not None:
             icon = icon.convert("RGBA")
             icon = icon.crop(icon.getchannel("A").getbbox() or (0, 0, *icon.size))
-            icon.thumbnail((24, 24), Image.LANCZOS)
+            icon.thumbnail((22, 22), Image.LANCZOS)
             card.alpha_composite(icon, (x, round(y - icon.height / 2)))
             x += icon.width + 8
     parts = [build.element.upper(), f"LV.{build.level}"]
@@ -226,12 +226,13 @@ def _dial(card: Image.Image, box, label: str, value: str, fraction: float, color
     d.ellipse((cx - 6 * k, cy - 6 * k, cx + 6 * k, cy + 6 * k), fill=(70, 68, 84, 255), outline=(20, 18, 26, 255), width=k)
     card.alpha_composite(layer.resize((w, h), Image.LANCZOS), (sx0, sy0))
     draw = ImageDraw.Draw(card)
-    if top:  # the scale's ends: 0 and the most possible
-        for a, text in ((start, "0"), (start + sweep, top)):
-            x = sx0 + w / 2 + (r / k + 2) * math.cos(math.radians(a))
-            y = sy0 + h * 0.46 + (r / k + 2) * math.sin(math.radians(a)) + 12
-            draw.text((x, y), text, font=f.tiny, fill=SILK, anchor="mm")
-    _glow_text(card, (sx0 + w / 2, sy1 - 30), value, f.mid, color, "mm", 4)
+    # the value, then the most possible in small type after it, centred together under the needle
+    most = f" /{top}" if top else ""
+    vw, mw = draw.textlength(value, font=f.mid), draw.textlength(most, font=f.tiny)
+    vx = sx0 + (w - vw - mw) / 2
+    _glow_text(card, (vx, sy1 - 30), value, f.mid, color, "lm", 4)
+    if most:
+        draw.text((vx + vw, sy1 - 27), most, font=f.tiny, fill=SILK, anchor="lm")
     _silk(draw, (sx0 + w / 2, sy1 - 6), label, SILK, True)
 
 
@@ -337,8 +338,8 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     draw = ImageDraw.Draw(card)
 
     # left: the monitor, the nameplate and the Mindscape screen
-    _monitor(card, images.get(build.art_url or "") or images.get(build.icon_url or ""), face, (16, 16, 404, 436), accent)
-    _nameplate(card, build, (16, 444, 404, 524), accent, images)
+    _monitor(card, images.get(build.art_url or "") or images.get(build.icon_url or ""), face, (16, 16, 404, 424), accent)
+    _nameplate(card, build, (16, 432, 404, 524), accent, images)
     shown, upcoming, thirds = base.mindscape_urls(build)
     _bezel(card, (16, 532, 404, 704), 12, 0, BODY_DARK)
     base._mindscape_panel(card, images.get(shown or ""), (22, 538, 398, 698), build.constellation,
