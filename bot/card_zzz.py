@@ -416,7 +416,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     lx, ly, lr = RANK_LAMP
     _monitor(card, images.get(build.art_url or "") or images.get(build.icon_url or ""), face, (16, 16, 404, 424), accent,
              (lx, ly, lr + RANK_HOUSING))
-    _nameplate(card, build, (16, 432, 404, 524), accent, images)
+    _nameplate(card, build, (16, 432, round(lx - lr - RANK_HOUSING - 10), 524), accent, images)  # clear of the lamp
     _rank_lamp(card, build, lx, ly, lr)  # set in the monitor's frame, over its bottom right corner
     shown, upcoming, thirds = base.mindscape_urls(build)
     _bezel(card, (16, 532, 404, 704), 12, 0, BODY_DARK)
