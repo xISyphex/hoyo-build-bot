@@ -34,6 +34,16 @@ MAINS = {1: ["HP"], 2: ["ATK"], 3: ["DEF"], 4: ["HP%", "ATK%", "DEF%", "CRIT Rat
 UPGRADES = 5  # a disc's upgrades on the way to +15, each adding a roll to one of its four substats
 
 
+def value_fraction(label: str, text: str) -> float:
+    """How full the value gauge is: the value (like "100.8" or "100.0%") over its best possible total."""
+    top = VALUE_MAX.get(label)
+    try:
+        amount = float(text.rstrip("%").replace(",", ""))
+    except ValueError:
+        return 0
+    return min(max(amount / top, 0), 1) if top else 0
+
+
 def effective_max(wanted: set[str]) -> int:
     """The most effective rolls a set of six discs can have: on each disc, as many wanted substats as fit beside
     the best main stat for it, each with its first roll, and every upgrade going into one of them."""
@@ -69,8 +79,9 @@ class Fonts:
         self.silk = _rubik(11, 700)
         self.label = _rubik(15, 600)
         self.slot = _rubik(13, 700)
-        self.plate = _rubik(11, 600)
+        self.plate = _rubik(10, 600)
         self.plate_s = _rubik(9, 600)
+        self.count = _rubik(14, 700)
 
 
 FONTS: Fonts | None = None
@@ -334,17 +345,20 @@ def _gauges(card: Image.Image, box, strips, counts) -> None:
         y += 46
     if not counts:
         return
-    gap, h = 6, 30
+    gap, h = 6, 33
     w = (sx1 - sx0 - 20 - gap * (len(counts) - 1)) / len(counts)
     py = sy1 - 6 - h
     for i, (name, n) in enumerate(counts):
         x = sx0 + 10 + i * (w + gap)
         draw.rounded_rectangle((x, py, x + w, py + h), 4, fill=(24, 22, 32), outline=(52, 50, 66))
-        if draw.textlength(name, font=f.plate_s) > w - 6:
+
+        def width(text, font):
+            return sum(draw.textlength(ch, font=font) for ch in text) + 0.5 * (len(text) - 1)
+        if width(name, f.plate_s) > w - 4:
             name = PLATE_SHORT.get(name, name)  # narrow plates: the short forms players use
-        font = next((fn for fn in (f.plate, f.plate_s) if draw.textlength(name, font=fn) <= w - 6), f.plate_s)
-        draw.text((x + w / 2, py + 9), base._fit_text(draw, name, font, w - 6), font=font, fill=SILK, anchor="mm")
-        draw.text((x + w / 2, py + 21), str(n), font=f.small, fill=AMBER, anchor="mm")
+        font = next((fn for fn in (f.plate, f.plate_s) if width(name, fn) <= w - 4), f.plate_s)
+        base._spaced(draw, (x + w / 2 - width(name, font) / 2, py + 9), name, font, SILK, 0.5, "lm")
+        draw.text((x + w / 2, py + 24), str(n), font=f.count, fill=AMBER, anchor="mm")
 
 
 def _readout(card: Image.Image, build: CharacterBuild, box, accent, wanted) -> None:
@@ -470,12 +484,8 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     strips = []
     if value:
         label, text = value
-        try:
-            amount = float(text.replace(",", ""))
-        except ValueError:
-            amount = 0
         top = VALUE_MAX.get(label)
-        strips.append((label, text, min(amount / top, 1) if top else 0, TEAL, f"{top:g}" if top else None))
+        strips.append((label, text, value_fraction(label, text), TEAL, f"{top:g}" if top else None))
     counts = []
     if effective is not None:
         top = effective_max(wanted)
