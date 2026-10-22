@@ -146,17 +146,14 @@ def _silk(draw: ImageDraw.ImageDraw, xy, text: str, color=SILK, centre: bool = F
     base._spaced(draw, (x, y), text, FONTS.silk, color, 2.4, "ls")
 
 
-def _console(accent) -> Image.Image:
-    """The console body: dark plastic, a faint grain, and a thin accent stripe along the top like a model trim."""
+def _console() -> Image.Image:
+    """The console body: dark plastic with a faint grain, and a screw in each corner."""
     card = Image.new("RGBA", (W, H), BODY + (255,))
     grad = Image.linear_gradient("L").resize((W, H))
     dark = Image.new("RGBA", (W, H), BODY_DARK + (255,))
     card = Image.composite(dark, card, grad)
     noise = Image.effect_noise((W // 2, H // 2), 18).resize((W, H)).point(lambda v: max(0, v - 128) // 6)
     card.alpha_composite(Image.merge("RGBA", (noise, noise, noise, noise)))
-    d = ImageDraw.Draw(card)
-    d.rectangle((0, 0, W, 3), fill=accent + (255,))
-    d.rectangle((0, 4, W, 5), fill=base._mix(accent, BODY, 0.6) + (255,))
     for x, y in ((9, 13), (W - 9, 13), (9, H - 9), (W - 9, H - 9)):
         _screw(card, x, y)
     return card
@@ -446,7 +443,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     base.FONTS = base.FONTS or base.Fonts()
     f = FONTS
     accent = base._accent(build)
-    card = _console(accent)
+    card = _console()
 
     # left: the monitor, the nameplate and the Mindscape screen
     lx, ly, lr = RANK_LAMP
