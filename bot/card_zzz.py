@@ -260,27 +260,102 @@ def _readout(card: Image.Image, build: CharacterBuild, box, accent, wanted) -> N
         _glow_text(card, (sx1 - 12, mid), s.value, f.read, color, "rm", 3)
 
 
+WEAPON_MAX_LEVEL = 60
+
+
+def _jack(card: Image.Image, icon: Image.Image | None, cx: float, cy: float, r: float) -> None:
+    """A big input jack: a knurled metal ring with the W-Engine set in the dark socket."""
+    k = SS
+    size = round(2 * r)
+    layer = Image.new("RGBA", (size * k, size * k), (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
+    c = size * k / 2
+    for i in range(12):  # metal ring, lighter towards its top edge
+        t = i / 11
+        rr = c - i * k * 0.9
+        d.ellipse((c - rr, c - rr - k * (1 - t), c + rr, c + rr - k * (1 - t)), fill=base._mix((110, 108, 126), (36, 34, 46), t) + (255,))
+    for i in range(24):  # knurling: notches round the rim
+        a = math.radians(i * 15)
+        d.line((c + (c - k) * math.cos(a), c + (c - k) * math.sin(a), c + (c - 4 * k) * math.cos(a), c + (c - 4 * k) * math.sin(a)),
+               fill=(24, 22, 32, 255), width=k)
+    hole = c - 12 * k
+    d.ellipse((c - hole, c - hole, c + hole, c + hole), fill=(10, 9, 14, 255))
+    card.alpha_composite(layer.resize((size, size), Image.LANCZOS), (round(cx - r), round(cy - r)))
+    if icon is not None:
+        inner = round(2 * (hole / k) - 4)
+        pic = icon.convert("RGBA")
+        pic.thumbnail((inner, inner), Image.LANCZOS)
+        mask = Image.new("L", (inner * k, inner * k), 0)
+        ImageDraw.Draw(mask).ellipse((0, 0, inner * k - 1, inner * k - 1), fill=255)
+        tile = Image.new("RGBA", (inner, inner), (0, 0, 0, 0))
+        tile.alpha_composite(pic, ((inner - pic.width) // 2, (inner - pic.height) // 2))
+        tile.putalpha(ImageChops.multiply(tile.getchannel("A"), mask.resize((inner, inner), Image.LANCZOS)))
+        card.alpha_composite(tile, (round(cx - inner / 2), round(cy - inner / 2)))
+
+
+def _waveform(card: Image.Image, box, seed: str, color) -> None:
+    """An oscilloscope trace behind the readout: a faint grid and a wave that is the same for each W-Engine."""
+    x0, y0, x1, y1 = box
+    w, h = x1 - x0, y1 - y0
+    k = SS
+    layer = Image.new("RGBA", (w * k, h * k), (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
+    for gx in range(0, w, 16):
+        d.line((gx * k, 0, gx * k, h * k), fill=(255, 255, 255, 10), width=k)
+    for gy in range(0, h, 16):
+        d.line((0, gy * k, w * k, gy * k), fill=(255, 255, 255, 10), width=k)
+    n = sum(map(ord, seed))
+    freqs = [(2 + n % 3, 0.5), (5 + n % 4, 0.3), (11 + n % 5, 0.2)]
+    pts = []
+    for x in range(0, w * k + 1, k):
+        t = x / (w * k)
+        env = math.sin(math.pi * t) ** 0.6  # quiet at the ends, loud in the middle
+        v = sum(a * math.sin(2 * math.pi * fr * t + n % 7) for fr, a in freqs)
+        pts.append((x, (h / 2 + v * env * h * 0.38) * k))
+    d.line(pts, fill=color + (120,), width=round(1.5 * k), joint="curve")
+    layer = layer.resize((w, h), Image.LANCZOS)
+    card.alpha_composite(layer.filter(ImageFilter.GaussianBlur(3)), (x0, y0))
+    card.alpha_composite(layer, (x0, y0))
+
+
+def _vu(card: Image.Image, box, fraction: float) -> None:
+    """A level meter, LEDs from green through amber to red, lit up to the W-Engine's level."""
+    x0, y0, x1, y1 = box
+    draw = ImageDraw.Draw(card)
+    n = 10
+    step = (y1 - y0) / n
+    lit = round(fraction * n)
+    for i in range(n):
+        y = y1 - (i + 1) * step
+        color = (90, 220, 120) if i < 6 else (255, 184, 64) if i < 8 else (255, 80, 64)
+        on = i < lit
+        draw.rectangle((x0, round(y + 1), x1, round(y + step - 1)), fill=(color if on else base._mix(color, (0, 0, 0), 0.8)) + (255,))
+
+
 def _weapon(card: Image.Image, build: CharacterBuild, box, accent, images) -> None:
+    """The W-Engine as an audio input: the engine in a jack socket, its readout over an oscilloscope trace, and a
+    level meter showing how far it is levelled."""
     f = FONTS
     sx0, sy0, sx1, sy1 = _bezel(card, box, 12, 6)
     draw = ImageDraw.Draw(card)
     w = build.weapon
-    _silk(draw, (sx0 + 12, sy1 - 8), "W-ENGINE")
-    pic = (sx0 + 10, sy0 + 8, sx0 + 92, sy1 - 24)
-    draw.rounded_rectangle(pic, 8, fill=(20, 19, 28, 255), outline=(50, 48, 64, 255))
-    base._icon(card, images.get(w.icon_url or ""), (pic[0] + 4, pic[1] + 4, pic[2] - 4, pic[3] - 4))
-    tx, room = pic[2] + 12, sx1 - pic[2] - 22
-    lines = base._wrap(draw, w.name.upper(), f.sub, room, 2)
-    y = sy0 + 14
     light = base._mix(accent, (255, 255, 255), 0.35)
+    _jack(card, images.get(w.icon_url or ""), sx0 + 46, sy0 + 52, 40)
+    _silk(draw, (sx0 + 46, sy1 - 8), f"INPUT · P{w.refinement}", SILK, True)
+    vu = (sx1 - 16, sy0 + 10, sx1 - 8, sy1 - 22)
+    _vu(card, vu, min(w.level / WEAPON_MAX_LEVEL, 1))
+    draw.text(((vu[0] + vu[2]) / 2, sy1 - 10), str(w.level), font=f.tiny, fill=SILK, anchor="mm")
+    tx, tx1 = sx0 + 98, vu[0] - 10
+    lines = base._wrap(draw, w.name.upper(), f.sub, tx1 - tx, 2)
+    y = sy0 + 12
     for line in lines:
         _glow_text(card, (tx, y), line, f.sub, light, "lm", 3)
         y += 20
-    draw.text((tx, y), f"P{w.refinement} · LV. {w.level}", font=f.small, fill=SILK, anchor="lm")
-    y += 22
+    _waveform(card, (tx - 2, sy0 + 44, tx1 + 2, sy0 + 76), w.name, accent)  # in its own strip, under the name
+    y = sy0 + 90
     for s in w.stats[:2]:
         draw.text((tx, y), _name(s).upper(), font=f.small, fill=SILK, anchor="lm")
-        _glow_text(card, (sx1 - 12, y), s.value, f.sub, base.TEXT, "rm", 2)
+        _glow_text(card, (tx1, y), s.value, f.sub, base.TEXT, "rm", 2)
         y += 20
 
 
