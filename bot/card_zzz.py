@@ -260,60 +260,28 @@ def _readout(card: Image.Image, build: CharacterBuild, box, accent, wanted) -> N
         _glow_text(card, (sx1 - 12, mid), s.value, f.read, color, "rm", 3)
 
 
-def _reel(d: ImageDraw.ImageDraw, cx: float, cy: float, r: float, tape: float, k: int) -> None:
-    """A cassette reel: wound tape around a white hub with six teeth."""
-    if tape > r:
-        d.ellipse((cx - tape, cy - tape, cx + tape, cy + tape), fill=(58, 40, 30, 255))
-    d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=(226, 222, 214, 255))
-    d.ellipse((cx - r * 0.55, cy - r * 0.55, cx + r * 0.55, cy + r * 0.55), fill=(20, 18, 26, 255))
-    for i in range(6):
-        a = math.radians(i * 60)
-        x, y = cx + r * 0.55 * math.cos(a), cy + r * 0.55 * math.sin(a)
-        d.ellipse((x - 1.6 * k, y - 1.6 * k, x + 1.6 * k, y + 1.6 * k), fill=(226, 222, 214, 255))
-
-
 def _weapon(card: Image.Image, build: CharacterBuild, box, accent, images) -> None:
-    """The W-Engine as a cassette tape: its name and stats on the label, two reels in the window, the engine
-    itself in the corner below the label with its phase and level opposite."""
     f = FONTS
-    sx0, sy0, sx1, sy1 = _bezel(card, box, 12, 4, BODY_DARK)
-    w = build.weapon
-    cw, ch = sx1 - sx0, sy1 - sy0
-    k = SS
-    layer = Image.new("RGBA", (cw * k, ch * k), (0, 0, 0, 0))
-    d = ImageDraw.Draw(layer)
-    d.rounded_rectangle((0, 0, cw * k - 1, ch * k - 1), 10 * k, fill=(44, 42, 54, 255))  # the shell
-    d.rounded_rectangle((k, k, cw * k - 1 - k, ch * k - 1 - k), 9 * k, outline=(62, 60, 76, 255), width=k)
-    label = (8 * k, 6 * k, (cw - 8) * k, 74 * k)
-    d.rounded_rectangle(label, 5 * k, fill=(232, 226, 206, 255))
-    d.rectangle((label[0], label[1] + 4 * k, label[2], label[1] + 10 * k), fill=accent + (255,))
-    # the window between the reels, set in the shell's lower edge
-    win = (cw * k * 0.3, 80 * k, cw * k * 0.7, (ch - 10) * k)
-    d.rounded_rectangle(win, 6 * k, fill=(14, 12, 20, 255), outline=(70, 68, 84, 255), width=k)
-    wy = (win[1] + win[3]) / 2
-    _reel(d, win[0] + 18 * k, wy, 9 * k, 15 * k, k)  # the tape mostly on the left reel
-    _reel(d, win[2] - 18 * k, wy, 9 * k, 10 * k, k)
-    for x, y in ((6, 6), (cw - 6, 6), (6, ch - 6), (cw - 6, ch - 6)):  # screws in the shell
-        d.ellipse(((x - 2.5) * k, (y - 2.5) * k, (x + 2.5) * k, (y + 2.5) * k), fill=(24, 22, 30, 255))
-    card.alpha_composite(layer.resize((cw, ch), Image.LANCZOS), (sx0, sy0))
+    sx0, sy0, sx1, sy1 = _bezel(card, box, 12, 6)
     draw = ImageDraw.Draw(card)
-    ink = (34, 30, 40)
-    lx0, lx1 = sx0 + 16, sx1 - 16
-    lines = base._wrap(draw, w.name.upper(), f.sub, lx1 - lx0, 2)
-    y = sy0 + 28 if len(lines) > 1 else sy0 + 36
+    w = build.weapon
+    _silk(draw, (sx0 + 12, sy1 - 8), "W-ENGINE")
+    pic = (sx0 + 10, sy0 + 8, sx0 + 92, sy1 - 24)
+    draw.rounded_rectangle(pic, 8, fill=(20, 19, 28, 255), outline=(50, 48, 64, 255))
+    base._icon(card, images.get(w.icon_url or ""), (pic[0] + 4, pic[1] + 4, pic[2] - 4, pic[3] - 4))
+    tx, room = pic[2] + 12, sx1 - pic[2] - 22
+    lines = base._wrap(draw, w.name.upper(), f.sub, room, 2)
+    y = sy0 + 14
+    light = base._mix(accent, (255, 255, 255), 0.35)
     for line in lines:
-        draw.text((lx0, y), line, font=f.sub, fill=ink, anchor="lm")
-        y += 18
-    stats = [(_name(s).upper(), s.value) for s in w.stats[:2]]
-    x = lx0
-    for name, value in stats:  # the stats on one line along the foot of the label
-        draw.text((x, sy0 + 66), name, font=f.small, fill=(110, 102, 96), anchor="lm")
-        x += draw.textlength(name, font=f.small) + 5
-        draw.text((x, sy0 + 66), value, font=f.small, fill=ink, anchor="lm")
-        x += draw.textlength(value, font=f.small) + 16
-    base._icon(card, images.get(w.icon_url or ""), (sx0 + 12, sy0 + 78, sx0 + 12 + 46, sy1 - 4))
-    _glow_text(card, (sx1 - 14, sy0 + 92), f"P{w.refinement}", f.mid, base._mix(accent, (255, 255, 255), 0.35), "rm", 3)
-    draw.text((sx1 - 14, sy0 + 114), f"LV.{w.level}", font=f.small, fill=SILK, anchor="rm")
+        _glow_text(card, (tx, y), line, f.sub, light, "lm", 3)
+        y += 20
+    draw.text((tx, y), f"P{w.refinement} · LV. {w.level}", font=f.small, fill=SILK, anchor="lm")
+    y += 22
+    for s in w.stats[:2]:
+        draw.text((tx, y), _name(s).upper(), font=f.small, fill=SILK, anchor="lm")
+        _glow_text(card, (sx1 - 12, y), s.value, f.sub, base.TEXT, "rm", 2)
+        y += 20
 
 
 def _cartridge(card: Image.Image, piece: Gear, icon, box, accent, max_level: int, wanted) -> None:
