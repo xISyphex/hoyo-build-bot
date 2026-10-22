@@ -315,7 +315,7 @@ def _gauges(card: Image.Image, box, strips, counts) -> None:
     f = FONTS
     sx0, sy0, sx1, sy1 = _bezel(card, box, 12, 6, (14, 13, 20))
     draw = ImageDraw.Draw(card)
-    y = sy0 + 20
+    y = sy0 + 18
     for label, value, frac, color, top in strips:
         _silk(draw, (sx0 + 10, y), label)
         x = sx1 - 10
@@ -328,23 +328,23 @@ def _gauges(card: Image.Image, box, strips, counts) -> None:
         draw.rectangle((gx0, gy, gx0 + (gx1 - gx0) * frac, gy + 6), fill=color)
         for i in range(11):
             tx = gx0 + (gx1 - gx0) * i / 10
-            draw.line((tx, gy + 8, tx, gy + (14 if i % 5 == 0 else 11)), fill=SILK if i % 5 == 0 else (90, 88, 108))
+            draw.line((tx, gy + 8, tx, gy + (12 if i % 5 == 0 else 10)), fill=SILK if i % 5 == 0 else (90, 88, 108))
         px = gx0 + (gx1 - gx0) * frac
         draw.polygon([(px, gy - 1), (px - 5, gy - 8), (px + 5, gy - 8)], fill=(255, 92, 72))
-        y += 39
+        y += 46
     if not counts:
         return
-    gap, h = 6, 34
+    gap, h = 6, 30
     w = (sx1 - sx0 - 20 - gap * (len(counts) - 1)) / len(counts)
-    py = sy1 - 8 - h
+    py = sy1 - 6 - h
     for i, (name, n) in enumerate(counts):
         x = sx0 + 10 + i * (w + gap)
         draw.rounded_rectangle((x, py, x + w, py + h), 4, fill=(24, 22, 32), outline=(52, 50, 66))
         if draw.textlength(name, font=f.plate_s) > w - 6:
             name = PLATE_SHORT.get(name, name)  # narrow plates: the short forms players use
         font = next((fn for fn in (f.plate, f.plate_s) if draw.textlength(name, font=fn) <= w - 6), f.plate_s)
-        draw.text((x + w / 2, py + 10), base._fit_text(draw, name, font, w - 6), font=font, fill=SILK, anchor="mm")
-        draw.text((x + w / 2, py + 24), str(n), font=f.small, fill=AMBER, anchor="mm")
+        draw.text((x + w / 2, py + 9), base._fit_text(draw, name, font, w - 6), font=font, fill=SILK, anchor="mm")
+        draw.text((x + w / 2, py + 21), str(n), font=f.small, fill=AMBER, anchor="mm")
 
 
 def _readout(card: Image.Image, build: CharacterBuild, box, accent, wanted) -> None:
