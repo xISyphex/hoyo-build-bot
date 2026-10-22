@@ -377,7 +377,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
                           images.get(upcoming or ""), thirds,
                           base.MINDSCAPE_FACES.get(int(build.character_id)) if upcoming else None, accent)
 
-    # middle: two dials, the readout and the W-Engine
+    # middle: the W-Engine, the readout and two dials
     value = base.gear_value(build, wanted)
     effective = sum(piece_count(p, wanted) for p in build.gear) if wanted and build.gear else None
     dials = []
@@ -393,17 +393,17 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
         top = effective_max(wanted)
         dials.append(("EFFECTIVE SUBS", str(effective), effective / top if top else 0, AMBER, str(top)))
     mx0, mx1 = 420, 704
-    top = 16
+    top, bottom = 16, H - 16  # the W-Engine on top, the dials at the foot, the readout between them
+    if build.weapon:
+        _weapon(card, build, (mx0, 16, mx1, 156), accent, images)
+        top = 164
     if dials:
         dw = (mx1 - mx0 - 10 * (len(dials) - 1)) / len(dials)
         for i, (label, text, frac, color, most) in enumerate(dials):
             x = round(mx0 + i * (dw + 10))
-            _dial(card, (x, 16, round(x + dw), 164), label, text, min(frac, 1), color, most)
-        top = 172
-    weapon_top = H - 16 - 140 if build.weapon else H - 16
-    _readout(card, build, (mx0, top, mx1, weapon_top - 8), accent, wanted)
-    if build.weapon:
-        _weapon(card, build, (mx0, weapon_top, mx1, H - 16), accent, images)
+            _dial(card, (x, H - 16 - 148, round(x + dw), H - 16), label, text, min(frac, 1), color, most)
+        bottom = H - 16 - 156
+    _readout(card, build, (mx0, top, mx1, bottom), accent, wanted)
 
     # right: the disc cartridges, two per row
     gx0, gx1, gy0, gy1 = 720, W - 16, 16, H - 22  # room under the discs for the UID stamp
