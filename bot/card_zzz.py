@@ -315,14 +315,14 @@ def _gauges(card: Image.Image, box, strips, counts) -> None:
     f = FONTS
     sx0, sy0, sx1, sy1 = _bezel(card, box, 12, 6, (14, 13, 20))
     draw = ImageDraw.Draw(card)
-    y = sy0 + 16
+    y = sy0 + 20
     for label, value, frac, color, top in strips:
         _silk(draw, (sx0 + 10, y), label)
         x = sx1 - 10
         if top:
             draw.text((x, y + 1), f"/{top}", font=f.tiny, fill=SILK, anchor="rs")
             x -= draw.textlength(f"/{top}", font=f.tiny) + 4
-        draw.text((x, y + 1), value, font=f.read, fill=color, anchor="rs")
+        draw.text((x, y + 1), value, font=f.sub, fill=color, anchor="rs")
         gx0, gx1, gy = sx0 + 12, sx1 - 12, y + 12
         draw.rectangle((gx0, gy, gx1, gy + 6), fill=(40, 38, 52))
         draw.rectangle((gx0, gy, gx0 + (gx1 - gx0) * frac, gy + 6), fill=color)
@@ -331,7 +331,7 @@ def _gauges(card: Image.Image, box, strips, counts) -> None:
             draw.line((tx, gy + 8, tx, gy + (14 if i % 5 == 0 else 11)), fill=SILK if i % 5 == 0 else (90, 88, 108))
         px = gx0 + (gx1 - gx0) * frac
         draw.polygon([(px, gy - 1), (px - 5, gy - 8), (px + 5, gy - 8)], fill=(255, 92, 72))
-        y += 42
+        y += 39
     if not counts:
         return
     gap, h = 6, 34
