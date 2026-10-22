@@ -260,145 +260,106 @@ def _readout(card: Image.Image, build: CharacterBuild, box, accent, wanted) -> N
         _glow_text(card, (sx1 - 12, mid), s.value, f.read, color, "rm", 3)
 
 
-WEAPON_MAX_LEVEL = 60
-
-
-def _jack(card: Image.Image, icon: Image.Image | None, cx: float, cy: float, r: float) -> None:
-    """A big input jack: a knurled metal ring with the W-Engine set in the dark socket."""
-    k = SS
-    size = round(2 * r)
-    layer = Image.new("RGBA", (size * k, size * k), (0, 0, 0, 0))
-    d = ImageDraw.Draw(layer)
-    c = size * k / 2
-    for i in range(12):  # metal ring, lighter towards its top edge
-        t = i / 11
-        rr = c - i * k * 0.9
-        d.ellipse((c - rr, c - rr - k * (1 - t), c + rr, c + rr - k * (1 - t)), fill=base._mix((110, 108, 126), (36, 34, 46), t) + (255,))
-    for i in range(24):  # knurling: notches round the rim
-        a = math.radians(i * 15)
-        d.line((c + (c - k) * math.cos(a), c + (c - k) * math.sin(a), c + (c - 4 * k) * math.cos(a), c + (c - 4 * k) * math.sin(a)),
-               fill=(24, 22, 32, 255), width=k)
-    hole = c - 12 * k
-    d.ellipse((c - hole, c - hole, c + hole, c + hole), fill=(10, 9, 14, 255))
-    card.alpha_composite(layer.resize((size, size), Image.LANCZOS), (round(cx - r), round(cy - r)))
-    if icon is not None:
-        inner = round(2 * (hole / k) - 4)
-        pic = icon.convert("RGBA")
-        pic.thumbnail((inner, inner), Image.LANCZOS)
-        mask = Image.new("L", (inner * k, inner * k), 0)
-        ImageDraw.Draw(mask).ellipse((0, 0, inner * k - 1, inner * k - 1), fill=255)
-        tile = Image.new("RGBA", (inner, inner), (0, 0, 0, 0))
-        tile.alpha_composite(pic, ((inner - pic.width) // 2, (inner - pic.height) // 2))
-        tile.putalpha(ImageChops.multiply(tile.getchannel("A"), mask.resize((inner, inner), Image.LANCZOS)))
-        card.alpha_composite(tile, (round(cx - inner / 2), round(cy - inner / 2)))
-
-
-def _waveform(card: Image.Image, box, seed: str, color) -> None:
-    """An oscilloscope trace behind the readout: a faint grid and a wave that is the same for each W-Engine."""
-    x0, y0, x1, y1 = box
-    w, h = x1 - x0, y1 - y0
-    k = SS
-    layer = Image.new("RGBA", (w * k, h * k), (0, 0, 0, 0))
-    d = ImageDraw.Draw(layer)
-    for gx in range(0, w, 16):
-        d.line((gx * k, 0, gx * k, h * k), fill=(255, 255, 255, 10), width=k)
-    for gy in range(0, h, 16):
-        d.line((0, gy * k, w * k, gy * k), fill=(255, 255, 255, 10), width=k)
-    n = sum(map(ord, seed))
-    freqs = [(2 + n % 3, 0.5), (5 + n % 4, 0.3), (11 + n % 5, 0.2)]
-    pts = []
-    for x in range(0, w * k + 1, k):
-        t = x / (w * k)
-        env = math.sin(math.pi * t) ** 0.6  # quiet at the ends, loud in the middle
-        v = sum(a * math.sin(2 * math.pi * fr * t + n % 7) for fr, a in freqs)
-        pts.append((x, (h / 2 + v * env * h * 0.38) * k))
-    d.line(pts, fill=color + (120,), width=round(1.5 * k), joint="curve")
-    layer = layer.resize((w, h), Image.LANCZOS)
-    card.alpha_composite(layer.filter(ImageFilter.GaussianBlur(3)), (x0, y0))
-    card.alpha_composite(layer, (x0, y0))
-
-
-def _vu(card: Image.Image, box, fraction: float) -> None:
-    """A level meter, LEDs from green through amber to red, lit up to the W-Engine's level."""
-    x0, y0, x1, y1 = box
-    draw = ImageDraw.Draw(card)
-    n = 10
-    step = (y1 - y0) / n
-    lit = round(fraction * n)
-    for i in range(n):
-        y = y1 - (i + 1) * step
-        color = (90, 220, 120) if i < 6 else (255, 184, 64) if i < 8 else (255, 80, 64)
-        on = i < lit
-        draw.rectangle((x0, round(y + 1), x1, round(y + step - 1)), fill=(color if on else base._mix(color, (0, 0, 0), 0.8)) + (255,))
+def _reel(d: ImageDraw.ImageDraw, cx: float, cy: float, r: float, tape: float, k: int) -> None:
+    """A cassette reel: wound tape around a white hub with six teeth."""
+    if tape > r:
+        d.ellipse((cx - tape, cy - tape, cx + tape, cy + tape), fill=(58, 40, 30, 255))
+    d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=(226, 222, 214, 255))
+    d.ellipse((cx - r * 0.55, cy - r * 0.55, cx + r * 0.55, cy + r * 0.55), fill=(20, 18, 26, 255))
+    for i in range(6):
+        a = math.radians(i * 60)
+        x, y = cx + r * 0.55 * math.cos(a), cy + r * 0.55 * math.sin(a)
+        d.ellipse((x - 1.6 * k, y - 1.6 * k, x + 1.6 * k, y + 1.6 * k), fill=(226, 222, 214, 255))
 
 
 def _weapon(card: Image.Image, build: CharacterBuild, box, accent, images) -> None:
-    """The W-Engine as an audio input: the engine in a jack socket, its readout over an oscilloscope trace, and a
-    level meter showing how far it is levelled."""
+    """The W-Engine as a cassette tape: its name and stats on the label, two reels in the window, the engine
+    itself in the corner below the label with its phase and level opposite."""
     f = FONTS
-    sx0, sy0, sx1, sy1 = _bezel(card, box, 12, 6)
-    draw = ImageDraw.Draw(card)
+    sx0, sy0, sx1, sy1 = _bezel(card, box, 12, 4, BODY_DARK)
     w = build.weapon
-    light = base._mix(accent, (255, 255, 255), 0.35)
-    _jack(card, images.get(w.icon_url or ""), sx0 + 46, sy0 + 52, 40)
-    _silk(draw, (sx0 + 46, sy1 - 8), f"INPUT · P{w.refinement}", SILK, True)
-    vu = (sx1 - 16, sy0 + 10, sx1 - 8, sy1 - 22)
-    _vu(card, vu, min(w.level / WEAPON_MAX_LEVEL, 1))
-    draw.text(((vu[0] + vu[2]) / 2, sy1 - 10), str(w.level), font=f.tiny, fill=SILK, anchor="mm")
-    tx, tx1 = sx0 + 98, vu[0] - 10
-    lines = base._wrap(draw, w.name.upper(), f.sub, tx1 - tx, 2)
-    y = sy0 + 12
+    cw, ch = sx1 - sx0, sy1 - sy0
+    k = SS
+    layer = Image.new("RGBA", (cw * k, ch * k), (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
+    d.rounded_rectangle((0, 0, cw * k - 1, ch * k - 1), 10 * k, fill=(44, 42, 54, 255))  # the shell
+    d.rounded_rectangle((k, k, cw * k - 1 - k, ch * k - 1 - k), 9 * k, outline=(62, 60, 76, 255), width=k)
+    label = (8 * k, 6 * k, (cw - 8) * k, 74 * k)
+    d.rounded_rectangle(label, 5 * k, fill=(232, 226, 206, 255))
+    d.rectangle((label[0], label[1] + 4 * k, label[2], label[1] + 10 * k), fill=accent + (255,))
+    # the window between the reels, set in the shell's lower edge
+    win = (cw * k * 0.3, 80 * k, cw * k * 0.7, (ch - 10) * k)
+    d.rounded_rectangle(win, 6 * k, fill=(14, 12, 20, 255), outline=(70, 68, 84, 255), width=k)
+    wy = (win[1] + win[3]) / 2
+    _reel(d, win[0] + 18 * k, wy, 9 * k, 15 * k, k)  # the tape mostly on the left reel
+    _reel(d, win[2] - 18 * k, wy, 9 * k, 10 * k, k)
+    for x, y in ((6, 6), (cw - 6, 6), (6, ch - 6), (cw - 6, ch - 6)):  # screws in the shell
+        d.ellipse(((x - 2.5) * k, (y - 2.5) * k, (x + 2.5) * k, (y + 2.5) * k), fill=(24, 22, 30, 255))
+    card.alpha_composite(layer.resize((cw, ch), Image.LANCZOS), (sx0, sy0))
+    draw = ImageDraw.Draw(card)
+    ink = (34, 30, 40)
+    lx0, lx1 = sx0 + 16, sx1 - 16
+    lines = base._wrap(draw, w.name.upper(), f.sub, lx1 - lx0, 2)
+    y = sy0 + 28 if len(lines) > 1 else sy0 + 36
     for line in lines:
-        _glow_text(card, (tx, y), line, f.sub, light, "lm", 3)
-        y += 20
-    _waveform(card, (tx - 2, sy0 + 44, tx1 + 2, sy0 + 76), w.name, accent)  # in its own strip, under the name
-    y = sy0 + 90
-    for s in w.stats[:2]:
-        draw.text((tx, y), _name(s).upper(), font=f.small, fill=SILK, anchor="lm")
-        _glow_text(card, (tx1, y), s.value, f.sub, base.TEXT, "rm", 2)
-        y += 20
+        draw.text((lx0, y), line, font=f.sub, fill=ink, anchor="lm")
+        y += 18
+    stats = [(_name(s).upper(), s.value) for s in w.stats[:2]]
+    x = lx0
+    for name, value in stats:  # the stats on one line along the foot of the label
+        draw.text((x, sy0 + 66), name, font=f.small, fill=(110, 102, 96), anchor="lm")
+        x += draw.textlength(name, font=f.small) + 5
+        draw.text((x, sy0 + 66), value, font=f.small, fill=ink, anchor="lm")
+        x += draw.textlength(value, font=f.small) + 16
+    base._icon(card, images.get(w.icon_url or ""), (sx0 + 12, sy0 + 78, sx0 + 12 + 46, sy1 - 4))
+    _glow_text(card, (sx1 - 14, sy0 + 92), f"P{w.refinement}", f.mid, base._mix(accent, (255, 255, 255), 0.35), "rm", 3)
+    draw.text((sx1 - 14, sy0 + 114), f"LV.{w.level}", font=f.small, fill=SILK, anchor="rm")
 
 
 def _cartridge(card: Image.Image, piece: Gear, icon, box, accent, max_level: int, wanted) -> None:
-    """A disc as a cartridge: slot number on a lit key, the main stat on a readout, substats with LEDs per upgrade."""
+    """A disc as a cartridge: slot number on a lit key, the main stat on a readout, substats with LEDs per upgrade,
+    spread over the whole cartridge."""
     f = FONTS
     sx0, sy0, sx1, sy1 = _bezel(card, box, 12, 5)
     draw = ImageDraw.Draw(card)
     light = base._mix(accent, (255, 255, 255), 0.35)
-    base._icon(card, icon, (sx0 + 6, sy0 + 6, sx0 + 52, sy0 + 52))
+    base._icon(card, icon, (sx0 + 6, sy0 + 6, sx0 + 70, sy0 + 70))
     slot = piece.slot.rsplit(" ", 1)[-1]
-    key = (sx0 + 38, sy0 + 36, sx0 + 58, sy0 + 56)
-    draw.rounded_rectangle(key, 4, fill=accent + (255,), outline=(14, 12, 20, 255), width=2)
+    key = (sx0 + 52, sy0 + 52, sx0 + 76, sy0 + 76)
+    draw.rounded_rectangle(key, 5, fill=accent + (255,), outline=(14, 12, 20, 255), width=2)
     draw.text(((key[0] + key[2]) / 2, (key[1] + key[3]) / 2 + 1), slot, font=f.slot, fill=(14, 12, 20), anchor="mm")
-    tx = sx0 + 66
-    draw.text((tx, sy0 + 15), base._fit_text(draw, _name(piece.main).upper(), f.small, sx1 - tx - 44), font=f.small,
-              fill=SILK, anchor="lm")
-    _glow_text(card, (tx, sy0 + 38), piece.main.value, f.mid, light, "lm", 4)
+    tx = sx0 + 86
+    counter = bool(wanted and piece.subs)
+    draw.text((tx, sy0 + 18), base._fit_text(draw, _name(piece.main).upper(), f.sub, sx1 - tx - (52 if counter else 8)),
+              font=f.sub, fill=SILK, anchor="lm")
+    _glow_text(card, (tx, sy0 + 52), piece.main.value, f.big, light, "lm", 5)
     if piece.level < max_level:
-        draw.text((tx + draw.textlength(piece.main.value, font=f.mid) + 8, sy0 + 42), f"+{piece.level}", font=f.small,
+        draw.text((tx + draw.textlength(piece.main.value, font=f.big) + 8, sy0 + 58), f"+{piece.level}", font=f.sub,
                   fill=SILK, anchor="lm")
-    if wanted and piece.subs:  # the effective roll count on a tiny counter, top right
+    if counter:  # the effective roll count on a small counter, top right
         n = str(piece_count(piece, wanted))
-        cnt = (sx1 - 38, sy0 + 6, sx1 - 6, sy0 + 30)
-        draw.rounded_rectangle(cnt, 4, fill=(24, 18, 8, 255), outline=(90, 66, 20, 255))
-        _glow_text(card, ((cnt[0] + cnt[2]) / 2, (cnt[1] + cnt[3]) / 2), n, f.sub, AMBER, "mm", 3)
-    y = sy0 + 62
+        cnt = (sx1 - 44, sy0 + 6, sx1 - 6, sy0 + 36)
+        draw.rounded_rectangle(cnt, 5, fill=(24, 18, 8, 255), outline=(90, 66, 20, 255))
+        _glow_text(card, ((cnt[0] + cnt[2]) / 2, (cnt[1] + cnt[3]) / 2), n, f.mid, AMBER, "mm", 3)
+    y = sy0 + 86
     draw.line((sx0 + 8, y - 4, sx1 - 8, y - 4), fill=(44, 42, 58, 255), width=1)
-    step = min(24, (sy1 - 4 - y) / max(len(piece.subs), 1))
+    step = min(36, (sy1 - 6 - y) / 4)  # rows spread over the cartridge, the same for every disc
+    y += max(0, (sy1 - 6 - y) - step * 4) / 2
     leds_x = sx1 - 10 - base.DOTS * 8
     for s in piece.subs:
         mid = y + step / 2
         good = bool(wanted) and s.name in wanted
         color = AMBER if good else base.TEXT
-        draw.text((sx0 + 10, mid), base._fit_text(draw, _name(s).upper(), f.small, leds_x - sx0 - 70), font=f.small,
+        value_x = leds_x - 8
+        room = value_x - draw.textlength(s.value, font=f.sub) - 8 - (sx0 + 10)
+        draw.text((sx0 + 10, mid), base._fit_text(draw, _name(s).upper(), f.sub, room), font=f.sub,
                   fill=AMBER if good else SILK, anchor="lm")
-        _glow_text(card, (leds_x - 8, mid), s.value, f.sub, color, "rm", 2 if good else 0.1)
+        _glow_text(card, (value_x, mid), s.value, f.sub, color, "rm", 2 if good else 0.1)
         ups = min(max(s.rolls - 1, 0), base.DOTS)
         for i in range(base.DOTS):  # one LED per possible upgrade, the used ones lit
             x = leds_x + i * 8
-            lit = i < ups
-            fill = (AMBER if good else light) if lit else (40, 38, 52)
-            draw.rectangle((x, mid - 3, x + 5, mid + 3), fill=fill + (255,))
+            fill = (AMBER if good else light) if i < ups else (40, 38, 52)
+            draw.rectangle((x, mid - 5, x + 5, mid + 5), fill=fill + (255,))
         y += step
 
 
