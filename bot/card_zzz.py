@@ -331,11 +331,10 @@ def _cartridge(card: Image.Image, piece: Gear, icon, box, accent, max_level: int
     if piece.level < max_level:
         draw.text((tx + draw.textlength(piece.main.value, font=f.big) + 8, sy0 + 58), f"+{piece.level}", font=f.sub,
                   fill=SILK, anchor="lm")
-    if counter:  # the effective roll count on a small counter, top right
+    if counter:  # the effective roll count, quietly in the top right corner
         n = str(piece_count(piece, wanted))
-        cnt = (sx1 - 44, sy0 + 6, sx1 - 6, sy0 + 36)
-        draw.rounded_rectangle(cnt, 5, fill=(24, 18, 8, 255), outline=(90, 66, 20, 255))
-        _glow_text(card, ((cnt[0] + cnt[2]) / 2, (cnt[1] + cnt[3]) / 2), n, f.mid, AMBER, "mm", 3)
+        draw.text((sx1 - 10, sy0 + 20), n, font=f.mid, fill=base._mix(AMBER, (24, 22, 30), 0.35), anchor="rm")
+        draw.text((sx1 - 10, sy0 + 38), "EFF", font=f.tiny, fill=SILK, anchor="rm")
     y = sy0 + 86
     draw.line((sx0 + 8, y - 4, sx1 - 8, y - 4), fill=(44, 42, 58, 255), width=1)
     step = min(36, (sy1 - 6 - y) / 4)  # rows spread over the cartridge, the same for every disc
@@ -393,17 +392,17 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
         top = effective_max(wanted)
         dials.append(("EFFECTIVE SUBS", str(effective), effective / top if top else 0, AMBER, str(top)))
     mx0, mx1 = 420, 704
-    top, bottom = 16, H - 16  # the W-Engine on top, the dials at the foot, the readout between them
-    if build.weapon:
-        _weapon(card, build, (mx0, 16, mx1, 156), accent, images)
-        top = 164
+    bottom = H - 16  # the readout on top, then the W-Engine, the dials at the foot
     if dials:
         dw = (mx1 - mx0 - 10 * (len(dials) - 1)) / len(dials)
         for i, (label, text, frac, color, most) in enumerate(dials):
             x = round(mx0 + i * (dw + 10))
             _dial(card, (x, H - 16 - 148, round(x + dw), H - 16), label, text, min(frac, 1), color, most)
         bottom = H - 16 - 156
-    _readout(card, build, (mx0, top, mx1, bottom), accent, wanted)
+    if build.weapon:
+        _weapon(card, build, (mx0, bottom - 140, mx1, bottom), accent, images)
+        bottom -= 148
+    _readout(card, build, (mx0, 16, mx1, bottom), accent, wanted)
 
     # right: the disc cartridges, two per row
     gx0, gx1, gy0, gy1 = 720, W - 16, 16, H - 22  # room under the discs for the UID stamp
