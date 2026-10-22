@@ -188,17 +188,48 @@ def _lamp(card: Image.Image, symbol: Image.Image, cx: float, cy: float, color) -
 
 
 def _rank_lamp(card: Image.Image, build: CharacterBuild, cx: float, cy: float, r: float = 30) -> None:
-    """The rank as a big round lamp: a dark socket with a metal rim and the letter lit up gold."""
+    """The rank as a big dome lamp: a chrome ring, a glowing gold glass dome with a shine on it and the letter
+    printed on the glass, casting a shadow and a warm glow round it."""
     k = SS
-    layer = Image.new("RGBA", (round(2 * r + 8) * k,) * 2, (0, 0, 0, 0))
+    size = round(2 * r + 40)
+    c = size * k / 2
+    layer = Image.new("RGBA", (size * k, size * k), (0, 0, 0, 0))
+    ring, dome = (r + 6) * k, r * k
+
+    def disc(radius, fill, dx=0, dy=0):
+        ImageDraw.Draw(layer).ellipse((c - radius + dx, c - radius + dy, c + radius + dx, c + radius + dy), fill=fill)
+
+    # the lamp's warm glow on the console, then its shadow
+    glow = Image.new("RGBA", layer.size, (0, 0, 0, 0))
+    ImageDraw.Draw(glow).ellipse((c - ring - 6 * k, c - ring - 6 * k, c + ring + 6 * k, c + ring + 6 * k),
+                                 fill=base.GOLD + (110,))
+    layer.alpha_composite(glow.filter(ImageFilter.GaussianBlur(10 * k)))
+    shadow = Image.new("RGBA", layer.size, (0, 0, 0, 0))
+    ImageDraw.Draw(shadow).ellipse((c - ring + 3 * k, c - ring + 5 * k, c + ring + 3 * k, c + ring + 5 * k), fill=(0, 0, 0, 170))
+    layer.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(3 * k)))
+    # chrome ring: lit from the top left
+    chrome = Image.linear_gradient("L").rotate(45, expand=False).resize(layer.size)
+    ring_img = Image.merge("RGBA", (chrome.point(lambda v: 230 - v // 2), chrome.point(lambda v: 228 - v // 2),
+                                    chrome.point(lambda v: 240 - v // 2), Image.new("L", layer.size, 0)))
+    mask = Image.new("L", layer.size, 0)
+    ImageDraw.Draw(mask).ellipse((c - ring, c - ring, c + ring, c + ring), fill=255)
+    ring_img.putalpha(mask)
+    layer.alpha_composite(ring_img)
+    disc(dome + 2 * k, (40, 30, 10, 255))
+    # the glass dome: bright in the middle, deeper amber towards its edge
+    glass = Image.radial_gradient("L").resize((round(2 * dome),) * 2)
+    lens = Image.merge("RGBA", (glass.point(lambda v: 255 - v // 8), glass.point(lambda v: 240 - v // 3),
+                                glass.point(lambda v: 140 - v // 2), Image.new("L", glass.size, 0)))
+    lmask = Image.new("L", glass.size, 0)
+    ImageDraw.Draw(lmask).ellipse((0, 0, glass.width - 1, glass.height - 1), fill=255)
+    lens.putalpha(lmask)
+    layer.alpha_composite(lens, (round(c - dome), round(c - dome)))
     d = ImageDraw.Draw(layer)
-    c = layer.width / 2
-    d.ellipse((c - (r + 4) * k, c - (r + 4) * k, c + (r + 4) * k, c + (r + 4) * k), fill=(60, 58, 74, 255))
-    d.ellipse((c - (r + 1) * k, c - (r + 1) * k, c + (r + 1) * k, c + (r + 1) * k), fill=(20, 18, 26, 255))
-    d.ellipse((c - r * k, c - r * k, c + r * k, c + r * k), fill=(4, 4, 7, 240))
-    size = round(2 * r + 8)
+    d.text((c, c + 2 * k), ZZZ_RARITY.get(build.rarity, "?"), font=base._font("Bold", 40 * k), fill=(90, 44, 0, 235), anchor="mm")
+    shine = Image.new("RGBA", layer.size, (0, 0, 0, 0))  # the shine on the glass, top left
+    ImageDraw.Draw(shine).ellipse((c - dome * 0.7, c - dome * 0.8, c + dome * 0.1, c - dome * 0.25), fill=(255, 255, 255, 150))
+    layer.alpha_composite(shine.filter(ImageFilter.GaussianBlur(2 * k)))
     card.alpha_composite(layer.resize((size, size), Image.LANCZOS), (round(cx - size / 2), round(cy - size / 2)))
-    _glow_text(card, (cx, cy + 2), ZZZ_RARITY.get(build.rarity, "?"), _vfd(52), base.GOLD, "mm", 6)
 
 
 def _nameplate(card: Image.Image, build: CharacterBuild, box, accent, images) -> None:
@@ -365,8 +396,8 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
 
     # left: the monitor, the nameplate and the Mindscape screen
     _monitor(card, images.get(build.art_url or "") or images.get(build.icon_url or ""), face, (16, 16, 404, 424), accent)
-    _rank_lamp(card, build, 404 - 52, 424 - 52)  # in the monitor's bottom right corner
     _nameplate(card, build, (16, 432, 404, 524), accent, images)
+    _rank_lamp(card, build, 384, 410)  # on the monitor's bottom right corner, over its edge
     shown, upcoming, thirds = base.mindscape_urls(build)
     _bezel(card, (16, 532, 404, 704), 12, 0, BODY_DARK)
     base._mindscape_panel(card, images.get(shown or ""), (22, 538, 398, 698), build.constellation,
