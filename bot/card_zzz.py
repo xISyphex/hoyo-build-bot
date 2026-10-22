@@ -331,10 +331,9 @@ def _cartridge(card: Image.Image, piece: Gear, icon, box, accent, max_level: int
     if piece.level < max_level:
         draw.text((tx + draw.textlength(piece.main.value, font=f.big) + 8, sy0 + 58), f"+{piece.level}", font=f.sub,
                   fill=SILK, anchor="lm")
-    if counter:  # the effective roll count, quietly in the top right corner
+    if counter:  # the effective roll count in the top right corner, without a box
         n = str(piece_count(piece, wanted))
-        draw.text((sx1 - 10, sy0 + 20), n, font=f.mid, fill=base._mix(AMBER, (24, 22, 30), 0.35), anchor="rm")
-        draw.text((sx1 - 10, sy0 + 38), "EFF", font=f.tiny, fill=SILK, anchor="rm")
+        _glow_text(card, (sx1 - 25, sy0 + 21), n, f.mid, AMBER, "mm", 3)
     y = sy0 + 86
     draw.line((sx0 + 8, y - 4, sx1 - 8, y - 4), fill=(44, 42, 58, 255), width=1)
     step = min(36, (sy1 - 6 - y) / 4)  # rows spread over the cartridge, the same for every disc
