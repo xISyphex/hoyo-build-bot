@@ -187,18 +187,28 @@ def _lamp(card: Image.Image, symbol: Image.Image, cx: float, cy: float, color) -
     card.alpha_composite(lit, (round(cx - im.width / 2), round(cy - im.height / 2)))
 
 
+def _rank_lamp(card: Image.Image, build: CharacterBuild, cx: float, cy: float, r: float = 30) -> None:
+    """The rank as a big round lamp: a dark socket with a metal rim and the letter lit up gold."""
+    k = SS
+    layer = Image.new("RGBA", (round(2 * r + 8) * k,) * 2, (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
+    c = layer.width / 2
+    d.ellipse((c - (r + 4) * k, c - (r + 4) * k, c + (r + 4) * k, c + (r + 4) * k), fill=(60, 58, 74, 255))
+    d.ellipse((c - (r + 1) * k, c - (r + 1) * k, c + (r + 1) * k, c + (r + 1) * k), fill=(20, 18, 26, 255))
+    d.ellipse((c - r * k, c - r * k, c + r * k, c + r * k), fill=(4, 4, 7, 240))
+    size = round(2 * r + 8)
+    card.alpha_composite(layer.resize((size, size), Image.LANCZOS), (round(cx - size / 2), round(cy - size / 2)))
+    _glow_text(card, (cx, cy + 2), ZZZ_RARITY.get(build.rarity, "?"), _vfd(52), base.GOLD, "mm", 6)
+
+
 def _nameplate(card: Image.Image, build: CharacterBuild, box, accent, images) -> None:
     """An instrument cluster: the name on the display, the element (in its colour) and the specialty (amber) as
-    warning lamps in round sockets, the level beside them, and the rank lit up like a gear letter."""
+    warning lamps in round sockets, and the level beside them."""
     f = FONTS
     sx0, sy0, sx1, sy1 = _bezel(card, box, 10, 5)
     draw = ImageDraw.Draw(card)
-    gear = (sx1 - 62, sy0 + 6, sx1 - 6, sy1 - 6)
-    draw.rounded_rectangle(gear, 6, fill=(4, 4, 7), outline=(50, 48, 64), width=1)
-    _glow_text(card, ((gear[0] + gear[2]) / 2, (gear[1] + gear[3]) / 2 + 2), ZZZ_RARITY.get(build.rarity, "?"),
-               _vfd(52), base.GOLD, "mm", 6)
     light = base._mix(accent, (255, 255, 255), 0.35)
-    room = gear[0] - sx0 - 26
+    room = sx1 - sx0 - 28
     draw = ImageDraw.Draw(card)
     font = next((fn for fn in f.name.values() if draw.textlength(build.name.upper(), font=fn) <= room), f.name[34])
     _glow_text(card, (sx0 + 14, sy0 + 42), base._fit_text(draw, build.name.upper(), font, room), font, light, "ls", 6)
@@ -355,6 +365,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
 
     # left: the monitor, the nameplate and the Mindscape screen
     _monitor(card, images.get(build.art_url or "") or images.get(build.icon_url or ""), face, (16, 16, 404, 424), accent)
+    _rank_lamp(card, build, 404 - 52, 424 - 52)  # in the monitor's bottom right corner
     _nameplate(card, build, (16, 432, 404, 524), accent, images)
     shown, upcoming, thirds = base.mindscape_urls(build)
     _bezel(card, (16, 532, 404, 704), 12, 0, BODY_DARK)
