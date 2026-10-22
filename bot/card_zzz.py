@@ -73,7 +73,7 @@ def _glow_text(card: Image.Image, xy, text: str, font, color, anchor: str = "la"
     box = layer.getbbox()
     if box:
         pad = round(glow * 3)
-        box = (max(box[0] - pad, 0), max(box[1] - pad, 0), min(box[2] + pad, W), min(box[3] + pad, H))
+        box = (max(box[0] - pad, 0), max(box[1] - pad, 0), min(box[2] + pad, card.width), min(box[3] + pad, card.height))
         halo = layer.crop(box).filter(ImageFilter.GaussianBlur(glow))
         halo.putalpha(halo.getchannel("A").point(lambda a: min(255, a * 1.4)))
         card.alpha_composite(halo, box[:2])
