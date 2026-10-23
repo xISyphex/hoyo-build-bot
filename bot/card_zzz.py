@@ -92,11 +92,32 @@ def _text(card: Image.Image, xy, text: str, font, color, anchor: str = "la") -> 
     ImageDraw.Draw(card).text(xy, text, font=font, fill=color, anchor=anchor)
 
 
+def _nine_slice(pic: Image.Image, c: int, w: int, h: int) -> Image.Image:
+    """pic (2c + 1 square) grown to w x h: its corners kept, its middle row and column stretched."""
+    out = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    n = 2 * c + 1
+    for sx0, sx1, dx0, dx1 in ((0, c, 0, c), (c, c + 1, c, w - c), (c + 1, n, w - c, w)):
+        for sy0, sy1, dy0, dy1 in ((0, c, 0, c), (c, c + 1, c, h - c), (c + 1, n, h - c, h)):
+            part = pic.crop((sx0, sy0, sx1, sy1))
+            if part.size != (dx1 - dx0, dy1 - dy0):
+                part = part.resize((dx1 - dx0, dy1 - dy0), Image.NEAREST)
+            out.paste(part, (dx0, dy0))
+    return out
+
+
 def _bezel(card: Image.Image, box, r: int = 12, inset: int = 6, screen=GLASS, bump=None) -> tuple[int, int, int, int]:
     """A panel cut into the console: a raised rim lit from above, and a dark screen inside it. Returns the screen.
     bump: (cx, cy, radius) of a round housing the rim grows out to, one outline with the panel's (the screen stays
     clear of it)."""
     x0, y0, x1, y1 = box
+    c = max(r, inset) + 4  # how far in from each edge the rim's rounding and shading reach
+    if not bump and min(x1 - x0, y1 - y0) > 2 * c + 8:
+        # A big panel is the same all along its straight edges: draw a small one and stretch its middle (far quicker
+        # than drawing the whole panel four times over)
+        small = Image.new("RGBA", (2 * c + 1, 2 * c + 1), (0, 0, 0, 0))
+        _bezel(small, (0, 0, 2 * c + 1, 2 * c + 1), r, inset, screen)
+        card.alpha_composite(_nine_slice(small, c, x1 - x0, y1 - y0), (x0, y0))
+        return x0 + inset, y0 + inset, x1 - inset, y1 - inset
     if bump:
         bx, by, br = bump
         pad = 12  # room for the fillet blur, so the layer's edge never flattens the circle
