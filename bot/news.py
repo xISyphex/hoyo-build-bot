@@ -2,7 +2,7 @@
 /genshin-news, /hsr-news and /zzz-news.
 
 YouTube's public feed for a channel (no key, no login) lists its latest uploads; it is read every few minutes and
-every new upload (Shorts aside) is posted once. Check what the feed sees with
+every new upload, Shorts included, is posted once. Check what the feed sees with
 `python -m bot.news game`."""
 
 from __future__ import annotations
@@ -23,14 +23,15 @@ NS = {"a": "http://www.w3.org/2005/Atom", "yt": "http://www.youtube.com/xml/sche
 
 
 def parse_feed(xml: str) -> list[tuple[str, str, str]]:
-    """(video id, title, link) of a channel feed's entries, newest first, Shorts left out."""
+    """(video id, title, link) of a channel feed's entries, newest first. A Short keeps its /shorts/ link."""
     videos = []
     for entry in ET.fromstring(xml).findall("a:entry", NS):
         vid = entry.findtext("yt:videoId", "", NS)
         title = entry.findtext("a:title", "", NS)
         link = (entry.find("a:link", NS).get("href") if entry.find("a:link", NS) is not None else "") or ""
-        if vid and "/shorts/" not in link:
-            videos.append((vid, title, f"https://www.youtube.com/watch?v={vid}"))
+        if vid:
+            short = "/shorts/" in link
+            videos.append((vid, title, f"https://www.youtube.com/{'shorts/' if short else 'watch?v='}{vid}"))
     return videos
 
 
@@ -41,11 +42,14 @@ class NewsStore:
         self.path = Path(path)
         self.channels: dict[str, dict[str, int]] = {game: {} for game in CHANNELS}  # game -> guild id -> channel id
         self.seen: dict[str, list[str]] = {}  # game -> video ids; a game is missing until its feed was first read
+        self.shorts_seen: set[str] = set(CHANNELS)  # games whose seen list already counts Shorts
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
             for game in CHANNELS:
                 self.channels[game].update({str(g): int(c) for g, c in data.get("channels", {}).get(game, {}).items()})
             self.seen = {g: list(ids) for g, ids in data.get("seen", {}).items()}
+            # Shorts used to be skipped, so they never made it into seen: those already in the feed aren't news
+            self.shorts_seen = set(data.get("shorts_seen", ()))
         except FileNotFoundError:
             pass
         except (OSError, ValueError):
@@ -55,7 +59,8 @@ class NewsStore:
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_name(self.path.name + ".tmp")
-            tmp.write_text(json.dumps({"channels": self.channels, "seen": self.seen}, indent=1), encoding="utf-8")
+            tmp.write_text(json.dumps({"channels": self.channels, "seen": self.seen,
+                                       "shorts_seen": sorted(self.shorts_seen)}, indent=1), encoding="utf-8")
             tmp.replace(self.path)
         except OSError:
             log.exception("Could not save %s", self.path)
@@ -77,10 +82,16 @@ class NewsStore:
         first = game not in self.seen
         seen = self.seen.setdefault(game, [])
         fresh = [v for v in videos if v[0] not in seen]
+        catch_up = game not in self.shorts_seen  # Shorts from before they were posted: marked handled, not posted
+        self.shorts_seen.add(game)
         if not fresh and not first:
+            if catch_up:
+                self._save()
             return []
         self.seen[game] = ([v[0] for v in fresh] + seen)[:SEEN_KEEP]
         self._save()
+        if catch_up:
+            fresh = [v for v in fresh if "/shorts/" not in v[2]]
         return [] if first else list(reversed(fresh))
 
 

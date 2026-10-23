@@ -131,3 +131,16 @@ class DrawTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ZzzDashboardTest(unittest.TestCase):
+    def test_top_percent_reads_as_a_number(self):
+        from bot.records_zzz import _percent
+        self.assertEqual(_percent("0.84%"), 0.84)
+        self.assertEqual(_percent("-"), 100.0)
+
+    def test_score_tiers_per_mode(self):
+        from bot.records_zzz import score_tier
+        self.assertEqual([score_tier("sd", v) for v in ("51,000", "25,000", "24,999")], ["platinum", "gold", "purple"])
+        self.assertEqual([score_tier("da", v) for v in ("65,000", "20,000", "14,000", "13,999")],
+                         ["platinum", "gold", "purple", "blue"])

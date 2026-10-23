@@ -21,8 +21,19 @@ class NewsTest(unittest.TestCase):
         xml = FEED.format(entry("b", "Agent Demo - Miyabi | Zenless Zone Zero") + entry("s", "Agent Demo", True)
                           + entry("a", "Version 2.0 Special Program"))
         videos = news.parse_feed(xml)
-        self.assertEqual([v[0] for v in videos], ["b", "a"])  # Shorts left out
+        self.assertEqual([v[0] for v in videos], ["b", "s", "a"])  # Shorts included
         self.assertEqual(videos[0][2], "https://www.youtube.com/watch?v=b")
+        self.assertEqual(videos[1][2], "https://www.youtube.com/shorts/s")
+
+    def test_shorts_from_before_the_switch_are_not_posted(self):
+        path = Path(tempfile.mkdtemp()) / "news.json"
+        path.write_text('{"channels": {}, "seen": {"zzz": ["1"]}}', encoding="utf-8")  # saved when Shorts were skipped
+        store = news.NewsStore(path)
+        old_short = ("s1", "Short", "https://www.youtube.com/shorts/s1")
+        video = ("2", "Special Program", "https://www.youtube.com/watch?v=2")
+        self.assertEqual(store.new_videos("zzz", [video, old_short, ("1", "Old", "u1")]), [video])
+        new_short = ("s2", "New Short", "https://www.youtube.com/shorts/s2")
+        self.assertEqual(news.NewsStore(path).new_videos("zzz", [new_short, video, old_short]), [new_short])
 
     def test_first_read_posts_nothing_then_each_new_video_once(self):
         store = news.NewsStore(Path(tempfile.mkdtemp()) / "news.json")

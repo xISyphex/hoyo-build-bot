@@ -399,12 +399,13 @@ class HoyolabClient:
             return []
         builds = []
         try:
-            for start in range(0, len(ids), 5):  # a few at a time
-                for item in await client.get_zzz_agent_info([int(i) for i in ids[start:start + 5]], uid=int(uid)):
-                    try:
-                        builds.append(zzz_build(self.assets, item))
-                    except Exception:
-                        log.exception("Could not read a HoYoLAB zzz agent (%s)", getattr(item, "id", "?"))
+            chunks = await asyncio.gather(*(client.get_zzz_agent_info([int(i) for i in ids[start:start + 5]], uid=int(uid))
+                                            for start in range(0, len(ids), 5)))  # a few per request, asked at once
+            for item in (item for chunk in chunks for item in chunk):
+                try:
+                    builds.append(zzz_build(self.assets, item))
+                except Exception:
+                    log.exception("Could not read a HoYoLAB zzz agent (%s)", getattr(item, "id", "?"))
         except Exception as exc:
             log.info("No ZZZ agent details for %s: %s", uid, exc)
         return builds

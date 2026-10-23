@@ -8,6 +8,7 @@ import io
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 from . import card as base
+from . import record_icons
 from . import stat_icons
 from .effective import piece_count
 from .embeds import ELEMENT_COLORS, ZZZ_RARITY, _is_zero, _name
@@ -91,11 +92,32 @@ def _text(card: Image.Image, xy, text: str, font, color, anchor: str = "la") -> 
     ImageDraw.Draw(card).text(xy, text, font=font, fill=color, anchor=anchor)
 
 
+def _nine_slice(pic: Image.Image, c: int, w: int, h: int) -> Image.Image:
+    """pic (2c + 1 square) grown to w x h: its corners kept, its middle row and column stretched."""
+    out = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    n = 2 * c + 1
+    for sx0, sx1, dx0, dx1 in ((0, c, 0, c), (c, c + 1, c, w - c), (c + 1, n, w - c, w)):
+        for sy0, sy1, dy0, dy1 in ((0, c, 0, c), (c, c + 1, c, h - c), (c + 1, n, h - c, h)):
+            part = pic.crop((sx0, sy0, sx1, sy1))
+            if part.size != (dx1 - dx0, dy1 - dy0):
+                part = part.resize((dx1 - dx0, dy1 - dy0), Image.NEAREST)
+            out.paste(part, (dx0, dy0))
+    return out
+
+
 def _bezel(card: Image.Image, box, r: int = 12, inset: int = 6, screen=GLASS, bump=None) -> tuple[int, int, int, int]:
     """A panel cut into the console: a raised rim lit from above, and a dark screen inside it. Returns the screen.
     bump: (cx, cy, radius) of a round housing the rim grows out to, one outline with the panel's (the screen stays
     clear of it)."""
     x0, y0, x1, y1 = box
+    c = max(r, inset) + 4  # how far in from each edge the rim's rounding and shading reach
+    if not bump and min(x1 - x0, y1 - y0) > 2 * c + 8:
+        # A big panel is the same all along its straight edges: draw a small one and stretch its middle (far quicker
+        # than drawing the whole panel four times over)
+        small = Image.new("RGBA", (2 * c + 1, 2 * c + 1), (0, 0, 0, 0))
+        _bezel(small, (0, 0, 2 * c + 1, 2 * c + 1), r, inset, screen)
+        card.alpha_composite(_nine_slice(small, c, x1 - x0, y1 - y0), (x0, y0))
+        return x0 + inset, y0 + inset, x1 - inset, y1 - inset
     if bump:
         bx, by, br = bump
         pad = 12  # room for the fillet blur, so the layer's edge never flattens the circle
@@ -243,16 +265,28 @@ BLOCK_LETTERS = {  # squared rank letters on a 10 x 12 grid with chamfered corne
     "A": ([(2, 0), (8, 0), (10, 2), (10, 12), (7, 12), (7, 8), (3, 8), (3, 12), (0, 12), (0, 2)], [(3, 3), (7, 3), (7, 5.5), (3, 5.5)]),
     "S": ([(2, 0), (10, 0), (10, 3), (3, 3), (3, 4.5), (8, 4.5), (10, 6.5), (10, 10), (8, 12), (0, 12), (0, 9), (7, 9),
            (7, 7.5), (2, 7.5), (0, 5.5), (0, 2)],),
+    "B": ([(0, 0), (8, 0), (10, 2), (10, 4.5), (9, 6), (10, 7.5), (10, 10), (8, 12), (0, 12)],
+          [(3, 3), (7, 3), (7, 4.5), (3, 4.5)], [(3, 7.5), (7, 7.5), (7, 9), (3, 9)]),
 }
 RANK_GLASS = {  # per rank: the ring under the glass, each colour channel's (centre value, fall-off divisor) and the ink
     "S": ((40, 30, 10, 255), ((255, 8), (240, 3), (140, 2)), (90, 44, 0, 235)),
     "A": ((30, 14, 44, 255), ((225, 4), (170, 2), (255, 8)), (52, 12, 86, 235)),
+    "B": ((10, 24, 44, 255), ((140, 2), (210, 3), (255, 8)), (8, 40, 86, 235)),
 }
 
 
 def _rank_lamp(card: Image.Image, build: CharacterBuild, cx: float, cy: float, r: float = 26) -> None:
-    """The rank as a big dome lamp set into the monitor's frame: a glowing glass dome (gold for S, purple for A)
-    with a shine on it and the letter printed on the glass in italics."""
+    """The rank as a big dome lamp set into the monitor's frame."""
+    dome_lamp(card, ZZZ_RARITY.get(build.rarity, "?"), cx, cy, r)
+
+
+HOLO_GLASS = ((60, 64, 92, 255), (40, 34, 72, 235))  # the platinum lamp's ring and ink
+
+
+def dome_lamp(card: Image.Image, letter: str, cx: float, cy: float, r: float = 26, holo: bool = False) -> None:
+    """A letter on a dome lamp: a glowing glass dome (gold for S, purple for A, blue for B; holo: the platinum foil of
+    the top-ranking badge) with a shine on it and the letter printed on the glass in italics. "S+" puts a small plus
+    beside the S."""
     k = SS
     size = round(2 * r + 12)
     c = size * k / 2
@@ -262,30 +296,45 @@ def _rank_lamp(card: Image.Image, build: CharacterBuild, cx: float, cy: float, r
     def disc(radius, fill, dx=0, dy=0):
         ImageDraw.Draw(layer).ellipse((c - radius + dx, c - radius + dy, c + radius + dx, c + radius + dy), fill=fill)
 
-    letter = ZZZ_RARITY.get(build.rarity, "?")
+    plus = letter.endswith("+")
+    letter = letter.rstrip("+") or "?"
     ring, tint, ink = RANK_GLASS.get(letter, RANK_GLASS["S"])
+    if holo:
+        ring, ink = HOLO_GLASS
     disc(dome + 2 * k, ring)
     # the glass dome: bright in the middle, deeper towards its edge
     glass = Image.radial_gradient("L").resize((round(2 * dome),) * 2)
-    lens = Image.merge("RGBA", tuple(glass.point(lambda v, top=top, fall=fall: top - v // fall) for top, fall in tint)
-                       + (Image.new("L", glass.size, 0),))
+    if holo:
+        lens = record_icons._bands(glass.size, record_icons.HOLO, 35)
+        edge = Image.new("RGBA", glass.size, (70, 80, 140, 255))
+        edge.putalpha(glass.point(lambda v: v // 3))
+        lens.alpha_composite(edge)
+    else:
+        lens = Image.merge("RGBA", tuple(glass.point(lambda v, top=top, fall=fall: top - v // fall) for top, fall in tint)
+                           + (Image.new("L", glass.size, 0),))
     lmask = Image.new("L", glass.size, 0)
     ImageDraw.Draw(lmask).ellipse((0, 0, glass.width - 1, glass.height - 1), fill=255)
     lens.putalpha(lmask)
     layer.alpha_composite(lens, (round(c - dome), round(c - dome)))
     text = Image.new("RGBA", layer.size, (0, 0, 0, 0))
     shape = BLOCK_LETTERS.get(letter)
-    if shape:  # a squared block letter, 10 x 12 units, centred on the glass
-        u = r * 0.075 * k
+    if shape:  # a squared block letter, 10 x 12 units, centred on the glass (moved left to make room for a plus)
+        u = r * (0.064 if plus else 0.075) * k
+        dx = -2.2 if plus else 0
         outer, *holes = shape
         mask = Image.new("L", layer.size, 0)
         md = ImageDraw.Draw(mask)
-        md.polygon([(c + (x - 5) * u, c + (y - 6) * u) for x, y in outer], fill=255)
+        md.polygon([(c + (x - 5 + dx) * u, c + (y - 6) * u) for x, y in outer], fill=255)
         for hole in holes:
-            md.polygon([(c + (x - 5) * u, c + (y - 6) * u) for x, y in hole], fill=0)
+            md.polygon([(c + (x - 5 + dx) * u, c + (y - 6) * u) for x, y in hole], fill=0)
+        if plus:
+            px, py, arm, half = c + 5.6 * u, c - 2.6 * u, 2.4 * u, 0.85 * u
+            md.rectangle((px - arm, py - half, px + arm, py + half), fill=255)
+            md.rectangle((px - half, py - arm, px + half, py + arm), fill=255)
         text.paste(ink, (0, 0), mask)
     else:
-        ImageDraw.Draw(text).text((c, c + 2 * k), letter, font=base._font("Bold", round(r * 1.35) * k), fill=ink, anchor="mm")
+        ImageDraw.Draw(text).text((c, c + 2 * k), letter + ("+" if plus else ""), font=base._font("Bold", round(r * 1.35) * k),
+                                  fill=ink, anchor="mm")
     slant = 0.2  # italics: lean the letter right, pivoting on its middle
     layer.alpha_composite(text.transform(text.size, Image.AFFINE, (1, slant, -slant * c, 0, 1, 0), Image.BICUBIC))
     shine = Image.new("RGBA", layer.size, (0, 0, 0, 0))  # the shine on the glass, top left
