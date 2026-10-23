@@ -8,6 +8,7 @@ import io
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 from . import card as base
+from . import record_icons
 from . import stat_icons
 from .effective import piece_count
 from .embeds import ELEMENT_COLORS, ZZZ_RARITY, _is_zero, _name
@@ -258,9 +259,13 @@ def _rank_lamp(card: Image.Image, build: CharacterBuild, cx: float, cy: float, r
     dome_lamp(card, ZZZ_RARITY.get(build.rarity, "?"), cx, cy, r)
 
 
-def dome_lamp(card: Image.Image, letter: str, cx: float, cy: float, r: float = 26) -> None:
-    """A letter on a dome lamp: a glowing glass dome (gold for S, purple for A, blue for B) with a shine on it and the
-    letter printed on the glass in italics."""
+HOLO_GLASS = ((60, 64, 92, 255), (40, 34, 72, 235))  # the platinum lamp's ring and ink
+
+
+def dome_lamp(card: Image.Image, letter: str, cx: float, cy: float, r: float = 26, holo: bool = False) -> None:
+    """A letter on a dome lamp: a glowing glass dome (gold for S, purple for A, blue for B; holo: the platinum foil of
+    the top-ranking badge) with a shine on it and the letter printed on the glass in italics. "S+" puts a small plus
+    beside the S."""
     k = SS
     size = round(2 * r + 12)
     c = size * k / 2
@@ -270,29 +275,45 @@ def dome_lamp(card: Image.Image, letter: str, cx: float, cy: float, r: float = 2
     def disc(radius, fill, dx=0, dy=0):
         ImageDraw.Draw(layer).ellipse((c - radius + dx, c - radius + dy, c + radius + dx, c + radius + dy), fill=fill)
 
+    plus = letter.endswith("+")
+    letter = letter.rstrip("+") or "?"
     ring, tint, ink = RANK_GLASS.get(letter, RANK_GLASS["S"])
+    if holo:
+        ring, ink = HOLO_GLASS
     disc(dome + 2 * k, ring)
     # the glass dome: bright in the middle, deeper towards its edge
     glass = Image.radial_gradient("L").resize((round(2 * dome),) * 2)
-    lens = Image.merge("RGBA", tuple(glass.point(lambda v, top=top, fall=fall: top - v // fall) for top, fall in tint)
-                       + (Image.new("L", glass.size, 0),))
+    if holo:
+        lens = record_icons._bands(glass.size, record_icons.HOLO, 35)
+        edge = Image.new("RGBA", glass.size, (70, 80, 140, 255))
+        edge.putalpha(glass.point(lambda v: v // 3))
+        lens.alpha_composite(edge)
+    else:
+        lens = Image.merge("RGBA", tuple(glass.point(lambda v, top=top, fall=fall: top - v // fall) for top, fall in tint)
+                           + (Image.new("L", glass.size, 0),))
     lmask = Image.new("L", glass.size, 0)
     ImageDraw.Draw(lmask).ellipse((0, 0, glass.width - 1, glass.height - 1), fill=255)
     lens.putalpha(lmask)
     layer.alpha_composite(lens, (round(c - dome), round(c - dome)))
     text = Image.new("RGBA", layer.size, (0, 0, 0, 0))
     shape = BLOCK_LETTERS.get(letter)
-    if shape:  # a squared block letter, 10 x 12 units, centred on the glass
-        u = r * 0.075 * k
+    if shape:  # a squared block letter, 10 x 12 units, centred on the glass (moved left to make room for a plus)
+        u = r * (0.064 if plus else 0.075) * k
+        dx = -2.2 if plus else 0
         outer, *holes = shape
         mask = Image.new("L", layer.size, 0)
         md = ImageDraw.Draw(mask)
-        md.polygon([(c + (x - 5) * u, c + (y - 6) * u) for x, y in outer], fill=255)
+        md.polygon([(c + (x - 5 + dx) * u, c + (y - 6) * u) for x, y in outer], fill=255)
         for hole in holes:
-            md.polygon([(c + (x - 5) * u, c + (y - 6) * u) for x, y in hole], fill=0)
+            md.polygon([(c + (x - 5 + dx) * u, c + (y - 6) * u) for x, y in hole], fill=0)
+        if plus:
+            px, py, arm, half = c + 5.6 * u, c - 2.6 * u, 2.4 * u, 0.85 * u
+            md.rectangle((px - arm, py - half, px + arm, py + half), fill=255)
+            md.rectangle((px - half, py - arm, px + half, py + arm), fill=255)
         text.paste(ink, (0, 0), mask)
     else:
-        ImageDraw.Draw(text).text((c, c + 2 * k), letter, font=base._font("Bold", round(r * 1.35) * k), fill=ink, anchor="mm")
+        ImageDraw.Draw(text).text((c, c + 2 * k), letter + ("+" if plus else ""), font=base._font("Bold", round(r * 1.35) * k),
+                                  fill=ink, anchor="mm")
     slant = 0.2  # italics: lean the letter right, pivoting on its middle
     layer.alpha_composite(text.transform(text.size, Image.AFFINE, (1, slant, -slant * c, 0, 1, 0), Image.BICUBIC))
     shine = Image.new("RGBA", layer.size, (0, 0, 0, 0))  # the shine on the glass, top left

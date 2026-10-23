@@ -89,7 +89,7 @@ def _readout_w(draw: ImageDraw.ImageDraw, label: str, value: str) -> int:
 
 def _readout(card: Image.Image, box, label: str, value: str, big: bool = False, foil: bool = False) -> None:
     """A small screen with a printed label over the value (the rating on a dome lamp, stars as lamps). big: the
-    taller readouts beside a stage's cartridge. foil: the value in platinum foil."""
+    taller readouts beside a stage's cartridge. foil: the value (or the rating lamp) in platinum foil."""
     sx0, sy0, sx1, sy1 = z._bezel(card, box, 10, 5)
     draw = ImageDraw.Draw(card)
     cx = (sx0 + sx1) / 2
@@ -100,7 +100,7 @@ def _readout(card: Image.Image, box, label: str, value: str, big: bool = False, 
         z._silk(draw, (cx, sy0 + 14), label.upper(), centre=True)
         mid = (sy0 + 18 + sy1) / 2
     if key == "rating":
-        _rating(card, value, cx, mid, 24 if big else 20)
+        _rating(card, value, cx, mid, 24 if big else 20, foil)
         return
     stars = _stars(value) if key == "stars" else None
     if stars:
@@ -113,11 +113,9 @@ def _readout(card: Image.Image, box, label: str, value: str, big: bool = False, 
     draw.text((cx, mid + 1), value, font=font, fill=VALUE_COLOR.get(key, base.TEXT), anchor="mm")
 
 
-def _rating(card: Image.Image, letter: str, cx: float, cy: float, r: float) -> None:
-    """A rating on a dome lamp; S+ gets a small amber plus beside it."""
-    z.dome_lamp(card, letter[:1], cx, cy, r)
-    if letter.endswith("+"):
-        ImageDraw.Draw(card).text((cx + r + 3, cy - r + 2), "+", font=z.FONTS.mid, fill=z.AMBER, anchor="lm")
+def _rating(card: Image.Image, letter: str, cx: float, cy: float, r: float, holo: bool = False) -> None:
+    """A rating on a dome lamp (S+ printed on the glass), in platinum foil for a top-1% player."""
+    z.dome_lamp(card, letter, cx, cy, r, holo)
 
 
 def _button(card: Image.Image, box, text: str, lit: bool) -> None:
@@ -338,7 +336,7 @@ def draw_records(uid: str, records: list[Record], images: dict[str, Image.Image]
         top1 = any(label.lower() == "top" and _percent(value) <= 1 for label, value in record.headline)
         for label, value in reversed(record.headline):
             w = _readout_w(draw, label, value)
-            _readout(card, (right - w, y + 14, right, y + 74), label, value, foil=top1 and label.lower() == "score")
+            _readout(card, (right - w, y + 14, right, y + 74), label, value, foil=top1 and label.lower() in ("score", "rating"))
             right -= w + 10
         if record.empty or not record.teams:
             draw = ImageDraw.Draw(card)
