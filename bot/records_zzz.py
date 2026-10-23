@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import io
 
-from PIL import Image, ImageChops, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter
 
 from . import card as base
 from . import card_zzz as z
@@ -17,7 +17,7 @@ W = rc.W  # as wide as the other games' records
 PAD = 24
 GAP = 14
 INNER = 16  # a mode panel's padding round its teams
-MON_W, MON_H = 100, 112  # an agent's monitor
+MON_W, MON_H = 104, 108  # an agent's monitor, near square so a round icon's square loses little
 MON_GAP = 10
 BANGBOO = 68
 HEAD = 88  # a mode panel's header
@@ -93,7 +93,7 @@ def _readout(card: Image.Image, box, label: str, value: str, big: bool = False) 
     draw = ImageDraw.Draw(card)
     cx = (sx0 + sx1) / 2
     key = label.lower()
-    if key in UNLABELLED:
+    if key in UNLABELLED or big:  # the readouts beside a stage show just their value
         mid = (sy0 + sy1) / 2
     else:
         z._silk(draw, (cx, sy0 + 14), label.upper(), centre=True)
@@ -143,22 +143,12 @@ def _round(icon: Image.Image) -> bool:
 
 
 def _fill(icon: Image.Image, w: int, h: int) -> Image.Image:
-    """The picture filling w x h. A round icon keeps its framing, but its circle melts into a blurred, zoomed copy of
-    itself behind it, so no round edge shows."""
-    if not _round(icon):
-        return rc._cover(icon, w, h, top=False)
-    icon = icon.convert("RGBA")
-    m = round(min(icon.size) * 0.15)  # the square inside the circle
-    back = rc._cover(icon.crop((m, m, icon.width - m, icon.height - m)), w, h, top=False).filter(ImageFilter.GaussianBlur(5))
-    front = rc._cover(icon, w, h, top=False)
-    side = min(front.size)
-    edge = Image.new("L", front.size, 0)  # the circle, shrunk a little and feathered
-    inset = side * 0.07
-    ImageDraw.Draw(edge).ellipse(((w - side) / 2 + inset, (h - side) / 2 + inset, (w + side) / 2 - inset, (h + side) / 2 - inset),
-                                 fill=255)
-    front.putalpha(ImageChops.multiply(front.getchannel("A"), edge.filter(ImageFilter.GaussianBlur(side * 0.05))))
-    back.alpha_composite(front)
-    return back
+    """The picture filling w x h; a round icon is cut to the square inside its circle first, so no round edge shows."""
+    if _round(icon):
+        icon = icon.convert("RGBA")
+        m = round(min(icon.size) * 0.146)
+        icon = icon.crop((m, m, icon.width - m, icon.height - m))
+    return rc._cover(icon, w, h, top=False)
 
 
 def _monitor(card: Image.Image, member: Member, icon: Image.Image | None, x: int, y: int, w: int, h: int,
