@@ -243,16 +243,24 @@ BLOCK_LETTERS = {  # squared rank letters on a 10 x 12 grid with chamfered corne
     "A": ([(2, 0), (8, 0), (10, 2), (10, 12), (7, 12), (7, 8), (3, 8), (3, 12), (0, 12), (0, 2)], [(3, 3), (7, 3), (7, 5.5), (3, 5.5)]),
     "S": ([(2, 0), (10, 0), (10, 3), (3, 3), (3, 4.5), (8, 4.5), (10, 6.5), (10, 10), (8, 12), (0, 12), (0, 9), (7, 9),
            (7, 7.5), (2, 7.5), (0, 5.5), (0, 2)],),
+    "B": ([(0, 0), (8, 0), (10, 2), (10, 4.5), (9, 6), (10, 7.5), (10, 10), (8, 12), (0, 12)],
+          [(3, 3), (7, 3), (7, 4.5), (3, 4.5)], [(3, 7.5), (7, 7.5), (7, 9), (3, 9)]),
 }
 RANK_GLASS = {  # per rank: the ring under the glass, each colour channel's (centre value, fall-off divisor) and the ink
     "S": ((40, 30, 10, 255), ((255, 8), (240, 3), (140, 2)), (90, 44, 0, 235)),
     "A": ((30, 14, 44, 255), ((225, 4), (170, 2), (255, 8)), (52, 12, 86, 235)),
+    "B": ((10, 24, 44, 255), ((140, 2), (210, 3), (255, 8)), (8, 40, 86, 235)),
 }
 
 
 def _rank_lamp(card: Image.Image, build: CharacterBuild, cx: float, cy: float, r: float = 26) -> None:
-    """The rank as a big dome lamp set into the monitor's frame: a glowing glass dome (gold for S, purple for A)
-    with a shine on it and the letter printed on the glass in italics."""
+    """The rank as a big dome lamp set into the monitor's frame."""
+    dome_lamp(card, ZZZ_RARITY.get(build.rarity, "?"), cx, cy, r)
+
+
+def dome_lamp(card: Image.Image, letter: str, cx: float, cy: float, r: float = 26) -> None:
+    """A letter on a dome lamp: a glowing glass dome (gold for S, purple for A, blue for B) with a shine on it and the
+    letter printed on the glass in italics."""
     k = SS
     size = round(2 * r + 12)
     c = size * k / 2
@@ -262,7 +270,6 @@ def _rank_lamp(card: Image.Image, build: CharacterBuild, cx: float, cy: float, r
     def disc(radius, fill, dx=0, dy=0):
         ImageDraw.Draw(layer).ellipse((c - radius + dx, c - radius + dy, c + radius + dx, c + radius + dy), fill=fill)
 
-    letter = ZZZ_RARITY.get(build.rarity, "?")
     ring, tint, ink = RANK_GLASS.get(letter, RANK_GLASS["S"])
     disc(dome + 2 * k, ring)
     # the glass dome: bright in the middle, deeper towards its edge
