@@ -4,7 +4,9 @@ monitors, and the ratings on dome lamps."""
 
 from __future__ import annotations
 
+import functools
 import io
+from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter
 
@@ -15,6 +17,8 @@ from . import records_card as rc
 from .records import Member, Record, Team, copies_label
 
 W = rc.W  # as wide as the other games' records
+BADGES = Path(__file__).parent / "record_badges"  # each mode's emblem, from the game (zzz-<mode>.png)
+BADGE_H = 66
 PAD = 24
 GAP = 14
 INNER = 16  # a mode panel's padding round its teams
@@ -85,6 +89,16 @@ def _readout_w(draw: ImageDraw.ImageDraw, label: str, value: str) -> int:
         return 64
     shown = len(label) * 9 if label.lower() not in UNLABELLED else 0
     return round(max(draw.textlength(value, font=z.FONTS.read), shown) + 36)
+
+
+@functools.lru_cache(maxsize=None)
+def _badge(mode: str) -> Image.Image | None:
+    """The mode's emblem from the game, BADGE_H tall, or None when there's none."""
+    try:
+        pic = Image.open(BADGES / f"zzz-{mode}.png").convert("RGBA")
+    except OSError:
+        return None
+    return pic.resize((round(pic.width * BADGE_H / pic.height), BADGE_H), Image.LANCZOS)
 
 
 def _readout(card: Image.Image, box, label: str, value: str, big: bool = False, foil: bool = False) -> None:
@@ -328,6 +342,9 @@ def draw_records(uid: str, records: list[Record], images: dict[str, Image.Image]
         if record.season:
             z._silk(draw, (PAD + 46, y + 68), base._fit_text(draw, record.season.upper(), f.silk, 520))
         right = W - PAD - INNER
+        if (badge := _badge(record.mode)) is not None:  # the mode's emblem in the top right corner
+            card.alpha_composite(badge, (right - badge.width, y + 44 - BADGE_H // 2))
+            right -= badge.width + 14
         top1 = any(label.lower() == "top" and _percent(value) <= 1 for label, value in record.headline)
         for label, value in reversed(record.headline):
             w = _readout_w(draw, label, value)
