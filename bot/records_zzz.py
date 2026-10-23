@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import io
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 from . import card as base
 from . import card_zzz as z
@@ -75,13 +75,15 @@ def _stars(value: str) -> tuple[int, int] | None:
         return None
 
 
+UNLABELLED = {"score", "time", "rating"}  # plain numbers, no printed label (Syphex's pick)
 VALUE_COLOR = {"score": z.AMBER, "top": z.TEAL, "time": z.TEAL, "stars": z.AMBER}
 
 
 def _readout_w(draw: ImageDraw.ImageDraw, label: str, value: str) -> int:
     if label.lower() == "rating":
-        return 92
-    return round(max(draw.textlength(value, font=z.FONTS.read), len(label) * 9) + 36)
+        return 64
+    shown = len(label) * 9 if label.lower() not in UNLABELLED else 0
+    return round(max(draw.textlength(value, font=z.FONTS.read), shown) + 36)
 
 
 def _readout(card: Image.Image, box, label: str, value: str, big: bool = False) -> None:
@@ -90,11 +92,14 @@ def _readout(card: Image.Image, box, label: str, value: str, big: bool = False) 
     sx0, sy0, sx1, sy1 = z._bezel(card, box, 10, 5)
     draw = ImageDraw.Draw(card)
     cx = (sx0 + sx1) / 2
-    z._silk(draw, (cx, sy0 + 14), label.upper(), centre=True)
-    mid = (sy0 + 18 + sy1) / 2
     key = label.lower()
+    if key in UNLABELLED:
+        mid = (sy0 + sy1) / 2
+    else:
+        z._silk(draw, (cx, sy0 + 14), label.upper(), centre=True)
+        mid = (sy0 + 18 + sy1) / 2
     if key == "rating":
-        _rating(card, value, cx, mid + 1, 24 if big else 16)
+        _rating(card, value, cx, mid, 24 if big else 20)
         return
     stars = _stars(value) if key == "stars" else None
     if stars:
@@ -131,6 +136,31 @@ def _button(card: Image.Image, box, text: str, lit: bool) -> None:
     card.alpha_composite(layer.resize((w, h), Image.LANCZOS), (x0, y0))
 
 
+def _round(icon: Image.Image) -> bool:
+    """Whether the picture is a round icon (like the outfit pictures, IconRoleCircle): see-through corners."""
+    a = icon.convert("RGBA").getchannel("A")
+    return max(a.getpixel((x, y)) for x in (2, icon.width - 3) for y in (2, icon.height - 3)) <= 16
+
+
+def _fill(icon: Image.Image, w: int, h: int) -> Image.Image:
+    """The picture filling w x h. A round icon keeps its framing, but its circle melts into a blurred, zoomed copy of
+    itself behind it, so no round edge shows."""
+    if not _round(icon):
+        return rc._cover(icon, w, h, top=False)
+    icon = icon.convert("RGBA")
+    m = round(min(icon.size) * 0.15)  # the square inside the circle
+    back = rc._cover(icon.crop((m, m, icon.width - m, icon.height - m)), w, h, top=False).filter(ImageFilter.GaussianBlur(5))
+    front = rc._cover(icon, w, h, top=False)
+    side = min(front.size)
+    edge = Image.new("L", front.size, 0)  # the circle, shrunk a little and feathered
+    inset = side * 0.07
+    ImageDraw.Draw(edge).ellipse(((w - side) / 2 + inset, (h - side) / 2 + inset, (w + side) / 2 - inset, (h + side) / 2 - inset),
+                                 fill=255)
+    front.putalpha(ImageChops.multiply(front.getchannel("A"), edge.filter(ImageFilter.GaussianBlur(side * 0.05))))
+    back.alpha_composite(front)
+    return back
+
+
 def _monitor(card: Image.Image, member: Member, icon: Image.Image | None, x: int, y: int, w: int, h: int,
              button: bool = True) -> None:
     """An agent on a little CRT: the picture on glass tinted by rarity (gold S, purple A), scanlines, the level
@@ -141,18 +171,18 @@ def _monitor(card: Image.Image, member: Member, icon: Image.Image | None, x: int
     grad = Image.linear_gradient("L").resize((gw, gh))
     glass = Image.composite(Image.new("RGBA", (gw, gh), bottom + (255,)), Image.new("RGBA", (gw, gh), top + (255,)), grad)
     if icon is not None:
-        glass.alpha_composite(rc._cover(icon, gw, gh))
-    shade = Image.linear_gradient("L").resize((gw, 26)).point(lambda v: v * 0.85)  # dark under the level
-    strip = Image.new("RGBA", (gw, 26), (6, 6, 10, 255))
+        glass.alpha_composite(_fill(icon, gw, gh))
+    shade = Image.linear_gradient("L").resize((gw, 30)).point(lambda v: min(235, round(v * 1.6)))  # dark under the level
+    strip = Image.new("RGBA", (gw, 30), (6, 6, 10, 255))
     strip.putalpha(shade)
-    glass.alpha_composite(strip, (0, gh - 26))
+    glass.alpha_composite(strip, (0, gh - 30))
     mask = Image.new("L", (gw, gh), 0)
     ImageDraw.Draw(mask).rounded_rectangle((0, 0, gw - 1, gh - 1), 5, fill=255)
     card.paste(glass, (sx0, sy0), mask)
     z._scanlines(card, (sx0, sy0, sx1, sy1), 34)
     draw = ImageDraw.Draw(card)
     if member.level:
-        draw.text((sx0 + 6, sy1 - 9), "LV", font=z.FONTS.silk, fill=z.SILK, anchor="ls")
+        draw.text((sx0 + 6, sy1 - 9), "LV", font=z.FONTS.silk, fill=(196, 192, 214), anchor="ls")
         draw.text((sx0 + 23, sy1 - 8), str(member.level), font=z._rubik(14, 700), fill=base.TEXT, anchor="ls")
     label = copies_label("zzz", member) if button else ""
     if label:
@@ -173,14 +203,15 @@ def _chips(card: Image.Image, chips: list[tuple[str, str]], cx: float, cy: float
             w = of * 20 - 6
             parts.append((w, lambda x, got=got, of=of, w=w: _sockets(card, x + w / 2, cy, got, of, 7)))
         else:
-            label = {"score": "SCORE", "time": "TIME", "cycles": "CYCLES"}.get(kind, kind.upper())
-            lw = sum(draw.textlength(ch, font=f.silk) for ch in label) + 2.4 * (len(label) - 1)
-            w = lw + 8 + draw.textlength(value, font=f.mid)
+            label = "" if kind in UNLABELLED else kind.upper()
+            lw = sum(draw.textlength(ch, font=f.silk) for ch in label) + 2.4 * (len(label) - 1) + 8 if label else 0
+            w = lw + draw.textlength(value, font=f.mid)
             color = VALUE_COLOR.get(kind, base.TEXT)
 
             def put(x, label=label, value=value, lw=lw, color=color):
-                z._silk(draw, (x, cy + 4), label)
-                draw.text((x + lw + 8, cy + 1), value, font=f.mid, fill=color, anchor="lm")
+                if label:
+                    z._silk(draw, (x, cy + 4), label)
+                draw.text((x + lw, cy + 1), value, font=f.mid, fill=color, anchor="lm")
             parts.append((w, put))
     gap = 22
     total = sum(w for w, _ in parts) + gap * (len(parts) - 1)
