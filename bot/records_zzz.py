@@ -240,6 +240,11 @@ def _chips(card: Image.Image, chips: list[tuple[str, str]], cx: float, cy: float
     gap = 22
     total = sum(w for w, _ in parts) + gap * (len(parts) - 1)
     x = cx - total / 2
+    if parts:  # a dark see-through pill behind the row, so it reads on any boss picture
+        pill = Image.new("RGBA", card.size, (0, 0, 0, 0))
+        ImageDraw.Draw(pill).rounded_rectangle((x - 14, cy - 15, x + total + 14, cy + 15), radius=15,
+                                               fill=(8, 8, 14, 175), outline=(255, 255, 255, 28))
+        card.alpha_composite(pill)
     for w, put in parts:
         put(x)
         x += w + gap
