@@ -107,10 +107,13 @@ def _readout(card: Image.Image, box, label: str, value: str, big: bool = False, 
         _sockets(card, cx, mid, *stars, r=13 if big else 9)
         return
     font = z._rubik(30, 700) if big else z.FONTS.read
+    if key in ("top", "adversity top"):  # coloured like the ranking badge: platinum foil for the top 1%, else gold
+        foil = _percent(value) <= 1
     if foil:
         _foil_text(card, (cx, mid + 1), value, font, "mm")
         return
-    draw.text((cx, mid + 1), value, font=font, fill=VALUE_COLOR.get(key, base.TEXT), anchor="mm")
+    color = SCORE_GOLD if key in ("top", "adversity top") else VALUE_COLOR.get(key, base.TEXT)
+    draw.text((cx, mid + 1), value, font=font, fill=color, anchor="mm")
 
 
 def _rating(card: Image.Image, letter: str, cx: float, cy: float, r: float, holo: bool = False) -> None:
