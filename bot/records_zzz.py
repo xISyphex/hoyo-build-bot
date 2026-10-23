@@ -10,6 +10,7 @@ from PIL import Image, ImageDraw, ImageFilter
 
 from . import card as base
 from . import card_zzz as z
+from . import record_icons
 from . import records_card as rc
 from .records import Member, Record, Team, copies_label
 
@@ -86,9 +87,9 @@ def _readout_w(draw: ImageDraw.ImageDraw, label: str, value: str) -> int:
     return round(max(draw.textlength(value, font=z.FONTS.read), shown) + 36)
 
 
-def _readout(card: Image.Image, box, label: str, value: str, big: bool = False) -> None:
+def _readout(card: Image.Image, box, label: str, value: str, big: bool = False, foil: bool = False) -> None:
     """A small screen with a printed label over the value (the rating on a dome lamp, stars as lamps). big: the
-    taller readouts beside a stage's cartridge."""
+    taller readouts beside a stage's cartridge. foil: the value in platinum foil."""
     sx0, sy0, sx1, sy1 = z._bezel(card, box, 10, 5)
     draw = ImageDraw.Draw(card)
     cx = (sx0 + sx1) / 2
@@ -106,6 +107,9 @@ def _readout(card: Image.Image, box, label: str, value: str, big: bool = False) 
         _sockets(card, cx, mid, *stars, r=13 if big else 9)
         return
     font = z._rubik(30, 700) if big else z.FONTS.read
+    if foil:
+        _foil_text(card, (cx, mid + 1), value, font, "mm")
+        return
     draw.text((cx, mid + 1), value, font=font, fill=VALUE_COLOR.get(key, base.TEXT), anchor="mm")
 
 
@@ -180,6 +184,41 @@ def _monitor(card: Image.Image, member: Member, icon: Image.Image | None, x: int
         _button(card, (sx0 + 4, sy0 + 4, sx0 + 4 + bw, sy0 + 22), label, bool(member.copies))
 
 
+def _percent(value: str) -> float:
+    """'0.85%' -> 0.85 (100 when it isn't a percentage)."""
+    try:
+        return float(value.strip().rstrip("%"))
+    except ValueError:
+        return 100.0
+
+
+SCORE_GOLD, SCORE_PURPLE = (255, 204, 96), (200, 150, 255)
+
+
+def _score_text(card: Image.Image, xy, value: str, font) -> None:
+    """A team's score in its tier's colour: platinum (the holographic foil of the top-ranking badge) at 50,000,
+    gold from 25,000, purple below that."""
+    try:
+        score = int(value.replace(",", ""))
+    except ValueError:
+        score = 0
+    if score < 50000:
+        ImageDraw.Draw(card).text(xy, value, font=font, fill=SCORE_GOLD if score >= 25000 else SCORE_PURPLE, anchor="lm")
+    else:
+        _foil_text(card, xy, value, font, "lm")
+
+
+def _foil_text(card: Image.Image, xy, value: str, font, anchor: str) -> None:
+    """Text in the holographic foil of the top-ranking badge."""
+    mask = Image.new("L", card.size, 0)
+    ImageDraw.Draw(mask).text(xy, value, font=font, fill=255, anchor=anchor)
+    box = mask.getbbox()
+    if not box:
+        return
+    foil = record_icons._bands((box[2] - box[0], box[3] - box[1]), record_icons.HOLO, 35)
+    card.paste(foil, box[:2], mask.crop(box))
+
+
 def _chips(card: Image.Image, chips: list[tuple[str, str]], cx: float, cy: float) -> None:
     """A team's results in a row: the rating lamp, the stars as lamps, the score and time as printed readings."""
     draw = ImageDraw.Draw(card)
@@ -187,8 +226,8 @@ def _chips(card: Image.Image, chips: list[tuple[str, str]], cx: float, cy: float
     parts = []  # (width, drawer)
     for kind, value in chips:
         if kind == "rating":
-            parts.append((30, lambda x, v=value: _rating(card, v, x + 15, cy, 13)))
-        elif kind == "stars" and _stars(value):
+            continue  # the score's colour tells the rating
+        if kind == "stars" and _stars(value):
             got, of = _stars(value)
             w = of * 20 - 6
             parts.append((w, lambda x, got=got, of=of, w=w: _sockets(card, x + w / 2, cy, got, of, 7)))
@@ -198,10 +237,13 @@ def _chips(card: Image.Image, chips: list[tuple[str, str]], cx: float, cy: float
             w = lw + draw.textlength(value, font=f.mid)
             color = VALUE_COLOR.get(kind, base.TEXT)
 
-            def put(x, label=label, value=value, lw=lw, color=color):
+            def put(x, kind=kind, label=label, value=value, lw=lw, color=color):
                 if label:
                     z._silk(draw, (x, cy + 4), label)
-                draw.text((x + lw, cy + 1), value, font=f.mid, fill=color, anchor="lm")
+                if kind == "score":
+                    _score_text(card, (x + lw, cy + 1), value, f.mid)
+                else:
+                    draw.text((x + lw, cy + 1), value, font=f.mid, fill=color, anchor="lm")
             parts.append((w, put))
     gap = 22
     total = sum(w for w, _ in parts) + gap * (len(parts) - 1)
@@ -284,9 +326,10 @@ def draw_records(uid: str, records: list[Record], images: dict[str, Image.Image]
         if record.season:
             z._silk(draw, (PAD + 46, y + 68), base._fit_text(draw, record.season.upper(), f.silk, 520))
         right = W - PAD - INNER
+        top1 = any(label.lower() == "top" and _percent(value) <= 1 for label, value in record.headline)
         for label, value in reversed(record.headline):
             w = _readout_w(draw, label, value)
-            _readout(card, (right - w, y + 14, right, y + 74), label, value)
+            _readout(card, (right - w, y + 14, right, y + 74), label, value, foil=top1 and label.lower() == "score")
             right -= w + 10
         if record.empty or not record.teams:
             draw = ImageDraw.Draw(card)

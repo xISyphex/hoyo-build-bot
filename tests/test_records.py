@@ -1,7 +1,7 @@
 import io
 import unittest
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 import records_fakes as F
 from bot import records as R
@@ -131,3 +131,17 @@ class DrawTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ZzzDashboardTest(unittest.TestCase):
+    def test_top_percent_reads_as_a_number(self):
+        from bot.records_zzz import _percent
+        self.assertEqual(_percent("0.84%"), 0.84)
+        self.assertEqual(_percent("-"), 100.0)
+
+    def test_round_icons_are_spotted(self):
+        from bot.records_zzz import _round
+        round_icon = Image.new("RGBA", (40, 40), (0, 0, 0, 0))
+        ImageDraw.Draw(round_icon).ellipse((0, 0, 39, 39), fill=(200, 100, 50, 255))
+        self.assertTrue(_round(round_icon))
+        self.assertFalse(_round(Image.new("RGBA", (40, 40), (200, 100, 50, 255))))
