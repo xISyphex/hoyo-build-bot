@@ -192,20 +192,29 @@ def _percent(value: str) -> float:
         return 100.0
 
 
-SCORE_GOLD, SCORE_PURPLE = (255, 204, 96), (200, 150, 255)
+SCORE_GOLD, SCORE_PURPLE, SCORE_BLUE = (255, 204, 96), (200, 150, 255), (112, 176, 255)  # S, A, B
+# Per mode: a team's score from which it shows in platinum foil, then gold, then purple (below: blue)
+SCORE_TIERS = {"sd": (50000, 25000, 0), "da": (65000, 20000, 14000)}
 
 
-def _score_text(card: Image.Image, xy, value: str, font) -> None:
-    """A team's score in its tier's colour: platinum (the holographic foil of the top-ranking badge) at 50,000,
-    gold from 25,000, purple below that."""
+def score_tier(mode: str, value: str) -> str:
+    """'platinum', 'gold', 'purple' or 'blue' for a team's score in this mode (Syphex's thresholds)."""
     try:
         score = int(value.replace(",", ""))
     except ValueError:
         score = 0
-    if score < 50000:
-        ImageDraw.Draw(card).text(xy, value, font=font, fill=SCORE_GOLD if score >= 25000 else SCORE_PURPLE, anchor="lm")
-    else:
+    platinum, gold, purple = SCORE_TIERS.get(mode, SCORE_TIERS["sd"])
+    return "platinum" if score >= platinum else "gold" if score >= gold else "purple" if score >= purple else "blue"
+
+
+def _score_text(card: Image.Image, xy, value: str, font, mode: str) -> None:
+    """A team's score in its tier's colour; platinum is the holographic foil of the top-ranking badge."""
+    tier = score_tier(mode, value)
+    if tier == "platinum":
         _foil_text(card, xy, value, font, "lm")
+    else:
+        fill = {"gold": SCORE_GOLD, "purple": SCORE_PURPLE, "blue": SCORE_BLUE}[tier]
+        ImageDraw.Draw(card).text(xy, value, font=font, fill=fill, anchor="lm")
 
 
 def _foil_text(card: Image.Image, xy, value: str, font, anchor: str) -> None:
@@ -219,7 +228,7 @@ def _foil_text(card: Image.Image, xy, value: str, font, anchor: str) -> None:
     card.paste(foil, box[:2], mask.crop(box))
 
 
-def _chips(card: Image.Image, chips: list[tuple[str, str]], cx: float, cy: float) -> None:
+def _chips(card: Image.Image, chips: list[tuple[str, str]], cx: float, cy: float, mode: str) -> None:
     """A team's results in a row: the rating lamp, the stars as lamps, the score and time as printed readings."""
     draw = ImageDraw.Draw(card)
     f = z.FONTS
@@ -241,7 +250,7 @@ def _chips(card: Image.Image, chips: list[tuple[str, str]], cx: float, cy: float
                 if label:
                     z._silk(draw, (x, cy + 4), label)
                 if kind == "score":
-                    _score_text(card, (x + lw, cy + 1), value, f.mid)
+                    _score_text(card, (x + lw, cy + 1), value, f.mid, mode)
                 else:
                     draw.text((x + lw, cy + 1), value, font=f.mid, fill=color, anchor="lm")
             parts.append((w, put))
@@ -253,7 +262,7 @@ def _chips(card: Image.Image, chips: list[tuple[str, str]], cx: float, cy: float
         x += w + gap
 
 
-def _team(card: Image.Image, team: Team, images: dict, box) -> None:
+def _team(card: Image.Image, team: Team, images: dict, box, mode: str) -> None:
     """A team as a cartridge: its name, its agents (and Bangboo) on monitors, its results under them."""
     x0, y0, x1, y1 = box
     sx0, sy0, sx1, sy1 = z._bezel(card, box, 12, 5)
@@ -276,7 +285,7 @@ def _team(card: Image.Image, team: Team, images: dict, box) -> None:
         b = team.bangboo
         _monitor(card, b, images.get(b.icon_url or ""), x, top + MON_H - BANGBOO, BANGBOO, BANGBOO, button=False)
     if team.chips:
-        _chips(card, team.chips, (sx0 + sx1) / 2, sy1 - CHIPS_H / 2 - 2)
+        _chips(card, team.chips, (sx0 + sx1) / 2, sy1 - CHIPS_H / 2 - 2, mode)
 
 
 def _stage_line(card: Image.Image, text: str, y: float, x0: float, x1: float, color) -> None:
@@ -347,7 +356,7 @@ def draw_records(uid: str, records: list[Record], images: dict[str, Image.Image]
             for team in row:
                 if team.plight:
                     rc._shimmer(card, (bx, by, bx + col_w, by + TEAM_H))
-                _team(card, team, images, (bx, by, bx + col_w, by + TEAM_H))
+                _team(card, team, images, (bx, by, bx + col_w, by + TEAM_H), record.mode)
                 edge = bx - 2 * GAP
                 for label, value in reversed(team.left):
                     _readout(card, (edge - SIDE_W, by + 30, edge, by + TEAM_H - 30), label, value, True)

@@ -145,3 +145,9 @@ class ZzzDashboardTest(unittest.TestCase):
         ImageDraw.Draw(round_icon).ellipse((0, 0, 39, 39), fill=(200, 100, 50, 255))
         self.assertTrue(_round(round_icon))
         self.assertFalse(_round(Image.new("RGBA", (40, 40), (200, 100, 50, 255))))
+
+    def test_score_tiers_per_mode(self):
+        from bot.records_zzz import score_tier
+        self.assertEqual([score_tier("sd", v) for v in ("51,000", "25,000", "24,999")], ["platinum", "gold", "purple"])
+        self.assertEqual([score_tier("da", v) for v in ("65,000", "20,000", "14,000", "13,999")],
+                         ["platinum", "gold", "purple", "blue"])
