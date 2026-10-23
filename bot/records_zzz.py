@@ -337,14 +337,16 @@ def draw_records(uid: str, records: list[Record], images: dict[str, Image.Image]
         color = MODE_LAMP.get(record.mode, z.AMBER)
         z._bezel(card, (PAD, y, W - PAD, y + h), 14, 0, z.BODY_DARK)
         draw = ImageDraw.Draw(card)
-        _pilot(card, PAD + 26, y + 34, color)
-        draw.text((PAD + 44, y + 44), record.title.upper(), font=z._rubik(28, 800), fill=base.TEXT, anchor="ls")
+        tx = PAD + 44  # where the title starts: after the mode's emblem from the game, else a pilot lamp
+        if (badge := _badge(record.mode)) is not None:
+            card.alpha_composite(badge, (PAD + INNER, y + 44 - BADGE_H // 2))
+            tx = PAD + INNER + badge.width + 12
+        else:
+            _pilot(card, PAD + 26, y + 34, color)
+        draw.text((tx, y + 44), record.title.upper(), font=z._rubik(28, 800), fill=base.TEXT, anchor="ls")
         if record.season:
-            z._silk(draw, (PAD + 46, y + 68), base._fit_text(draw, record.season.upper(), f.silk, 520))
+            z._silk(draw, (tx + 2, y + 68), base._fit_text(draw, record.season.upper(), f.silk, 520))
         right = W - PAD - INNER
-        if (badge := _badge(record.mode)) is not None:  # the mode's emblem in the top right corner
-            card.alpha_composite(badge, (right - badge.width, y + 44 - BADGE_H // 2))
-            right -= badge.width + 14
         top1 = any(label.lower() == "top" and _percent(value) <= 1 for label, value in record.headline)
         for label, value in reversed(record.headline):
             w = _readout_w(draw, label, value)
