@@ -138,37 +138,6 @@ def _button(card: Image.Image, box, text: str, lit: bool) -> None:
     card.alpha_composite(layer.resize((w, h), Image.LANCZOS), (x0, y0))
 
 
-def _round(icon: Image.Image) -> bool:
-    """Whether the picture is a round icon (like the outfit pictures, IconRoleCircle): see-through corners."""
-    a = icon.convert("RGBA").getchannel("A")
-    return max(a.getpixel((x, y)) for x in (2, icon.width - 3) for y in (2, icon.height - 3)) <= 16
-
-
-ZOOM_OUT = 1.25  # how much room a round icon gets around it
-
-
-def _fill(icon: Image.Image, w: int, h: int) -> Image.Image:
-    """The picture filling w x h. A round icon sits whole in a bigger square, and everything outside its circle takes
-    the colour at the circle's edge (stretched outwards), so no round edge shows and the face isn't zoomed in."""
-    if not _round(icon):
-        return rc._cover(icon, w, h, top=False)
-    import numpy as np
-    px = np.asarray(icon.convert("RGBA")).astype(np.float32)
-    size = px.shape[0]
-    r = size / 2 - 2  # a hair inside the circle's edge
-    out = round(size * ZOOM_OUT)  # a bigger square around the circle, so the whole head shows
-    ys, xs = np.mgrid[0:out, 0:out].astype(np.float32) + 0.5
-    dx, dy = xs - out / 2, ys - out / 2
-    d = np.maximum(np.hypot(dx, dy), 1e-3)
-    scale = np.minimum(1, r / d)  # outside the circle: back along the same line to its edge
-    sx = np.clip(size / 2 + dx * scale, 0, size - 1).astype(int)
-    sy = np.clip(size / 2 + dy * scale, 0, size - 1).astype(int)
-    filled = px[sy, sx]
-    filled[..., 3] = 255
-    square = Image.fromarray(filled.astype(np.uint8), "RGBA")
-    return rc._cover(square, w, h, top=False)
-
-
 def _monitor(card: Image.Image, member: Member, icon: Image.Image | None, x: int, y: int, w: int, h: int,
              button: bool = True) -> None:
     """An agent on a little CRT: the picture on glass tinted by rarity (gold S, purple A), scanlines, the level
@@ -179,7 +148,7 @@ def _monitor(card: Image.Image, member: Member, icon: Image.Image | None, x: int
     grad = Image.linear_gradient("L").resize((gw, gh))
     glass = Image.composite(Image.new("RGBA", (gw, gh), bottom + (255,)), Image.new("RGBA", (gw, gh), top + (255,)), grad)
     if icon is not None:
-        glass.alpha_composite(_fill(icon, gw, gh))
+        glass.alpha_composite(rc._cover(icon, gw, gh, top=False))  # HoYoLAB's square agent picture, uncropped
     shade = Image.linear_gradient("L").resize((gw, 30)).point(lambda v: min(235, round(v * 1.6)))  # dark under the level
     strip = Image.new("RGBA", (gw, 30), (6, 6, 10, 255))
     strip.putalpha(shade)
