@@ -237,17 +237,19 @@ def _chips(card: Image.Image, chips: list[tuple[str, str]], cx: float, cy: float
                 else:
                     draw.text((x + lw, cy + 1), value, font=f.mid, fill=color, anchor="lm")
             parts.append((w, put))
-    gap = 22
-    total = sum(w for w, _ in parts) + gap * (len(parts) - 1)
+    pad, gap = 12, 10  # each result on its own dark see-through pill, so it reads on any boss picture
+    total = sum(w + 2 * pad for w, _ in parts) + gap * (len(parts) - 1)
     x = cx - total / 2
-    if parts:  # a dark see-through pill behind the row, so it reads on any boss picture
-        pill = Image.new("RGBA", card.size, (0, 0, 0, 0))
-        ImageDraw.Draw(pill).rounded_rectangle((x - 14, cy - 15, x + total + 14, cy + 15), radius=15,
-                                               fill=(8, 8, 14, 175), outline=(255, 255, 255, 28))
-        card.alpha_composite(pill)
+    pill = Image.new("RGBA", card.size, (0, 0, 0, 0))
+    pd = ImageDraw.Draw(pill)
+    for w, _ in parts:
+        pd.rounded_rectangle((x, cy - 15, x + w + 2 * pad, cy + 15), radius=15, fill=(8, 8, 14, 175), outline=(255, 255, 255, 28))
+        x += w + 2 * pad + gap
+    card.alpha_composite(pill)
+    x = cx - total / 2
     for w, put in parts:
-        put(x)
-        x += w + gap
+        put(x + pad)
+        x += w + 2 * pad + gap
 
 
 def _team(card: Image.Image, team: Team, images: dict, box, mode: str) -> None:
