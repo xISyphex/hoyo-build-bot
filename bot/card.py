@@ -21,7 +21,7 @@ import aiohttp
 from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageFont
 
 from .effective import EffectiveStats, piece_count
-from .face import find_face
+from .face import find_face, find_portrait_face
 from .embeds import ELEMENT_COLORS, GAME_LABELS, ZZZ_RARITY, _is_zero, _name
 from . import stat_icons
 from .models import CharacterBuild, Gear, PlayerProfile
@@ -524,6 +524,9 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     if build.game == "zzz":  # its own retro dashboard design
         from . import card_zzz
         return card_zzz.draw_card(build, images, uid, wanted, face)
+    if build.game == "hsr":  # the Astral Express's navigation hologram
+        from . import card_hsr
+        return card_hsr.draw_card(build, images, uid, wanted, face)
     global FONTS
     FONTS = FONTS or Fonts()
     f = FONTS
@@ -1214,9 +1217,13 @@ class CardMaker:
         art_max = FULL_ART_MAX if build.game == "zzz" else ART_MAX
         mindscape = set(mindscape_urls(build)[:2]) - {None}
         urls |= mindscape
+        if build.game == "hsr":  # the light cone's full art
+            from .card_hsr import lc_art_url
+            mindscape |= {lc_art_url(build)} - {None}
+            urls |= mindscape
         loaded = await asyncio.gather(*(self._image(u, art_max if u == build.art_url or u in mindscape else ICON_MAX) for u in urls))
         images = {u: img for u, img in zip(urls, loaded) if img is not None}
-        face = await self._face(build, images) if build.game == "zzz" else None
+        face = await self._face(build, images) if build.game in ("zzz", "hsr") else None
         png = await asyncio.to_thread(draw_card, build, images, profile.uid, wanted, face)
         if len(self.cards) >= 40:
             self.cards.pop(next(iter(self.cards)))
@@ -1245,7 +1252,7 @@ class CardMaker:
         return await asyncio.to_thread(draw_patch, info, images, now)
 
     async def _face(self, build: CharacterBuild, images: dict[str, Image.Image]) -> tuple[float, float, float] | None:
-        """Where the face is in a ZZZ agent's picture, found once per picture and kept in faces.json."""
+        """Where the face is in a ZZZ agent's or Star Rail character's picture, found once per picture and kept in faces.json."""
         art = images.get(build.art_url or "")
         if art is None:
             return None
@@ -1255,7 +1262,8 @@ class CardMaker:
             except (OSError, ValueError):
                 self.faces = {}
         if build.art_url not in self.faces:
-            x, y, size = await asyncio.to_thread(find_face, art, images.get(build.icon_url or ""), build.art_url)
+            finder = find_portrait_face if build.game == "hsr" else find_face
+            x, y, size = await asyncio.to_thread(finder, art, images.get(build.icon_url or ""), build.art_url)
             self.faces[build.art_url] = [x / art.width, y / art.height, size / art.height]  # shares, whatever the size
             try:
                 self.faces_path.write_text(json.dumps(self.faces), encoding="utf-8")

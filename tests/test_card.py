@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from types import SimpleNamespace
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from bot.card import H, W, CardMaker, crit_value, draw_card, gear_value, server_name
 from bot.effective import EffectiveStats, hsr_names, piece_count, zzz_names
@@ -200,6 +200,33 @@ class FaceTest(unittest.TestCase):
         art, _ = self._figure()
         png = draw_card(build, {build.art_url: art}, face=(250, 200, 120))
         self.assertEqual(Image.open(io.BytesIO(png)).size, (W, H))
+
+    def test_portrait_face_is_found_anywhere_and_a_weak_match_falls_back_to_the_middle(self):
+        from bot import face as facemod
+        if facemod.cv2 is None:
+            self.skipTest("OpenCV not installed")
+        icon = Image.new("RGBA", (120, 120), (230, 200, 180, 255))  # a simple face with big shapes
+        d = ImageDraw.Draw(icon)
+        d.ellipse((20, 30, 50, 60), fill=(20, 20, 60, 255))
+        d.ellipse((70, 30, 100, 60), fill=(20, 20, 60, 255))
+        d.rectangle((35, 85, 85, 100), fill=(160, 30, 40, 255))
+        low = Image.new("RGBA", (500, 1000), (40, 90, 60, 255))
+        low.paste(icon, (190, 740))  # the face low in a full scene
+        x, y, _ = facemod.find_portrait_face(low, icon)
+        self.assertAlmostEqual(x, 250, delta=12)
+        self.assertAlmostEqual(y, 800, delta=12)
+        x, y, _ = facemod.find_portrait_face(Image.new("RGBA", (500, 1000), (40, 40, 40, 255)), icon)
+        self.assertEqual((x, y), (250, 350))
+
+    def test_hsr_card_puts_the_face_in_the_same_spot(self):
+        from bot import card_hsr
+        build = starrail.parse_profile(load_assets(), "800069903", fixture("hsr_live.json")).characters[0]
+        art = Image.new("RGBA", (1100, 1100), (0, 0, 0, 255))
+        art.paste((255, 0, 255, 255), (700, 300, 780, 380))  # the "face", right of the middle
+        card = Image.open(io.BytesIO(draw_card(build, {build.art_url: art}, face=(740, 340, 80)))).convert("RGB")
+        r, g, b = card.getpixel(card_hsr.FACE_AT)
+        self.assertGreater(r, 150)
+        self.assertGreater(b, 150)
 
 
 def _panel_box() -> tuple[int, int, int, int]:
