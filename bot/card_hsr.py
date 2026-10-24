@@ -28,7 +28,8 @@ PANEL = (3, 30, 42, 222)
 CUT = 16  # the panels' cut corners
 PAD = 24
 ART_W = 520
-ART_CENTRE = 225  # the card x the character's face is put on
+FACE_AT = (210, 250)  # where on the card every character's face goes
+FACE_SIZE = 70  # and how big it is at least, in card pixels
 STATS_X, STATS_W = 458, 250
 GEAR_X = 724
 LC_W, LC_H = 150, 210  # the light cone's full art, as a projected card
@@ -149,21 +150,27 @@ def _pad(card: Image.Image, cx: float, cy: float, rx: float, ry: float) -> None:
     card.alpha_composite(layer, (round(cx - w / 2), round(cy - (h - ry - 30))))
 
 
-def _art(card: Image.Image, art: Image.Image | None, face_x: float | None = None) -> None:
+def _art(card: Image.Image, art: Image.Image | None, face=None) -> None:
     """The character, projected: fading out before the stats and at the very bottom, with scanlines across it and
-    a cyan edge light. face_x (in the picture's pixels) goes to ART_CENTRE when the picture is wide enough."""
+    a cyan edge light. With the face known (centre x, y and size in the picture's pixels), every character is framed
+    the same way: the face at FACE_AT and at least FACE_SIZE big, as far as the picture reaches."""
     if art is None:
         return
     art = art.convert("RGBA")
-    scale = (H + 20) / art.height
-    if art.width * scale < ART_W:
-        scale = ART_W / art.width
+    scale = max((H + 20) / art.height, ART_W / art.width)  # the smallest size that still fills the space
+    if face:
+        scale = min(max(scale, FACE_SIZE / face[2]), 1.0)  # small faces are enlarged, never past the picture's own size
     art = art.resize((round(art.width * scale), round(art.height * scale)), Image.LANCZOS)
-    left = (art.width - ART_W) // 2
-    if face_x is not None:
-        left = round(face_x * scale) - (ART_CENTRE + 40)  # the picture is pasted 40px left of the card's edge
-    left = min(max(left, 0), max(art.width - ART_W, 0))
-    art = art.crop((left, 0, left + ART_W, H))
+    # where the picture's top left corner goes on the canvas, which starts 40px left of the card's edge
+    if face:
+        px, py = FACE_AT[0] + 40 - face[0] * scale, FACE_AT[1] - face[1] * scale
+    else:
+        px, py = (ART_W - art.width) / 2, 0
+    px = min(max(px, ART_W - art.width), 0)  # no empty strip on either side or at the top
+    py = min(max(py, H - art.height), 0)
+    canvas = Image.new("RGBA", (ART_W, H), (0, 0, 0, 0))
+    canvas.alpha_composite(art, (round(px), round(py)))
+    art = canvas
     fade = Image.new("L", (ART_W, H))
     fp = fade.load()
     for x in range(ART_W):
@@ -485,7 +492,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     card = _bridge(build)
     _pad(card, 300, 566, 150, 30)  # above the light cone's plate
     art = images.get(build.art_url or "")
-    _art(card, art or images.get(build.icon_url or ""), face[0] if face and art else None)
+    _art(card, art or images.get(build.icon_url or ""), face if art else None)
     _header(card, build, accent, images)
     if build.weapon:
         _light_cone(card, build, images, (PAD, H - PAD - LC_H, STATS_X - 14, H - PAD))

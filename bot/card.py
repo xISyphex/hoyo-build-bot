@@ -526,7 +526,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
         return card_zzz.draw_card(build, images, uid, wanted, face)
     if build.game == "hsr":  # the Astral Express's navigation hologram
         from . import card_hsr
-        return card_hsr.draw_card(build, images, uid, wanted)
+        return card_hsr.draw_card(build, images, uid, wanted, face)
     global FONTS
     FONTS = FONTS or Fonts()
     f = FONTS
