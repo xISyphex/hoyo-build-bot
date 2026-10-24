@@ -32,6 +32,8 @@ ART_CENTRE = 225  # the card x the character's face is put on
 STATS_X, STATS_W = 458, 250
 GEAR_X = 724
 LC_W, LC_H = 150, 210  # the light cone's full art, as a projected card
+ROW = 42  # a stats row
+VALUE_ROW = 36  # a readout row
 ROMAN = ("I", "II", "III", "IV", "V", "VI")
 
 
@@ -317,12 +319,12 @@ def _light_cone(card: Image.Image, build: CharacterBuild, images, box) -> None:
 
 def _telemetry(card: Image.Image, build: CharacterBuild, box, wanted: set[str] | None) -> None:
     """The character's totals: each a row with its icon, and a thin light trace underneath."""
-    _panel(card, box, title="TELEMETRY")
+    _panel(card, box, title="STATS")
     x0, y0, x1, y1 = box
     stats = [s for s in build.stats if not _is_zero(s.value)]
     wanted_totals = {base.TOTAL_NAMES.get(n, n.rstrip("%")) for n in wanted or ()}
     top = y0 + 32
-    row = min(44, (y1 - 8 - top) / max(len(stats), 1))
+    row = min(ROW, (y1 - 8 - top) / max(len(stats), 1))
     name_font, small_font, value_font = _raj("SemiBold", 18), _raj("SemiBold", 15), _raj("Bold", 21)
     traces = Image.new("RGBA", (x1 - x0, y1 - y0), (0, 0, 0, 0))
     td = ImageDraw.Draw(traces)
@@ -348,6 +350,27 @@ def _telemetry(card: Image.Image, build: CharacterBuild, box, wanted: set[str] |
         draw.text((x1 - 14, mid), s.value, font=value_font, fill=GOLD if good else TEXT, anchor="rm")
 
 
+def _set_lines(draw, build: CharacterBuild) -> list[tuple[str, list[str]]]:
+    """The relic sets, each as its count and its name wrapped onto at most two lines."""
+    font = _raj("SemiBold", 15)
+    out = []
+    for line in build.set_bonuses[:3]:
+        count, _, name = line.partition(" ")
+        room = STATS_W - 32 - draw.textlength(count, font=_raj("Bold", 15)) - 6
+        words, lines = name.split(), [""]
+        for word in words:
+            test = f"{lines[-1]} {word}".strip()
+            if draw.textlength(test, font=font) <= room or not lines[-1]:
+                lines[-1] = test
+            elif len(lines) < 2:
+                lines.append(word)
+            else:
+                lines[-1] = test
+        lines[-1] = base._fit_text(draw, lines[-1], font, room)
+        out.append((count, lines))
+    return out
+
+
 def _readout(card: Image.Image, build: CharacterBuild, box, wanted: set[str] | None) -> None:
     """Crit Value (or the value the character lives on), the effective substat count and the relic sets."""
     _panel(card, box)
@@ -355,31 +378,34 @@ def _readout(card: Image.Image, build: CharacterBuild, box, wanted: set[str] | N
     draw = ImageDraw.Draw(card)
     value = base.gear_value(build, wanted)
     effective = sum(piece_count(p, wanted) for p in build.gear) if wanted and build.gear else None
-    y = y0 + 22
+    y = y0 + 24 + max(0, (y1 - y0 - _readout_h(build, wanted)) // 2)  # centred in whatever height the screen got
     rows = [r for r in ((value[0], value[1], TEXT) if value else None,
                         ("EFFECTIVE SUBS", str(effective), GOLD) if effective is not None else None) if r]
     for label, text, color in rows:
         _spaced(draw, (x0 + 16, y), label, _raj("Bold", 13), DIM, 2)
         draw.text((x1 - 16, y), text, font=_raj("Bold", 24), fill=color, anchor="rm")
-        y += 28
-    sets = build.set_bonuses[:3]
+        y += VALUE_ROW
+    sets = _set_lines(draw, build)
     if sets:
         if rows:
-            draw.line((x0 + 14, y - 8, x1 - 14, y - 8), fill=HOLO + (40,), width=1)
+            draw.line((x0 + 14, y - 12, x1 - 14, y - 12), fill=HOLO + (50,), width=1)
             y += 4
-        for line in sets:
-            count, _, name = line.partition(" ")
+        for count, lines in sets:
             draw.text((x0 + 16, y), count, font=_raj("Bold", 15), fill=HOLO, anchor="lm")
             cw = draw.textlength(count, font=_raj("Bold", 15)) + 6
-            draw.text((x0 + 16 + cw, y), base._fit_text(draw, name, _raj("SemiBold", 15), x1 - x0 - 32 - cw),
-                      font=_raj("SemiBold", 15), fill=TEXT, anchor="lm")
-            y += 19
+            for text in lines:
+                draw.text((x0 + 16 + cw, y), text, font=_raj("SemiBold", 15), fill=TEXT, anchor="lm")
+                y += 18
+            y += 4
 
 
 def _readout_h(build: CharacterBuild, wanted: set[str] | None) -> int:
     rows = bool(base.gear_value(build, wanted)) + bool(wanted and build.gear)
-    sets = min(len(build.set_bonuses), 3)
-    return (8 + 28 * rows + (4 if rows and sets else 0) + 19 * sets + 8) if rows or sets else 0
+    sets = _set_lines(ImageDraw.Draw(Image.new("L", (1, 1))), build)
+    lines = sum(len(l) for _, l in sets)
+    if not rows and not sets:
+        return 0
+    return 12 + VALUE_ROW * rows + (4 if rows and sets else 0) + 18 * lines + 4 * len(sets) + 6
 
 
 def _route(card: Image.Image, centres: list[tuple[float, float]]) -> None:
@@ -466,12 +492,13 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
 
     # middle: the telemetry and the readout under it
     x0, x1 = STATS_X, STATS_X + STATS_W
+    # the stats screen is as tall as its rows; the readout takes the rest, so no screen has empty space at its foot
     rh = _readout_h(build, wanted)
-    bottom = H - PAD
-    if rh:
-        _readout(card, build, (x0, bottom - rh, x1, bottom), wanted)
-        bottom -= rh + 12
+    n = sum(1 for st in build.stats if not _is_zero(st.value))
+    bottom = min(PAD + 40 + ROW * n, H - PAD - (rh + 12 if rh else 0))
     _telemetry(card, build, (x0, PAD, x1, bottom), wanted)
+    if rh:
+        _readout(card, build, (x0, bottom + 12, x1, H - PAD), wanted)
 
     # right: the relics as worlds on the route, staggered a little like stops on a map
     gear = build.gear[:6]
