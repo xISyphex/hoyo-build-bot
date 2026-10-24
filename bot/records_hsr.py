@@ -132,26 +132,33 @@ def _readout_w(draw, label: str, value: str) -> int:
 
 
 def _readout(card: Image.Image, box, label: str, value: str) -> None:
-    """A small screen with a spaced label over the value: stars and Starward stars with their icons, in gold."""
+    """A small screen with a spaced label over the value, both centred: stars and Starward stars with their icons,
+    in gold."""
     _box(card, box, h.PANEL, 120, 10)
     x0, y0, x1, y1 = box
     draw = ImageDraw.Draw(card)
     key = label.lower()
-    h._spaced(draw, (x0 + 14, y0 + 16), label.upper(), h._raj("Bold", 11), DIM, 2.4)
+    mid = (x0 + x1) / 2
+    lf = h._raj("Bold", 11)
+    text = label.upper()
+    lw = sum(draw.textlength(ch, font=lf) + 2.4 for ch in text) - 2.4
+    h._spaced(draw, (mid - lw / 2, y0 + 16), text, lf, DIM, 2.4)
     cy = (y0 + 22 + y1) / 2
     shown, _, rest = value.partition("/")
-    shown = shown.strip()
-    x = x0 + 14
+    shown, rest = shown.strip(), ("/" + rest.strip()) if rest else ""
+    big, small = h._raj("Bold", 28), h._raj("SemiBold", 16)
+    icon = None
     if key in ("stars", "starward"):
         icon = icons.star("hsr", 24) if key == "stars" else icons.starward(24)
+    total = (icon.width + 6 if icon else 0) + draw.textlength(shown, font=big) + (draw.textlength(rest, font=small) + 2 if rest else 0)
+    x = mid - total / 2
+    if icon:
         card.alpha_composite(icon, (round(x), round(cy - icon.height / 2)))
         x += icon.width + 6
     color = GOLD if key == "stars" else HOLO if key in ("score", "starward") else TEXT
-    big = h._raj("Bold", 28)
     draw.text((x, cy), shown, font=big, fill=color, anchor="lm")
     if rest:
-        draw.text((x + draw.textlength(shown, font=big) + 2, cy + 4), "/" + rest.strip(), font=h._raj("SemiBold", 16),
-                  fill=FAINT, anchor="lm")
+        draw.text((x + draw.textlength(shown, font=big) + 2, cy + 4), rest, font=small, fill=FAINT, anchor="lm")
 
 
 def _tile(card: Image.Image, member: Member, icon: Image.Image | None, x: int, y: int) -> None:
@@ -195,12 +202,14 @@ def _tile(card: Image.Image, member: Member, icon: Image.Image | None, x: int, y
             draw.text((plate[0] + 10 + draw.textlength(eid, font=f), plate[1] + 10), sup, font=f, fill=HOLO, anchor="lm")
 
 
-def _chips(card: Image.Image, chips: list[tuple[str, str]], x: float, cy: float) -> None:
-    """A team's results in a row from x, each on a small dark tag: stars in gold, cycles, score in cyan."""
+def _chips(card: Image.Image, chips: list[tuple[str, str]], cx: float, cy: float) -> None:
+    """A team's results in a row centred on cx, each on a small dark tag: stars in gold, cycles, score in cyan."""
     draw = ImageDraw.Draw(card)
     f = h._raj("Bold", 17)
+    parts = []
     for kind, value in chips:
         stars = _stars(value) if kind == "stars" else None
+        text = ""
         if stars:
             w = stars[1] * 22 - 4
         elif kind == "cycles":
@@ -209,6 +218,9 @@ def _chips(card: Image.Image, chips: list[tuple[str, str]], x: float, cy: float)
         else:
             text = value.upper() if kind == "text" else value
             w = draw.textlength(text, font=f) + (18 if kind == "score" else 0)
+        parts.append((kind, stars, text, w))
+    x = cx - (sum(w + 22 for *_, w in parts) + 8 * (len(parts) - 1)) / 2
+    for kind, stars, text, w in parts:
         box = (round(x), round(cy - 14), round(x + w + 22), round(cy + 14))
         layer = Image.new("RGBA", card.size, (0, 0, 0, 0))
         ImageDraw.Draw(layer).polygon(h._cut(box, 7), fill=(2, 16, 26, 200), outline=HOLO + (90,))
@@ -249,7 +261,7 @@ def _team(card: Image.Image, team: Team, images: dict, box, chips: bool) -> None
         _tile(card, m, images.get(m.icon_url or ""), x, top)
         x += TILE_W + TILE_GAP
     if team.chips:
-        _chips(card, team.chips, round((x0 + x1 - row) / 2), y1 - CHIPS_H / 2 - 6)
+        _chips(card, team.chips, (x0 + x1) / 2, y1 - CHIPS_H / 2 - 6)
 
 
 def _side(card: Image.Image, record: Record, label: str, value: str, box, images: dict) -> None:
