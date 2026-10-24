@@ -169,3 +169,15 @@ class ShiyuBossNameTest(unittest.TestCase):
         rec = R.Record("sd", "Shiyu Defense", teams=[R.Team("Battle 1", key="62059051"), R.Team("Battle 2", key="62059052")])
         R.name_bosses(rec, {"62059051": "Miasmic - Thracian"})
         self.assertEqual([t.label for t in rec.teams], ["Battle 1 · Miasmic - Thracian", "Battle 2"])
+
+
+class HsrPerfectTest(unittest.TestCase):
+    def test_max_scores_and_zero_cycles_are_perfect(self):
+        from bot.records_hsr import _perfect
+        self.assertTrue(_perfect("pf", "score", "40,000"))
+        self.assertFalse(_perfect("pf", "score", "40,000", total=True))
+        self.assertTrue(_perfect("pf", "score", "120,000", total=True))
+        self.assertTrue(_perfect("apoc", "score", "4,000"))
+        self.assertFalse(_perfect("apoc", "score", "3,999"))
+        self.assertTrue(_perfect("moc", "cycles", "0"))
+        self.assertFalse(_perfect("aa", "cycles", "2"))

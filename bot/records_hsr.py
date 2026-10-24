@@ -17,6 +17,7 @@ from . import record_icons as icons
 from . import records_card as rc
 from .card_zzz import _nine_slice
 from .records import Member, Record, Team, copies_label
+from .records_zzz import _foil_text
 
 W = rc.W  # as wide as the other games' records
 SS = h.SS
@@ -35,6 +36,20 @@ SIDE_W = 150  # a stage's own numbers, as readouts beside its screen
 MODE_LIGHT = {"moc": (255, 112, 146), "pf": (120, 182, 255), "apoc": (255, 196, 92), "aa": (110, 230, 210)}
 RARITY_GLOW = {5: ((150, 112, 44), (34, 26, 10)), 4: ((112, 76, 170), (24, 16, 44))}  # 5★ gold, 4★ purple
 TEAM_FILL = (4, 38, 52, 205)
+MAX_SCORE = {"pf": (40000, 120000), "apoc": (4000, 12000)}  # a node's best score, then the floor's (all three nodes)
+
+
+def _perfect(mode: str, kind: str, value: str, total: bool = False) -> bool:
+    """A perfect result, drawn in ZZZ's platinum foil: the mode's top score, or a clear in 0 cycles."""
+    try:
+        number = int(value.replace(",", "").split("/")[0])
+    except ValueError:
+        return False
+    if kind == "cycles":
+        return number == 0
+    if kind == "score" and mode in MAX_SCORE:
+        return number >= MAX_SCORE[mode][1 if total else 0]
+    return False
 MODE_FILL = (2, 24, 34, 190)
 
 
@@ -131,7 +146,7 @@ def _readout_w(draw, label: str, value: str) -> int:
     return round(max(w, lw) + 36)
 
 
-def _readout(card: Image.Image, box, label: str, value: str) -> None:
+def _readout(card: Image.Image, box, label: str, value: str, mode: str = "") -> None:
     """A small screen with a spaced label over the value, both centred: stars and Starward stars with their icons,
     in gold."""
     _box(card, box, h.PANEL, 120, 10)
@@ -156,7 +171,10 @@ def _readout(card: Image.Image, box, label: str, value: str) -> None:
         card.alpha_composite(icon, (round(x), round(cy - icon.height / 2)))
         x += icon.width + 6
     color = GOLD if key == "stars" else HOLO if key in ("score", "starward") else TEXT
-    draw.text((x, cy), shown, font=big, fill=color, anchor="lm")
+    if _perfect(mode, key, value, total=True):
+        _foil_text(card, (x, cy), shown, big, "lm")
+    else:
+        draw.text((x, cy), shown, font=big, fill=color, anchor="lm")
     if rest:
         draw.text((x + draw.textlength(shown, font=big) + 2, cy + 4), rest, font=small, fill=FAINT, anchor="lm")
 
@@ -202,7 +220,7 @@ def _tile(card: Image.Image, member: Member, icon: Image.Image | None, x: int, y
             draw.text((plate[0] + 10 + draw.textlength(eid, font=f), plate[1] + 10), sup, font=f, fill=HOLO, anchor="lm")
 
 
-def _chips(card: Image.Image, chips: list[tuple[str, str]], cx: float, cy: float) -> None:
+def _chips(card: Image.Image, chips: list[tuple[str, str]], cx: float, cy: float, mode: str = "") -> None:
     """A team's results in a row centred on cx, each on a small dark tag: stars in gold, cycles, score in cyan."""
     draw = ImageDraw.Draw(card)
     f = h._raj("Bold", 17)
@@ -235,11 +253,14 @@ def _chips(card: Image.Image, chips: list[tuple[str, str]], cx: float, cy: float
                 draw.polygon([(tx + d, cy - d), (tx + 2 * d, cy), (tx + d, cy + d), (tx, cy)], fill=HOLO)
                 tx += 18
             color = {"score": HOLO, "cycles": TEXT}.get(kind, DIM)
-            draw.text((tx, cy + 1), text, font=f, fill=color, anchor="lm")
+            if _perfect(mode, kind, value):
+                _foil_text(card, (tx, cy + 1), text, f, "lm")
+            else:
+                draw.text((tx, cy + 1), text, font=f, fill=color, anchor="lm")
         x += w + 22 + 8
 
 
-def _team(card: Image.Image, team: Team, images: dict, box, chips: bool) -> None:
+def _team(card: Image.Image, team: Team, images: dict, box, chips: bool, mode: str = "") -> None:
     """A team on its own screen: a waypoint and its name, its characters on tiles, its results under them."""
     x0, y0, x1, y1 = box
     _box(card, box, TEAM_FILL, 100, 12)
@@ -261,7 +282,7 @@ def _team(card: Image.Image, team: Team, images: dict, box, chips: bool) -> None
         _tile(card, m, images.get(m.icon_url or ""), x, top)
         x += TILE_W + TILE_GAP
     if team.chips:
-        _chips(card, team.chips, (x0 + x1) / 2, y1 - CHIPS_H / 2 - 6)
+        _chips(card, team.chips, (x0 + x1) / 2, y1 - CHIPS_H / 2 - 6, mode)
 
 
 def _side(card: Image.Image, record: Record, label: str, value: str, box, images: dict) -> None:
@@ -278,8 +299,11 @@ def _side(card: Image.Image, record: Record, label: str, value: str, box, images
     text = label.upper()
     tw = sum(draw.textlength(ch, font=f) + 2.6 for ch in text) - 2.6
     h._spaced(draw, (mid - tw / 2, y0 + 22), text, f, DIM, 2.6)
-    h._glow_text(card, (mid - draw.textlength(value, font=h._raj("Bold", 60)) / 2, (y0 + 30 + y1) / 2 - 34), value,
-                 h._raj("Bold", 60), TEXT, 0, HOLO, 0.45)
+    big = h._raj("Bold", 60)
+    if _perfect(record.mode, label.lower(), value):
+        _foil_text(card, (mid, (y0 + 30 + y1) / 2), value, big, "mm")
+        return
+    h._glow_text(card, (mid - draw.textlength(value, font=big) / 2, (y0 + 30 + y1) / 2 - 34), value, big, TEXT, 0, HOLO, 0.45)
 
 
 def _stage_line(card: Image.Image, text: str, y: float, x0: float, x1: float) -> None:
@@ -342,7 +366,7 @@ def draw_records(uid: str, records: list[Record], images: dict[str, Image.Image]
         right = W - PAD - INNER
         for label, value in reversed(record.headline):
             w = _readout_w(draw, label, value)
-            _readout(card, (right - w, y + 18, right, y + 82), label, value)
+            _readout(card, (right - w, y + 18, right, y + 82), label, value, record.mode)
             right -= w + 10
         if record.empty or not record.teams:
             draw = ImageDraw.Draw(card)
@@ -363,7 +387,7 @@ def draw_records(uid: str, records: list[Record], images: dict[str, Image.Image]
             for team in row:
                 if team.plight:
                     rc._shimmer(card, (bx, by, bx + col_w, by + th))
-                _team(card, team, images, (bx, by, bx + col_w, by + th), chips)
+                _team(card, team, images, (bx, by, bx + col_w, by + th), chips, record.mode)
                 edge = bx - 2 * GAP
                 for label, value in reversed(team.left):
                     _side(card, record, label, value, (edge - SIDE_W, by + 16, edge, by + th - 16), images)
