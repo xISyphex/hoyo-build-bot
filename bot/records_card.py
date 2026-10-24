@@ -631,6 +631,9 @@ def draw_records(game: str, uid: str, records: list[Record], images: dict[str, I
     if game == "zzz":  # its own retro dashboard design, like its build card
         from . import records_zzz
         return records_zzz.draw_records(uid, records, images, nickname)
+    if game == "hsr":  # the navigation hologram, like its build card
+        from . import records_hsr
+        return records_hsr.draw_records(uid, records, images, nickname)
     c.FONTS = c.FONTS or c.Fonts()
     f = c.FONTS
     accent = GAME_ACCENT[game]
