@@ -33,8 +33,6 @@ STATS_X, STATS_W = 458, 250
 GEAR_X = 724
 LC_W, LC_H = 150, 210  # the light cone's full art, as a projected card
 ROMAN = ("I", "II", "III", "IV", "V", "VI")
-PATHS = {"Memory": "Remembrance", "Warrior": "Destruction", "Rogue": "Hunt", "Mage": "Erudition",
-         "Shaman": "Harmony", "Warlock": "Nihility", "Knight": "Preservation", "Priest": "Abundance"}
 
 
 def lc_art_url(build: CharacterBuild) -> str | None:
@@ -195,18 +193,12 @@ def _symbol(icon: Image.Image | None, size: int) -> Image.Image | None:
     return icon.resize((max(1, round(icon.width * k)), max(1, round(icon.height * k))), Image.LANCZOS)
 
 
-def _path_name(build: CharacterBuild) -> str:
-    stem = (build.path_icon or "").rsplit("/", 1)[-1].rsplit(".", 1)[0]
-    return PATHS.get(stem, stem).upper()
-
-
 def _hexagon(cx: float, cy: float, r: float) -> list[tuple[float, float]]:
     return [(cx + r * math.cos(math.radians(a)), cy + r * math.sin(math.radians(a))) for a in range(0, 360, 60)]
 
 
 def _header(card: Image.Image, build: CharacterBuild, accent, images) -> None:
-    """A crew screen with the name and a status line (element, level, eidolon, Path, rarity), and the six eidolons
-    as hex chips under it."""
+    """A screen with the name, element and Path symbols, level and rarity, and the six eidolons as hex chips under it."""
     draw = ImageDraw.Draw(card)
     room = STATS_X - 14 - PAD - 36  # widest the screen's contents may get
     name = build.name.upper()
@@ -215,36 +207,29 @@ def _header(card: Image.Image, build: CharacterBuild, accent, images) -> None:
         name_w = sum(draw.textlength(ch, font=font) + spacing for ch in name) - spacing
         if name_w <= room:
             break
-    icons = [i for i in (_symbol(images.get(build.element_icon or ""), 24), _symbol(images.get(build.path_icon or ""), 22)) if i]
-    # the element and Path symbols say which they are; the element's name only when its symbol is missing
-    parts = [p for p in [(build.element.upper() if build.element_icon not in images else "", base._mix(accent, TEXT, 0.4)),
-                         (f"LV. {build.level}", TEXT), (f"E{build.constellation}", GOLD), (_path_name(build), DIM)] if p[0]]
-    for msize in (17, 16, 15):
-        meta = _raj("SemiBold", msize)
-        meta_w = sum(i.width + 8 for i in icons) + sum(sum(draw.textlength(ch, font=meta) + 1.6 for ch in t) + 2 for t, _ in parts)
-        meta_w += 16 * (len(parts) - 1) + 8 + build.rarity * 16
-        if meta_w <= room - 6:
-            break
+    meta = _raj("SemiBold", 17)
+    element = _symbol(images.get(build.element_icon or ""), 24)
+    path = _symbol(images.get(build.path_icon or ""), 22)
+    # the element's symbol says which it is; its name only when the symbol is missing
+    level = f"LV. {build.level}" if element else f"{build.element.upper()} · LV. {build.level}"
     x0, y0 = PAD, PAD
-    x1 = x0 + max(name_w, min(meta_w, room)) + 36
-    y1 = y0 + 40 + font.size + 34
-    _panel(card, (x0, y0, x1, y1), title="CREW")
-    _glow_text(card, (x0 + 18, y0 + 34), name, font, (255, 255, 255), spacing, HOLO, 0.55)
-    y = y0 + 34 + font.size + 18
+    x1 = x0 + max(name_w, 260) + 36
+    y1 = y0 + 18 + font.size + 46
+    _panel(card, (x0, y0, x1, y1))
+    _glow_text(card, (x0 + 18, y0 + 14), name, font, (255, 255, 255), spacing, HOLO, 0.55)
+    y = y0 + 14 + font.size + 22
     x = x0 + 18
-    for icon in icons:
-        card.alpha_composite(icon, (round(x), round(y - icon.height / 2)))
-        x += icon.width + 8
+    for icon in (element, path):
+        if icon:
+            card.alpha_composite(icon, (round(x), round(y - icon.height / 2)))
+            x += icon.width + 8
     draw = ImageDraw.Draw(card)
-    for i, (text, color) in enumerate(parts):
-        if i:
-            draw.text((x + 6, y), "·", font=meta, fill=FAINT, anchor="lm")
-            x += 16
-        x = _spaced(draw, (x, y), text, meta, color, 1.6) + 2
+    x = _spaced(draw, (x, y), level, meta, TEXT, 1.6) + 2
     stars = Image.new("RGBA", ((build.rarity * 16 + 8) * SS, 16 * SS), (0, 0, 0, 0))  # the rarity, as small stars
     for i in range(build.rarity):
         base._star(ImageDraw.Draw(stars), (8 + i * 16) * SS, 8 * SS, 7 * SS, GOLD + (255,))
     card.alpha_composite(stars.resize((stars.width // SS, 16), Image.LANCZOS), (round(x + 8), round(y - 8)))
+
     _eidolon_chips(card, build, accent, images, PAD + 24, y1 + 36)
 
 
