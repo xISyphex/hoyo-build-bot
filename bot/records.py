@@ -247,10 +247,12 @@ def _first_season(data):
 
 
 def _starward(rec: Record, data, floor=None) -> None:
-    """Starward Mode's stars: the shown floor's own count, else the season's."""
+    """Starward Mode's stars: the shown floor's own count, else the season's; shown as 0 when Starward was played
+    without earning any."""
     floor_stars, total = getattr(floor, "starward_stars", 0) or 0, getattr(data, "starward_stars", 0) or 0
     log.info("%s starward stars: floor %s, season %s", rec.mode, floor_stars, total)
-    if stars := max(floor_stars, total):
+    played = getattr(floor, "has_starward_mode", False) or len(_nodes(floor)) > 2 if floor is not None else False
+    if (stars := max(floor_stars, total)) or played:
         rec.headline.insert(1, ("Starward", str(stars)))
 
 

@@ -44,6 +44,13 @@ class ReadersTest(unittest.TestCase):
         data.floors[0].node_3 = None
         self.assertEqual([t.label for t in R.hsr_pf(data).teams], ["Node 1", "Node 2"])
 
+    def test_starward_shown_whenever_it_was_played(self):
+        self.assertEqual(dict(R.hsr_pf(F.pf()).headline)["Starward"], "2")
+        self.assertEqual(dict(R.hsr_apoc(F.apoc()).headline)["Starward"], "0")  # played, no stars earned
+        data = F.pf()
+        data.floors[0].node_3, data.starward_stars = None, 0
+        self.assertNotIn("Starward", dict(R.hsr_pf(data).headline))
+
     def test_scores(self):
         self.assertEqual(dict(R.hsr_pf(F.pf()).headline)["Score"], "114,632")
         self.assertEqual(R.hsr_apoc(F.apoc()).teams[1].chips, [("score", "3,720")])

@@ -270,14 +270,14 @@ def _side(card: Image.Image, record: Record, label: str, value: str, box, images
     x0, y0, x1, y1 = box
     draw = ImageDraw.Draw(card)
     mid = (x0 + x1) / 2
+    if label.lower() in ("rank", "medal"):  # the piece speaks for itself, unlabelled (Syphex's pick)
+        piece = rc._rank_piece(record, value, 96, images)
+        card.alpha_composite(piece, (round(mid - piece.width / 2), round((y0 + y1) / 2 - piece.height / 2)))
+        return
     f = h._raj("Bold", 12)
     text = label.upper()
     tw = sum(draw.textlength(ch, font=f) + 2.6 for ch in text) - 2.6
     h._spaced(draw, (mid - tw / 2, y0 + 22), text, f, DIM, 2.6)
-    if label.lower() in ("rank", "medal"):
-        piece = rc._rank_piece(record, value, 88, images)
-        card.alpha_composite(piece, (round(mid - piece.width / 2), round((y0 + 30 + y1) / 2 - piece.height / 2)))
-        return
     h._glow_text(card, (mid - draw.textlength(value, font=h._raj("Bold", 60)) / 2, (y0 + 30 + y1) / 2 - 34), value,
                  h._raj("Bold", 60), TEXT, 0, HOLO, 0.45)
 

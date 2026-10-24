@@ -53,7 +53,8 @@ def moc() -> NS:
 def pf() -> NS:
     floor = NS(name="Pure Fiction (4)", star_num=3, node_1=NS(avatars=TEAM_A, score=40000), node_2=NS(avatars=TEAM_B, score=38512),
                node_3=NS(avatars=TEAM_C, score=36120))
-    return NS(has_data=True, floors=[floor], seasons=[NS(name="Lone Wanderer", begin_time=when(9, 22), end_time=when(11, 3, 3))], total_stars=12, total_battles=5)
+    return NS(has_data=True, floors=[floor], seasons=[NS(name="Lone Wanderer", begin_time=when(9, 22), end_time=when(11, 3, 3))], total_stars=12, total_battles=5,
+              starward_stars=2)
 
 
 def apoc() -> NS:
