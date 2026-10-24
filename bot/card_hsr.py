@@ -151,8 +151,7 @@ def _pad(card: Image.Image, cx: float, cy: float, rx: float, ry: float) -> None:
 
 
 def _art(card: Image.Image, art: Image.Image | None, face=None) -> None:
-    """The character, projected: fading out before the stats and at the very bottom, with scanlines across it and
-    a cyan edge light. With the face known (centre x, y and size in the picture's pixels), every character is framed
+    """The character, projected: fading out before the stats and at the very bottom, with a cyan edge light. With the face known (centre x, y and size in the picture's pixels), every character is framed
     the same way: the face at FACE_AT and at least FACE_SIZE big, as far as the picture reaches."""
     if art is None:
         return
@@ -182,11 +181,7 @@ def _art(card: Image.Image, art: Image.Image | None, face=None) -> None:
                 if y + dy < H:
                     fp[x, y + dy] = v
     alpha = ImageChops.multiply(art.getchannel("A"), fade)
-    lines = Image.new("L", (ART_W, H), 255)  # the projection's scanlines
-    ld = ImageDraw.Draw(lines)
-    for y in range(0, H, 3):
-        ld.line((0, y, ART_W, y), fill=214)
-    art.putalpha(ImageChops.multiply(alpha, lines))
+    art.putalpha(alpha)
     rim = Image.new("RGBA", art.size, HOLO + (255,))  # a cyan light hugging the outline
     rim.putalpha(alpha.filter(ImageFilter.GaussianBlur(9)).point(lambda v: round(v * 0.35)))
     card.alpha_composite(rim, (-40, 0))
@@ -297,11 +292,6 @@ def _light_cone(card: Image.Image, build: CharacterBuild, images, box) -> None:
         fd = ImageDraw.Draw(frame)
         fd.rectangle((0, 0, LC_W - 1, LC_H - 1), fill=(3, 30, 42, 235))
         frame.alpha_composite(pic, ((LC_W - pic.width) // 2, (LC_H - pic.height) // 2))
-        lines = Image.new("L", frame.size, 255)
-        ld = ImageDraw.Draw(lines)
-        for y in range(0, LC_H, 3):
-            ld.line((0, y, LC_W, y), fill=226)
-        frame.putalpha(ImageChops.multiply(frame.getchannel("A"), lines))
         fd = ImageDraw.Draw(frame)
         fd.rectangle((0, 0, LC_W - 1, LC_H - 1), outline=HOLO + (200,), width=1)
         for (ax, ay), (bx, by), (ex, ey) in (((0, 18), (0, 0), (18, 0)), ((LC_W - 19, LC_H - 1), (LC_W - 1, LC_H - 1), (LC_W - 1, LC_H - 19))):

@@ -9,7 +9,7 @@ import io
 import math
 import random
 
-from PIL import Image, ImageChops, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter
 
 from . import card as base
 from . import card_hsr as h
@@ -155,8 +155,7 @@ def _readout(card: Image.Image, box, label: str, value: str) -> None:
 
 
 def _tile(card: Image.Image, member: Member, icon: Image.Image | None, x: int, y: int) -> None:
-    """A character projected on a tile with a cut corner: lit gold or purple by rarity, scanlines over the picture,
-    the level under it and the eidolon / superimposition on a plate at its top left."""
+    """A character projected on a tile with a cut corner: lit gold or purple by rarity, the level under it and the eidolon / superimposition on a plate at its top left."""
     w, hh = TILE_W, TILE_H
     top, bottom = RARITY_GLOW.get(member.rarity, ((40, 70, 84), (6, 20, 28)))
     grad = Image.linear_gradient("L").resize((w, hh))
@@ -167,15 +166,11 @@ def _tile(card: Image.Image, member: Member, icon: Image.Image | None, x: int, y
     strip = Image.new("RGBA", (w, 34), DEEP + (255,))
     strip.putalpha(shade)
     glass.alpha_composite(strip, (0, hh - 34))
-    lines = Image.new("L", (w, hh), 255)
-    ld = ImageDraw.Draw(lines)
-    for ly in range(0, hh, 3):
-        ld.line((0, ly, w, ly), fill=222)
     mask = Image.new("L", (w * SS, hh * SS), 0)
     shape = h._cut((0, 0, w * SS - 1, hh * SS - 1), 12 * SS)
     ImageDraw.Draw(mask).polygon(shape, fill=255)
     mask = mask.resize((w, hh), Image.LANCZOS)
-    glass.putalpha(ImageChops.multiply(mask, lines))
+    glass.putalpha(mask)
     card.alpha_composite(glass, (x, y))
     rim = Image.new("RGBA", (w * SS, hh * SS), (0, 0, 0, 0))
     ImageDraw.Draw(rim).line(shape + shape[:1], fill=HOLO + (150,), width=SS)
