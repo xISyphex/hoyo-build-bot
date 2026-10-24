@@ -47,7 +47,7 @@ class Team:
     right: list[tuple[str, str]] = field(default_factory=list)
     plight: bool = False  # the King beaten on Plight (hard) mode: a red shimmer around the box
     bangboo: Member | None = None  # ZZZ: the Bangboo that came along
-    key: str = ""  # ZZZ Shiyu Defense: the battle's layer id, to look its boss up by
+    key: str = ""  # ZZZ Shiyu Defense: the battle's layer id; Star Rail: the node ("3" Starward), to look its boss up by
 
 
 @dataclass
@@ -59,7 +59,8 @@ class Record:
     teams: list[Team] = field(default_factory=list)
     empty: str | None = None  # why there's nothing to show, e.g. "No runs this season yet."
     medal: str | None = None  # Anomaly Arbitration's medal picture from HoYoLAB
-    season_id: str = ""  # ZZZ Shiyu Defense: HoYoLAB's zone id for the season
+    season_id: str = ""  # ZZZ Shiyu Defense: HoYoLAB's zone id for the season; Star Rail: the season's schedule id
+    floor_id: str = ""  # Star Rail Memory of Chaos / Pure Fiction: the shown floor's maze id
 
 
 @dataclass(frozen=True)
@@ -268,7 +269,8 @@ def hsr_moc(data) -> Record:
     rec.headline = [("Stars", _stars(data.total_stars, 36)), ("Cycles", str(floor.round_num))]
     _starward(rec, data, floor)
     for i, node in enumerate(_nodes(floor), 1):
-        rec.teams.append(Team(_node_label(i), [], [_hsr_member(c) for c in node.avatars]))
+        rec.teams.append(Team(_node_label(i), [], [_hsr_member(c) for c in node.avatars], key=_node_key(floor, node)))
+    _boss_lookup(rec, getattr(data, "season", None), floor)
     return rec
 
 
@@ -283,7 +285,10 @@ def hsr_pf(data) -> Record:
     rec.headline = [("Stars", _stars(data.total_stars, 12)), ("Score", _num(total))]
     _starward(rec, data, floor)
     for i, node in enumerate(nodes, 1):
-        rec.teams.append(Team(_node_label(i), [("score", _num(node.score))], [_hsr_member(c) for c in node.avatars]))
+        rec.teams.append(Team(_node_label(i), [("score", _num(node.score))], [_hsr_member(c) for c in node.avatars],
+                              key=_node_key(floor, node)))
+    season = next(iter(data.seasons or ()), None)
+    _boss_lookup(rec, getattr(season, "id", None) or getattr(data, "season_id", None), floor)
     return rec
 
 
@@ -299,7 +304,11 @@ def hsr_apoc(data) -> Record:
     _starward(rec, data, floor)
     for i, node in enumerate(nodes, 1):
         chips = [("score", _num(node.score))] + ([] if node.boss_defeated else [("text", "boss not defeated")])
-        rec.teams.append(Team(_node_label(i), chips, [_hsr_member(c) for c in node.avatars]))
+        rec.teams.append(Team(_node_label(i), chips, [_hsr_member(c) for c in node.avatars], key=_node_key(floor, node)))
+    season = next(iter(data.seasons or ()), None)  # HoYoLAB sends this season's bosses with it
+    bosses = {"1": "upper_boss", "2": "lower_boss", "3": "starward_boss"}
+    set_bosses(rec, {k: {"art": getattr(b, "icon", None), "name": getattr(b, "name", "")}
+                     for k, attr in bosses.items() if (b := getattr(season, attr, None))})
     return rec
 
 
@@ -373,6 +382,27 @@ def zzz_sd(data) -> Record:
         rec.teams.append(Team(_node_label(i), [("time", _clock(seconds))] if seconds else [],
                               [_zzz_member(c) for c in node.characters]))
     return rec
+
+
+def _node_key(floor, node) -> str:
+    """Which of the floor's nodes this is: "1", "2", or "3" for Starward."""
+    return next((str(i) for i in (1, 2, 3) if getattr(floor, f"node_{i}", None) is node), "")
+
+
+def _boss_lookup(rec: Record, season, floor) -> None:
+    """Notes the season and floor, so the bosses can be looked up (see hsr_bosses)."""
+    rec.season_id = str(season or "")
+    rec.floor_id = str(getattr(floor, "id", "") or "")
+
+
+def set_bosses(record: Record, bosses: dict[str, dict[str, str]]) -> None:
+    """Gives each Star Rail node its boss: the picture faded into its box, the name in its label ("Node 1 · Name")."""
+    for team in record.teams:
+        boss = bosses.get(team.key) or {}
+        if boss.get("art") and not team.art:
+            team.art = boss["art"]
+        if boss.get("name") and " · " not in team.label:
+            team.label = f"{team.label} · {boss['name']}"
 
 
 def name_bosses(record: Record, names: dict[str, str]) -> None:

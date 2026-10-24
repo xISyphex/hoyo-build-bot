@@ -9,7 +9,7 @@ import io
 import math
 import random
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 from . import card as base
 from . import card_hsr as h
@@ -260,20 +260,51 @@ def _chips(card: Image.Image, chips: list[tuple[str, str]], cx: float, cy: float
         x += w + 22 + 8
 
 
+def _boss(card: Image.Image, pic: Image.Image, box) -> None:
+    """The node's boss projected behind its team: the figure's upper part filling the box's height on the right,
+    fading out towards the left and the cut corners."""
+    x0, y0, x1, y1 = (round(v) for v in box)
+    w, hh = x1 - x0, y1 - y0
+    pic = pic.convert("RGBA")
+    if bbox := pic.getchannel("A").getbbox():  # the figure without its empty margins
+        pic = pic.crop(bbox)
+    scale = hh * 1.5 / pic.height  # the head and body; the legs run off the bottom
+    pic = pic.resize((max(1, round(pic.width * scale)), max(1, round(pic.height * scale))), Image.LANCZOS)
+    layer = Image.new("RGBA", (w, hh), (0, 0, 0, 0))
+    layer.alpha_composite(pic, (max(0, round(w * 0.74 - pic.width / 2)), 0) if pic.width < w else ((w - pic.width) // 2, 0))
+    fade = Image.linear_gradient("L").rotate(90, expand=True).transpose(Image.FLIP_LEFT_RIGHT).resize((w, hh))
+    fade = fade.point(lambda v: round(min(255, v * 1.6) * 0.8))
+    shape = Image.new("L", (w * SS, hh * SS), 0)
+    ImageDraw.Draw(shape).polygon(h._cut((0, 0, w * SS - 1, hh * SS - 1), 12 * SS), fill=255)
+    alpha = ImageChops.multiply(layer.getchannel("A"), ImageChops.multiply(fade, shape.resize((w, hh), Image.LANCZOS)))
+    layer.putalpha(alpha)
+    card.alpha_composite(layer, (x0, y0))
+
+
 def _team(card: Image.Image, team: Team, images: dict, box, chips: bool, mode: str = "") -> None:
     """A team on its own screen: a waypoint and its name, its characters on tiles, its results under them."""
     x0, y0, x1, y1 = box
     _box(card, box, TEAM_FILL, 100, 12)
     art = images.get(team.art or "")
     if art is not None:
-        rc._art(card, art, (x0 + 2, y0 + 2, x1 - 2, y1 - 2))
+        _boss(card, art, (x0 + 2, y0 + 2, x1 - 2, y1 - 2))
     draw = ImageDraw.Draw(card)
     cy = y0 + LABEL_H / 2 + 4
     d = 5
     draw.polygon([(x0 + 18, cy - d), (x0 + 18 + d, cy), (x0 + 18, cy + d), (x0 + 18 - d, cy)], fill=HOLO)
-    font = h._raj("Bold", 19)
     room = x1 - x0 - 48
-    h._spaced(draw, (x0 + 32, cy), base._fit_text(draw, team.label.upper(), font, room - 30), font, TEXT, 1.6)
+    label = team.label.upper()
+    fits = lambda text, font: draw.textlength(text, font=font) + 1.6 * len(text) <= room
+    for size in (19, 17, 15):  # a long boss name gets smaller letters before it gets cut short
+        font = h._raj("Bold", size)
+        if fits(label, font):
+            break
+    else:  # still too long: "Ichor Memosprite: Judge of Oblivion" keeps just its own name
+        node, _, boss = label.partition(" · ")
+        if ": " in boss and fits(short := f"{node} · {boss.split(': ', 1)[1]}", font):
+            label = short
+            font = next(f for f in (h._raj("Bold", n) for n in (19, 17, 15)) if fits(label, f))
+    h._spaced(draw, (x0 + 32, cy), base._fit_text(draw, label, font, room - 1.6 * len(label)), font, TEXT, 1.6)
     members = team.members[:4]
     row = len(members) * TILE_W + max(0, len(members) - 1) * TILE_GAP
     x = round((x0 + x1 - row) / 2)
@@ -303,7 +334,7 @@ def _side(card: Image.Image, record: Record, label: str, value: str, box, images
     if _perfect(record.mode, label.lower(), value):
         _foil_text(card, (mid, (y0 + 30 + y1) / 2), value, big, "mm")
         return
-    h._glow_text(card, (mid - draw.textlength(value, font=big) / 2, (y0 + 30 + y1) / 2 - 34), value, big, TEXT, 0, HOLO, 0.45)
+    h._top_text(card, (mid - draw.textlength(value, font=big) / 2, (y0 + 30 + y1) / 2 - 34), value, big, TEXT, 0)
 
 
 def _stage_line(card: Image.Image, text: str, y: float, x0: float, x1: float) -> None:
@@ -316,7 +347,7 @@ def _stage_line(card: Image.Image, text: str, y: float, x0: float, x1: float) ->
     half = tw / 2 + side
     for a, b in ((x0, mid - half - 16), (mid + half + 16, x1)):
         draw.line((a, y, b, y), fill=HOLO + (120,), width=1)
-    h._glow_text(card, (mid - tw / 2, y - f.size / 2 - 2), text, f, HOLO, 5, HOLO, 0.5)
+    h._top_text(card, (mid - tw / 2, y - f.size / 2 - 2), text, f, HOLO, 5)
     if side:
         crown = icons.crown(28)
         card.alpha_composite(crown, (round(mid - half), round(y - 16)))
@@ -339,7 +370,7 @@ def draw_records(uid: str, records: list[Record], images: dict[str, Image.Image]
 
     # the header: one screen across the top
     _box(card, (PAD, PAD, W - PAD, PAD + HEAD_H))
-    h._glow_text(card, (PAD + 24, PAD + 14), "BATTLE RECORDS", h._raj("Bold", 40), (255, 255, 255), 6, HOLO, 0.55)
+    h._top_text(card, (PAD + 24, PAD + 14), "BATTLE RECORDS", h._raj("Bold", 40), (255, 255, 255), 6)
     draw = ImageDraw.Draw(card)
     sub = "HONKAI: STAR RAIL" + (f"  ·  {nickname.upper()}" if nickname else "")
     h._spaced(draw, (PAD + 26, PAD + 72), sub, h._raj("SemiBold", 17), DIM, 1.8)
@@ -358,7 +389,7 @@ def draw_records(uid: str, records: list[Record], images: dict[str, Image.Image]
         ImageDraw.Draw(glow).rectangle((18, 18, 21, 72), fill=light + (200,))
         card.alpha_composite(glow.filter(ImageFilter.GaussianBlur(5)), (PAD + INNER - 18, y + 4))
         tx = PAD + INNER + 18
-        h._glow_text(card, (tx, y + 18), record.title.upper(), h._raj("Bold", 32), (255, 255, 255), 4, HOLO, 0.5)
+        h._top_text(card, (tx, y + 18), record.title.upper(), h._raj("Bold", 32), (255, 255, 255), 4)
         draw = ImageDraw.Draw(card)
         if record.season:
             h._spaced(draw, (tx + 2, y + 70), base._fit_text(draw, record.season.upper(), h._raj("SemiBold", 16), 560),
