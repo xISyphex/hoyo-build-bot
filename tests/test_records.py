@@ -183,3 +183,26 @@ class HsrPerfectTest(unittest.TestCase):
         self.assertTrue(_perfect("apoc", "score", "11,550", total=True))
         self.assertTrue(_perfect("moc", "cycles", "0"))
         self.assertFalse(_perfect("aa", "cycles", "2"))
+
+
+class HsrBossArtTest(unittest.TestCase):
+    MONSTERS = {"1": {"rank": "Elite", "icon": "SpriteOutput/MonsterFigure/Monster_1.png"},
+                "2": {"rank": "LittleBoss", "icon": "SpriteOutput/MonsterFigure/Monster_2.png"},
+                "3": {"rank": "Elite", "icon": "SpriteOutput/MonsterFigure/Monster_3.png"}}
+
+    def test_strongest_enemy_of_each_half_and_the_starward_floor(self):
+        from bot.hsr_bosses import boss_art
+        season = [{"id": 5511, "npc_monster_id_list1": [3], "npc_monster_id_list2": [1]},
+                  {"id": 5512, "npc_monster_id_list1": [2, 1], "npc_monster_id_list2": [1, 3]},
+                  {"id": 5513, "npc_monster_id_list": [2]}]
+        arts = boss_art(season, self.MONSTERS, "5512")
+        self.assertTrue(arts["1"].endswith("/monsterfigure/Monster_2.webp"))  # the LittleBoss beats the Elite
+        self.assertTrue(arts["2"].endswith("/monsterfigure/Monster_3.webp"))  # equals: the last listed
+        self.assertTrue(arts["3"].endswith("/monsterfigure/Monster_2.webp"))
+        self.assertEqual(boss_art({"level": season}, self.MONSTERS, "9999").keys(), {"3"})  # Pure Fiction's shape
+
+    def test_nodes_get_their_boss(self):
+        rec = R.hsr_moc(F.moc())
+        self.assertEqual([t.key for t in rec.teams], ["1", "2", "3"])
+        R.set_boss_art(rec, {"1": "a", "3": "c"})
+        self.assertEqual([t.art for t in rec.teams], ["a", None, "c"])

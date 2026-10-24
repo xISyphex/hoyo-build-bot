@@ -80,18 +80,9 @@ def _spaced(draw, xy, text: str, font, fill, spacing: float = 3.0, anchor: str =
     return x
 
 
-def _glow_text(card: Image.Image, xy, text: str, font, fill, spacing: float = 0, glow=HOLO, strength: float = 0.5) -> None:
-    """Text with a faint halo, like light off a projection."""
-    draw = ImageDraw.Draw(card)
-    w = round(sum(draw.textlength(ch, font=font) + spacing for ch in text)) + 40
-    h = font.size + 40
-    mask = Image.new("L", (w, h), 0)
-    md = ImageDraw.Draw(mask)
-    _spaced(md, (20, 20 + font.size / 2), text, font, 255, spacing)
-    halo = Image.new("RGBA", (w, h), glow + (255,))
-    halo.putalpha(mask.filter(ImageFilter.GaussianBlur(7)).point(lambda v: round(v * strength)))
-    card.alpha_composite(halo, (round(xy[0] - 20), round(xy[1] - 20)))
-    _spaced(draw, (xy[0], xy[1] + font.size / 2), text, font, fill, spacing)
+def _top_text(card: Image.Image, xy, text: str, font, fill, spacing: float = 0) -> None:
+    """Letter-spaced text with its top left at xy (plain: no halo, Syphex's pick)."""
+    _spaced(ImageDraw.Draw(card), (xy[0], xy[1] + font.size / 2), text, font, fill, spacing)
 
 
 def _bridge(build: CharacterBuild) -> Image.Image:
@@ -220,7 +211,7 @@ def _header(card: Image.Image, build: CharacterBuild, accent, images) -> None:
     x1 = x0 + max(name_w, 260) + 36
     y1 = y0 + 18 + font.size + 46
     _panel(card, (x0, y0, x1, y1))
-    _glow_text(card, (x0 + 18, y0 + 14), name, font, (255, 255, 255), spacing, HOLO, 0.55)
+    _top_text(card, (x0 + 18, y0 + 14), name, font, (255, 255, 255), spacing)
     y = y0 + 14 + font.size + 22
     x = x0 + 18
     for icon in (element, path):

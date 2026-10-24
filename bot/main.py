@@ -33,6 +33,7 @@ from .hoyolab_links import LinkStore, cookie_string, games_of, load_key
 from .models import CharacterBuild, PlayerProfile
 from .ratelimit import LookupLimit
 from .set_emojis import SetEmojis
+from .hsr_bosses import HsrBosses
 from .shiyu_bosses import ShiyuBosses
 from .unit_traits import UnitTraits
 
@@ -84,6 +85,7 @@ class HoyoBot(discord.Client):
         # Which substats each character wants, for the effective substat count on the card.
         self.effective = EffectiveStats(cache_dir)
         self.shiyu_bosses = ShiyuBosses(cache_dir)  # Shiyu Defense boss names for /zzz-records
+        self.hsr_bosses = HsrBosses(cache_dir)  # Memory of Chaos / Pure Fiction boss pictures for /hsr-records
         self.hoyolab = HoyolabClient(cookies or None, self.assets, self.links, self.effective)
         # Element and path symbols for the patch card's banners, newer units included.
         self.traits = UnitTraits(cache_dir)
@@ -437,6 +439,11 @@ def make_records_command(game: str) -> app_commands.Command:
                 *(bot.shiyu_bosses.name(bot.session, r.season_id, [t.key for t in r.teams]) for r in shiyu))
             for r, n in zip(shiyu, names):
                 records.name_bosses(r, n)
+        if game == "hsr":  # the Memory of Chaos and Pure Fiction bosses' pictures
+            looked = [r for r in found if r.floor_id]
+            arts = await asyncio.gather(*(bot.hsr_bosses.arts(bot.session, r.mode, r.season_id, r.floor_id) for r in looked))
+            for r, a in zip(looked, arts):
+                records.set_boss_art(r, a)
         read = time.perf_counter()
         if profile:
             builds += profile.characters
