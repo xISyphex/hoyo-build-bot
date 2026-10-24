@@ -28,6 +28,7 @@ PANEL = (3, 30, 42, 222)
 CUT = 16  # the panels' cut corners
 PAD = 24
 ART_W = 520
+ART_CENTRE = 225  # the card x the character's face is put on
 STATS_X, STATS_W = 458, 250
 GEAR_X = 724
 LC_W, LC_H = 150, 210  # the light cone's full art, as a projected card
@@ -148,9 +149,9 @@ def _pad(card: Image.Image, cx: float, cy: float, rx: float, ry: float) -> None:
     card.alpha_composite(layer, (round(cx - w / 2), round(cy - (h - ry - 30))))
 
 
-def _art(card: Image.Image, art: Image.Image | None) -> None:
+def _art(card: Image.Image, art: Image.Image | None, face_x: float | None = None) -> None:
     """The character, projected: fading out before the stats and at the very bottom, with scanlines across it and
-    a cyan edge light."""
+    a cyan edge light. face_x (in the picture's pixels) goes to ART_CENTRE when the picture is wide enough."""
     if art is None:
         return
     art = art.convert("RGBA")
@@ -158,7 +159,10 @@ def _art(card: Image.Image, art: Image.Image | None) -> None:
     if art.width * scale < ART_W:
         scale = ART_W / art.width
     art = art.resize((round(art.width * scale), round(art.height * scale)), Image.LANCZOS)
-    left = max((art.width - ART_W) // 2, 0)
+    left = (art.width - ART_W) // 2
+    if face_x is not None:
+        left = round(face_x * scale) - (ART_CENTRE + 40)  # the picture is pasted 40px left of the card's edge
+    left = min(max(left, 0), max(art.width - ART_W, 0))
     art = art.crop((left, 0, left + ART_W, H))
     fade = Image.new("L", (ART_W, H))
     fp = fade.load()
@@ -201,31 +205,38 @@ def _hexagon(cx: float, cy: float, r: float) -> list[tuple[float, float]]:
 
 
 def _header(card: Image.Image, build: CharacterBuild, accent, images) -> None:
-    """The name, a status line (element, level, eidolon, Path) and the six eidolons as hex chips."""
-    shade = Image.new("RGBA", (W, 190), (0, 0, 0, 0))  # keeps the header readable over bright art
-    sd = ImageDraw.Draw(shade)
-    for y in range(190):
-        sd.line((0, y, STATS_X, y), fill=DEEP + (round(190 * (1 - y / 190) ** 1.4),))
-    card.alpha_composite(shade)
+    """A crew screen with the name and a status line (element, level, eidolon, Path, rarity), and the six eidolons
+    as hex chips under it."""
     draw = ImageDraw.Draw(card)
+    room = STATS_X - 14 - PAD - 36  # widest the screen's contents may get
     name = build.name.upper()
-    for size, spacing in ((50, 7), (44, 6), (38, 5), (32, 4), (28, 3)):
+    for size, spacing in ((44, 6), (40, 5), (36, 4), (32, 4), (28, 3), (24, 2)):
         font = _raj("Bold", size)
-        if sum(draw.textlength(ch, font=font) + spacing for ch in name) <= STATS_X - PAD - 20:
+        name_w = sum(draw.textlength(ch, font=font) + spacing for ch in name) - spacing
+        if name_w <= room:
             break
-    _glow_text(card, (PAD + 4, 16), name, font, (255, 255, 255), spacing, HOLO, 0.55)
-    y = 16 + font.size + 20
-    x = PAD + 6
-    for icon in (_symbol(images.get(build.element_icon or ""), 24), _symbol(images.get(build.path_icon or ""), 22)):
-        if icon is not None:
-            card.alpha_composite(icon, (round(x), round(y - icon.height / 2)))
-            x += icon.width + 8
-    draw = ImageDraw.Draw(card)
-    meta = _raj("SemiBold", 17)
+    icons = [i for i in (_symbol(images.get(build.element_icon or ""), 24), _symbol(images.get(build.path_icon or ""), 22)) if i]
     # the element and Path symbols say which they are; the element's name only when its symbol is missing
-    parts = [(build.element.upper() if build.element_icon not in images else "", base._mix(accent, TEXT, 0.4)),
-             (f"LV. {build.level}", TEXT), (f"E{build.constellation}", GOLD), (_path_name(build), DIM)]
-    for i, (text, color) in enumerate(p for p in parts if p[0]):
+    parts = [p for p in [(build.element.upper() if build.element_icon not in images else "", base._mix(accent, TEXT, 0.4)),
+                         (f"LV. {build.level}", TEXT), (f"E{build.constellation}", GOLD), (_path_name(build), DIM)] if p[0]]
+    for msize in (17, 16, 15):
+        meta = _raj("SemiBold", msize)
+        meta_w = sum(i.width + 8 for i in icons) + sum(sum(draw.textlength(ch, font=meta) + 1.6 for ch in t) + 2 for t, _ in parts)
+        meta_w += 16 * (len(parts) - 1) + 8 + build.rarity * 16
+        if meta_w <= room - 6:
+            break
+    x0, y0 = PAD, PAD
+    x1 = x0 + max(name_w, min(meta_w, room)) + 36
+    y1 = y0 + 40 + font.size + 34
+    _panel(card, (x0, y0, x1, y1), title="CREW")
+    _glow_text(card, (x0 + 18, y0 + 34), name, font, (255, 255, 255), spacing, HOLO, 0.55)
+    y = y0 + 34 + font.size + 18
+    x = x0 + 18
+    for icon in icons:
+        card.alpha_composite(icon, (round(x), round(y - icon.height / 2)))
+        x += icon.width + 8
+    draw = ImageDraw.Draw(card)
+    for i, (text, color) in enumerate(parts):
         if i:
             draw.text((x + 6, y), "·", font=meta, fill=FAINT, anchor="lm")
             x += 16
@@ -234,7 +245,7 @@ def _header(card: Image.Image, build: CharacterBuild, accent, images) -> None:
     for i in range(build.rarity):
         base._star(ImageDraw.Draw(stars), (8 + i * 16) * SS, 8 * SS, 7 * SS, GOLD + (255,))
     card.alpha_composite(stars.resize((stars.width // SS, 16), Image.LANCZOS), (round(x + 8), round(y - 8)))
-    _eidolon_chips(card, build, accent, images, PAD + 24, y + 42)
+    _eidolon_chips(card, build, accent, images, PAD + 24, y1 + 36)
 
 
 def _eidolon_chips(card: Image.Image, build: CharacterBuild, accent, images, x: float, cy: float) -> None:
@@ -462,7 +473,8 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     accent = base._accent(build)
     card = _bridge(build)
     _pad(card, 300, 566, 150, 30)  # above the light cone's plate
-    _art(card, images.get(build.art_url or "") or images.get(build.icon_url or ""))
+    art = images.get(build.art_url or "")
+    _art(card, art or images.get(build.icon_url or ""), face[0] if face and art else None)
     _header(card, build, accent, images)
     if build.weapon:
         _light_cone(card, build, images, (PAD, H - PAD - LC_H, STATS_X - 14, H - PAD))
