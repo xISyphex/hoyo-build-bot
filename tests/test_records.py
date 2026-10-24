@@ -44,6 +44,13 @@ class ReadersTest(unittest.TestCase):
         data.floors[0].node_3 = None
         self.assertEqual([t.label for t in R.hsr_pf(data).teams], ["Node 1", "Node 2"])
 
+    def test_starward_shown_whenever_it_was_played(self):
+        self.assertEqual(dict(R.hsr_pf(F.pf()).headline)["Starward"], "2")
+        self.assertEqual(dict(R.hsr_apoc(F.apoc()).headline)["Starward"], "0")  # played, no stars earned
+        data = F.pf()
+        data.floors[0].node_3, data.starward_stars = None, 0
+        self.assertNotIn("Starward", dict(R.hsr_pf(data).headline))
+
     def test_scores(self):
         self.assertEqual(dict(R.hsr_pf(F.pf()).headline)["Score"], "114,632")
         self.assertEqual(R.hsr_apoc(F.apoc()).teams[1].chips, [("score", "3,720")])
@@ -162,3 +169,17 @@ class ShiyuBossNameTest(unittest.TestCase):
         rec = R.Record("sd", "Shiyu Defense", teams=[R.Team("Battle 1", key="62059051"), R.Team("Battle 2", key="62059052")])
         R.name_bosses(rec, {"62059051": "Miasmic - Thracian"})
         self.assertEqual([t.label for t in rec.teams], ["Battle 1 · Miasmic - Thracian", "Battle 2"])
+
+
+class HsrPerfectTest(unittest.TestCase):
+    def test_max_scores_and_zero_cycles_are_perfect(self):
+        from bot.records_hsr import _perfect
+        self.assertTrue(_perfect("pf", "score", "40,000"))
+        self.assertFalse(_perfect("pf", "score", "40,000", total=True))
+        self.assertTrue(_perfect("pf", "score", "120,000", total=True))
+        self.assertTrue(_perfect("apoc", "score", "4,000"))
+        self.assertTrue(_perfect("apoc", "score", "3,850"))
+        self.assertFalse(_perfect("apoc", "score", "3,849"))
+        self.assertTrue(_perfect("apoc", "score", "11,550", total=True))
+        self.assertTrue(_perfect("moc", "cycles", "0"))
+        self.assertFalse(_perfect("aa", "cycles", "2"))
