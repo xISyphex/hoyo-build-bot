@@ -86,11 +86,11 @@ BANGBOO = NS(id=54001, rarity="S", level=60, icon="")
 
 
 def sd() -> NS:
-    layers = [NS(score=31890, rating="S", clear_time=104, characters=ZZZ_A, bangboo=BANGBOO),
-              NS(score=29760, rating="S", clear_time=132, characters=ZZZ_B, bangboo=None),
-              NS(score=27105, rating="A", clear_time=171, characters=ZZZ_A[::-1], bangboo=BANGBOO)]
+    layers = [NS(id=62059051, score=31890, rating="S", clear_time=104, characters=ZZZ_A, bangboo=BANGBOO),
+              NS(id=62059052, score=29760, rating="S", clear_time=132, characters=ZZZ_B, bangboo=None),
+              NS(id=62059053, score=27105, rating="A", clear_time=171, characters=ZZZ_A[::-1], bangboo=BANGBOO)]
     brief = NS(score=88755, rating="S", rank_percent="4.21%", total_clear_time=407)
-    return NS(brief_info=brief, fifth_frontier=NS(layers=layers), begin_time=local(10, 10), end_time=local(10, 24, 3))
+    return NS(schedule_id=62059, brief_info=brief, fifth_frontier=NS(layers=layers), begin_time=local(10, 10), end_time=local(10, 24, 3))
 
 
 def da() -> NS:

@@ -63,6 +63,7 @@ class ReadersTest(unittest.TestCase):
         self.assertEqual(dict(sd.headline)["Top"], "4.21%")
         self.assertEqual(dict(da.headline)["Top"], "2.8%")
         self.assertEqual(sd.teams[0].chips, [("rating", "S"), ("score", "31,890"), ("time", "1:44")])
+        self.assertEqual((sd.season_id, sd.teams[2].key), ("62059", "62059053"))  # to look the bosses up by
         self.assertEqual(len(da.teams), 4)
         self.assertEqual((sd.teams[0].bangboo.rarity, sd.teams[1].bangboo), (5, None))
         self.assertEqual(da.teams[0].bangboo.level, 60)
@@ -144,3 +145,20 @@ class ZzzDashboardTest(unittest.TestCase):
         self.assertEqual([score_tier("sd", v) for v in ("51,000", "25,000", "24,999")], ["platinum", "gold", "purple"])
         self.assertEqual([score_tier("da", v) for v in ("65,000", "20,000", "14,000", "13,999")],
                          ["platinum", "gold", "purple", "blue"])
+
+
+class ShiyuBossNameTest(unittest.TestCase):
+    def test_rooms_are_named_by_their_boss_icon(self):
+        from bot.shiyu_bosses import boss_names
+        icons = "Assets/NapResources/UI/Sprite/A1DynamicLoad/IconBossGeneral/UnPacker/"
+        season = {"zone": {"6205905": {"layer_room": {}}, "62059051": {"layer_room": {
+            "62059051": {"monster_icon": icons + "IconMonster_MiasmaThracian.png"},
+            "62059052": {"monster_icon": icons + "IconMonster_Unknown.png"}, "62059053": {"monster_icon": ""}}}}}
+        monsters = {"930178": {"icon": "UI/Sprite/BossCard/Monster_MiasmaThracian.png", "en": "Miasmic - Thracian"},
+                    "30023": {"icon": "UI/Sprite/BossCard/Monster_Thracian.png", "en": "Thracian"}}
+        self.assertEqual(boss_names(season, monsters), {"62059051": "Miasmic - Thracian"})
+
+    def test_labels_get_the_boss_name(self):
+        rec = R.Record("sd", "Shiyu Defense", teams=[R.Team("Battle 1", key="62059051"), R.Team("Battle 2", key="62059052")])
+        R.name_bosses(rec, {"62059051": "Miasmic - Thracian"})
+        self.assertEqual([t.label for t in rec.teams], ["Battle 1 · Miasmic - Thracian", "Battle 2"])
