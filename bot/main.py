@@ -439,11 +439,11 @@ def make_records_command(game: str) -> app_commands.Command:
                 *(bot.shiyu_bosses.name(bot.session, r.season_id, [t.key for t in r.teams]) for r in shiyu))
             for r, n in zip(shiyu, names):
                 records.name_bosses(r, n)
-        if game == "hsr":  # the Memory of Chaos and Pure Fiction bosses' pictures
+        if game == "hsr":  # the Memory of Chaos and Pure Fiction bosses' pictures and names
             looked = [r for r in found if r.floor_id]
             arts = await asyncio.gather(*(bot.hsr_bosses.arts(bot.session, r.mode, r.season_id, r.floor_id) for r in looked))
             for r, a in zip(looked, arts):
-                records.set_boss_art(r, a)
+                records.set_bosses(r, a)
         read = time.perf_counter()
         if profile:
             builds += profile.characters

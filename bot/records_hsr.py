@@ -292,9 +292,19 @@ def _team(card: Image.Image, team: Team, images: dict, box, chips: bool, mode: s
     cy = y0 + LABEL_H / 2 + 4
     d = 5
     draw.polygon([(x0 + 18, cy - d), (x0 + 18 + d, cy), (x0 + 18, cy + d), (x0 + 18 - d, cy)], fill=HOLO)
-    font = h._raj("Bold", 19)
     room = x1 - x0 - 48
-    h._spaced(draw, (x0 + 32, cy), base._fit_text(draw, team.label.upper(), font, room - 30), font, TEXT, 1.6)
+    label = team.label.upper()
+    fits = lambda text, font: draw.textlength(text, font=font) + 1.6 * len(text) <= room
+    for size in (19, 17, 15):  # a long boss name gets smaller letters before it gets cut short
+        font = h._raj("Bold", size)
+        if fits(label, font):
+            break
+    else:  # still too long: "Ichor Memosprite: Judge of Oblivion" keeps just its own name
+        node, _, boss = label.partition(" · ")
+        if ": " in boss and fits(short := f"{node} · {boss.split(': ', 1)[1]}", font):
+            label = short
+            font = next(f for f in (h._raj("Bold", n) for n in (19, 17, 15)) if fits(label, f))
+    h._spaced(draw, (x0 + 32, cy), base._fit_text(draw, label, font, room - 1.6 * len(label)), font, TEXT, 1.6)
     members = team.members[:4]
     row = len(members) * TILE_W + max(0, len(members) - 1) * TILE_GAP
     x = round((x0 + x1 - row) / 2)

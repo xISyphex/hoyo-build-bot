@@ -3,13 +3,14 @@
 HoYoLAB sends no boss for these two modes (Apocalyptic Shadow's come with its season), so they come from Hakushin's
 game data: the season's file lists each floor (by the same maze id HoYoLAB gives the floor) with the enemies of its
 two halves, and the Starward floor's on an entry of its own. The strongest enemy of each half is its boss, and the
-monster list has its picture. A floor's bosses never change, so they're kept in hsr_bosses.json once found."""
+monster list has its picture. Each box shows its boss's name too. A floor's bosses never change, so they're kept in hsr_bosses.json once found."""
 
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
+import re
 import time
 from pathlib import Path
 
@@ -28,18 +29,19 @@ def _floors(season) -> list[dict]:
     return [f for f in season or () if isinstance(f, dict)]
 
 
-def _boss(ids, monsters: dict) -> str | None:
-    """The picture of the strongest enemy in the list (the last one listed, among equals)."""
+def _boss(ids, monsters: dict) -> dict[str, str] | None:
+    """The picture and name of the strongest enemy in the list (the last one listed, among equals)."""
     known = [monsters[str(i)] for i in ids or () if isinstance(monsters.get(str(i)), dict) and monsters[str(i)].get("icon")]
     if not known:
         return None
     best = max(reversed(known), key=lambda m: RANKS.index(m.get("rank")) if m.get("rank") in RANKS else -1)
     stem = best["icon"].rsplit("/", 1)[-1].rsplit(".", 1)[0]
-    return f"{HAKUSHIN}/assets/hsr/monsterfigure/{stem}.webp"
+    name = re.sub(r"<[^>]*>", "", best.get("en") or "").strip()
+    return {"art": f"{HAKUSHIN}/assets/hsr/monsterfigure/{stem}.webp", "name": name}
 
 
-def boss_art(season, monsters: dict, floor_id: str) -> dict[str, str]:
-    """Node ("1", "2", "3" for Starward) -> boss picture, for one floor of a Hakushin season."""
+def boss_art(season, monsters: dict, floor_id: str) -> dict[str, dict[str, str]]:
+    """Node ("1", "2", "3" for Starward) -> boss {"art": picture, "name": name}, for one floor of a Hakushin season."""
     floors = _floors(season)
     arts = {}
     floor = next((f for f in floors if str(f.get("id")) == str(floor_id)), None)
@@ -57,12 +59,12 @@ class HsrBosses:
     def __init__(self, cache_dir: str | Path):
         self.path = Path(cache_dir) / "hsr_bosses.json"
         try:
-            self.known: dict[str, dict[str, str]] = json.loads(self.path.read_text(encoding="utf-8"))
+            self.known: dict[str, dict[str, dict[str, str]]] = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             self.known = {}
         self.missed: dict[str, float] = {}  # floor -> when Hakushin last didn't know it (asked again after an hour)
 
-    async def _find(self, session, mode: str, season: str, floor: str) -> dict[str, str]:
+    async def _find(self, session, mode: str, season: str, floor: str) -> dict[str, dict[str, str]]:
         async def get(path: str):
             async with session.get(f"{HAKUSHIN}/{path}") as resp:
                 return await resp.json(content_type=None) if resp.status == 200 else None
@@ -75,8 +77,8 @@ class HsrBosses:
                 return boss_art(data, monsters, floor)
         return {}
 
-    async def arts(self, session, mode: str, season, floor) -> dict[str, str]:
-        """Node -> boss picture for this floor (empty when Hakushin doesn't know it)."""
+    async def arts(self, session, mode: str, season, floor) -> dict[str, dict[str, str]]:
+        """Node -> boss {"art", "name"} for this floor (empty when Hakushin doesn't know it)."""
         if mode not in PATHS or not season or not floor:
             return {}
         key = f"{mode}/{season}/{floor}"

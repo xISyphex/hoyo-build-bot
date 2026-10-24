@@ -307,7 +307,8 @@ def hsr_apoc(data) -> Record:
         rec.teams.append(Team(_node_label(i), chips, [_hsr_member(c) for c in node.avatars], key=_node_key(floor, node)))
     season = next(iter(data.seasons or ()), None)  # HoYoLAB sends this season's bosses with it
     bosses = {"1": "upper_boss", "2": "lower_boss", "3": "starward_boss"}
-    set_boss_art(rec, {k: icon for k, attr in bosses.items() if (icon := getattr(getattr(season, attr, None), "icon", None))})
+    set_bosses(rec, {k: {"art": getattr(b, "icon", None), "name": getattr(b, "name", "")}
+                     for k, attr in bosses.items() if (b := getattr(season, attr, None))})
     return rec
 
 
@@ -394,11 +395,14 @@ def _boss_lookup(rec: Record, season, floor) -> None:
     rec.floor_id = str(getattr(floor, "id", "") or "")
 
 
-def set_boss_art(record: Record, arts: dict[str, str]) -> None:
-    """Gives each Star Rail node its boss's picture, faded into its box."""
+def set_bosses(record: Record, bosses: dict[str, dict[str, str]]) -> None:
+    """Gives each Star Rail node its boss: the picture faded into its box, the name in its label ("Node 1 · Name")."""
     for team in record.teams:
-        if team.key in arts and not team.art:
-            team.art = arts[team.key]
+        boss = bosses.get(team.key) or {}
+        if boss.get("art") and not team.art:
+            team.art = boss["art"]
+        if boss.get("name") and " · " not in team.label:
+            team.label = f"{team.label} · {boss['name']}"
 
 
 def name_bosses(record: Record, names: dict[str, str]) -> None:
