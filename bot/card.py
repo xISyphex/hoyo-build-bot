@@ -524,6 +524,9 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     if build.game == "zzz":  # its own retro dashboard design
         from . import card_zzz
         return card_zzz.draw_card(build, images, uid, wanted, face)
+    if build.game == "hsr":  # the Astral Express's navigation hologram
+        from . import card_hsr
+        return card_hsr.draw_card(build, images, uid, wanted)
     global FONTS
     FONTS = FONTS or Fonts()
     f = FONTS
@@ -1214,6 +1217,10 @@ class CardMaker:
         art_max = FULL_ART_MAX if build.game == "zzz" else ART_MAX
         mindscape = set(mindscape_urls(build)[:2]) - {None}
         urls |= mindscape
+        if build.game == "hsr":  # the light cone's full art
+            from .card_hsr import lc_art_url
+            mindscape |= {lc_art_url(build)} - {None}
+            urls |= mindscape
         loaded = await asyncio.gather(*(self._image(u, art_max if u == build.art_url or u in mindscape else ICON_MAX) for u in urls))
         images = {u: img for u, img in zip(urls, loaded) if img is not None}
         face = await self._face(build, images) if build.game == "zzz" else None
