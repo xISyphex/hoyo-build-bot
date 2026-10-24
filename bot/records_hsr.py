@@ -36,7 +36,7 @@ SIDE_W = 150  # a stage's own numbers, as readouts beside its screen
 MODE_LIGHT = {"moc": (255, 112, 146), "pf": (120, 182, 255), "apoc": (255, 196, 92), "aa": (110, 230, 210)}
 RARITY_GLOW = {5: ((150, 112, 44), (34, 26, 10)), 4: ((112, 76, 170), (24, 16, 44))}  # 5★ gold, 4★ purple
 TEAM_FILL = (4, 38, 52, 205)
-MAX_SCORE = {"pf": (40000, 120000), "apoc": (4000, 12000)}  # a node's best score, then the floor's (all three nodes)
+MAX_SCORE = {"pf": (40000, 120000), "apoc": (3850, 11550)}  # foil from: a node's score, then the floor's (Syphex's picks)
 
 
 def _perfect(mode: str, kind: str, value: str, total: bool = False) -> bool:
