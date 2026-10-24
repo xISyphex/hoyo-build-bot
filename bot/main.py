@@ -33,6 +33,7 @@ from .hoyolab_links import LinkStore, cookie_string, games_of, load_key
 from .models import CharacterBuild, PlayerProfile
 from .ratelimit import LookupLimit
 from .set_emojis import SetEmojis
+from .shiyu_bosses import ShiyuBosses
 from .unit_traits import UnitTraits
 
 log = logging.getLogger("hoyo-bot")
@@ -82,6 +83,7 @@ class HoyoBot(discord.Client):
         cookies = os.environ.get("HOYOLAB_COOKIES", "").strip()
         # Which substats each character wants, for the effective substat count on the card.
         self.effective = EffectiveStats(cache_dir)
+        self.shiyu_bosses = ShiyuBosses(cache_dir)  # Shiyu Defense boss names for /zzz-records
         self.hoyolab = HoyolabClient(cookies or None, self.assets, self.links, self.effective)
         # Element and path symbols for the patch card's banners, newer units included.
         self.traits = UnitTraits(cache_dir)
@@ -427,9 +429,14 @@ def make_records_command(game: str) -> app_commands.Command:
             raise found
         builds = list(builds) if isinstance(builds, list) else []
         profile = None if isinstance(profile, BaseException) else profile
-        if game == "zzz":
+        if game == "zzz":  # the agents' builds, and the Shiyu Defense bosses' names, at the same time
             ids = list(dict.fromkeys(m.id for r in found for t in r.teams for m in t.members))
-            builds = await bot.hoyolab.zzz_agents(uid, ids)
+            shiyu = [r for r in found if r.season_id]
+            builds, *names = await asyncio.gather(
+                bot.hoyolab.zzz_agents(uid, ids),
+                *(bot.shiyu_bosses.name(bot.session, r.season_id, [t.key for t in r.teams]) for r in shiyu))
+            for r, n in zip(shiyu, names):
+                records.name_bosses(r, n)
         read = time.perf_counter()
         if profile:
             builds += profile.characters

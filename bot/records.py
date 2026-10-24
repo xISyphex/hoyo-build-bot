@@ -47,6 +47,7 @@ class Team:
     right: list[tuple[str, str]] = field(default_factory=list)
     plight: bool = False  # the King beaten on Plight (hard) mode: a red shimmer around the box
     bangboo: Member | None = None  # ZZZ: the Bangboo that came along
+    key: str = ""  # ZZZ Shiyu Defense: the battle's layer id, to look its boss up by
 
 
 @dataclass
@@ -58,6 +59,7 @@ class Record:
     teams: list[Team] = field(default_factory=list)
     empty: str | None = None  # why there's nothing to show, e.g. "No runs this season yet."
     medal: str | None = None  # Anomaly Arbitration's medal picture from HoYoLAB
+    season_id: str = ""  # ZZZ Shiyu Defense: HoYoLAB's zone id for the season
 
 
 @dataclass(frozen=True)
@@ -353,7 +355,9 @@ def zzz_sd(data) -> Record:
             if layer.clear_time:
                 chips.append(("time", _clock(layer.clear_time)))
             rec.teams.append(Team(f"Battle {i}", chips, [_zzz_member(c) for c in layer.characters],
-                                  art=getattr(layer, "boss_icon", None), bangboo=_bangboo(layer)))
+                                  art=getattr(layer, "boss_icon", None), bangboo=_bangboo(layer),
+                                  key=str(getattr(layer, "id", ""))))
+        rec.season_id = str(getattr(data, "schedule_id", "") or "")
         return rec
     # The older Shiyu Defense (v1): floors with a rating each
     if not data.has_data or not data.floors:
@@ -367,6 +371,13 @@ def zzz_sd(data) -> Record:
         rec.teams.append(Team(_node_label(i), [("time", _clock(seconds))] if seconds else [],
                               [_zzz_member(c) for c in node.characters]))
     return rec
+
+
+def name_bosses(record: Record, names: dict[str, str]) -> None:
+    """Puts each Shiyu Defense battle's boss in its label: "Battle 1 · Miasmic - Thracian"."""
+    for team in record.teams:
+        if team.key in names:
+            team.label = f"{team.label} · {names[team.key]}"
 
 
 def _da_team(c, stage: str = "") -> Team:
