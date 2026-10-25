@@ -134,9 +134,9 @@ ZZZ_KINDS = {
 }
 
 
-def zzz_patch(gacha, events, weapon_name, now: dt.datetime | None = None) -> Patch:
+def zzz_patch(gacha, events, weapon_name, now: dt.datetime | None = None, agent_name=lambda _: None) -> Patch:
     """ZZZ: HoYoLAB's channel calendar and event calendar. W-Engines come without names, so weapon_name(id) looks
-    them up in the game data."""
+    them up in the game data; an agent HoYoLAB sends without a name (seen on a coming one) gets agent_name(id)."""
     now = now or dt.datetime.now(dt.timezone.utc)
     banners = []
     for pool in list(gacha.characters) + list(gacha.weapons):
@@ -144,7 +144,8 @@ def zzz_patch(gacha, events, weapon_name, now: dt.datetime | None = None) -> Pat
         if kind is None:  # the standard and Bangboo channels
             continue
         if hasattr(pool, "characters"):
-            items = [(c.name or c.full_name, c.rarity, c.icon) for c in pool.characters]
+            items = [(next((n.strip() for n in (c.name, c.full_name, agent_name(c.id)) if n and n.strip()), "New Agent"),
+                      c.rarity, c.icon) for c in pool.characters]
             marks = [unit_traits.zzz_urls(c.element, c.sub_element, c.specialty) for c in pool.characters]
         else:
             items = [(weapon_name(w.id) or w.skill_name or "New W-Engine", w.rarity, w.icon) for w in pool.weapons]

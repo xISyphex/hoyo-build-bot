@@ -44,8 +44,11 @@ def _mark_color(url: str):
     return (colour >> 16 & 255, colour >> 8 & 255, colour & 255)
 
 
-def _lamps(card: Image.Image, urls: list[str], images: dict, x: float, cy: float, size: int = 44) -> float:
-    """The unit's element and specialty as warning lamps in a row from x; returns the row's width."""
+def _lamps(card: Image.Image, urls: list[str], images: dict, x: float, cy: float, d: float = 30) -> float:
+    """The unit's element and specialty as warning lamps, their sockets d across in a row from x, centred on cy;
+    returns the row's width (socket edge to socket edge)."""
+    size = round(d * 44 / 32)  # z._lamp draws a 32 px socket on a 44 px tile
+    pad = (size - d) / 2
     start = x
     for url in urls:
         symbol = images.get(url)
@@ -53,11 +56,9 @@ def _lamps(card: Image.Image, urls: list[str], images: dict, x: float, cy: float
             continue
         tile = Image.new("RGBA", (44, 44), (0, 0, 0, 0))
         z._lamp(tile, symbol, 22, 22, _mark_color(url))
-        if size != 44:
-            tile = tile.resize((size, size), Image.LANCZOS)
-        card.alpha_composite(tile, (round(x), round(cy - size / 2)))
-        x += size * 0.82
-    return x - start
+        card.alpha_composite(tile.resize((size, size), Image.LANCZOS), (round(x - pad), round(cy - size / 2)))
+        x += d + 6
+    return x - start - 6 if x > start else 0
 
 
 def _screen(card: Image.Image, icon: Image.Image | None, box, top: bool, weapon: bool) -> None:
@@ -134,9 +135,11 @@ def _header(card: Image.Image, patch: Patch, now: dt.datetime) -> None:
 
 
 def _ends(card: Image.Image, box, text: str) -> None:
-    """A small readout: ENDS IN printed on the left, the time left lit on the right."""
-    sx0, sy0, sx1, sy1 = z._bezel(card, box, 9, 4)
+    """A small readout: ENDS IN printed on the left, the time left lit on the right, on a plain dark glass with a
+    faint rim (a full bezel here was too heavy, Syphex)."""
+    sx0, sy0, sx1, sy1 = box
     draw = ImageDraw.Draw(card)
+    draw.rounded_rectangle(box, 7, fill=(8, 8, 12), outline=(36, 34, 46), width=1)
     mid = (sy0 + sy1) / 2
     z._silk(draw, (sx0 + 12, mid + 4), "ENDS IN")
     draw.text((sx1 - 12, mid + 1), text.upper(), font=z.FONTS.sub, fill=z.TEAL, anchor="rm")
@@ -159,12 +162,13 @@ def _banner(card: Image.Image, b: Banner, images: dict, box, now: dt.datetime) -
     top = tops[0][0] if tops else "?"
     px0, py0, px1, py1 = z._bezel(card, (tx, y0 + 12, x1 - 12, y0 + 68), 10, 5)
     mid = (py0 + py1) / 2
-    lx = px0 + 6
-    lw = _lamps(card, b.traits.get(top, []), images, lx, mid, 40)
+    d = 30
+    lx = px0 + (py1 - py0 - d) / 2  # as far in from the left as from the top and bottom
+    lw = _lamps(card, b.traits.get(top, []), images, lx, mid, d)
     draw = ImageDraw.Draw(card)
-    nx = lx + lw + (8 if lw else 8)
+    nx = lx + lw + 16 if lw else px0 + 10
     if lw:
-        draw.line((nx - 6, py0 + 8, nx - 6, py1 - 8), fill=(40, 38, 52), width=1)
+        draw.line((nx - 8, py0 + 8, nx - 8, py1 - 8), fill=(40, 38, 52), width=1)
     names = " & ".join(t[0] for t in tops).upper() or "?"
     room = px1 - nx - 12
     font = next((f for f in (z._rubik(s, 800) for s in (28, 24, 20)) if draw.textlength(names, font=f) <= room), z._rubik(20, 800))
@@ -179,8 +183,8 @@ def _banner(card: Image.Image, b: Banner, images: dict, box, now: dt.datetime) -
         sx += SMALL + 8
     if rest:
         line = ", ".join(r[0] for r in rest).upper()
-        z._silk(draw, (tx + 2, y0 + 80 + SMALL + 20), base._fit_text(draw, line, z.FONTS.silk, x1 - 24 - tx - 200))
-    _ends(card, (x1 - 12 - 190, y1 - 12 - 40, x1 - 12, y1 - 12), pc._short(b.end - now))
+        z._silk(draw, (tx + 2, y0 + 80 + SMALL + 16), base._fit_text(draw, line, z.FONTS.silk, x1 - 24 - tx - 200))
+    _ends(card, (x1 - 16 - 176, y1 - 16 - 32, x1 - 16, y1 - 16), pc._short(b.end - now))
 
 
 def _upcoming(card: Image.Image, upcoming: list[Banner], images: dict, server, y: int) -> None:
@@ -192,15 +196,16 @@ def _upcoming(card: Image.Image, upcoming: list[Banner], images: dict, server, y
         marks = [u for u in b.traits.get(top[0], []) if u in images]
         day = f"FROM {pc._day(b.start, server).upper()}"
         dw = sum(draw.textlength(ch, font=z.FONTS.silk) for ch in day) + 2.4 * (len(day) - 1)
-        w = round(12 + 64 + 12 + max(draw.textlength(name, font=z.FONTS.small), dw + (6 + len(marks) * 23 if marks else 0)) + 16)
+        lamps = len(marks) * 26 - 6 + 8 if marks else 0  # the lamps after the name, on its line
+        w = round(12 + 64 + 12 + max(draw.textlength(name, font=z.FONTS.small) + lamps, dw) + 16)
         if x + w > W - PAD:
             break
         z._bezel(card, (x, y, x + w, y + NEXT_H), 12, 0, z.BODY_DARK)
         _screen(card, images.get(top[2] or ""), (x + 12, y + 12, x + 76, y + 76), True, b.kind in pc.WEAPON_KINDS)
         draw = ImageDraw.Draw(card)
-        draw.text((x + 88, y + 36), name, font=z.FONTS.small, fill=base.TEXT, anchor="ls")
+        draw.text((x + 88, y + 31), name, font=z.FONTS.small, fill=base.TEXT, anchor="lm")
+        _lamps(card, marks, images, x + 88 + draw.textlength(name, font=z.FONTS.small) + 8, y + 31, 20)
         z._silk(draw, (x + 89, y + 62), day)
-        _lamps(card, marks, images, x + 88 + dw + 4, y + 58, 28)
         x += w + GAP
 
 

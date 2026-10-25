@@ -135,14 +135,14 @@ class ZzzPatchTest(unittest.TestCase):
         gacha = genshin.models.ZZZGachaCalendar(**{
             "avatar_gacha_schedule_list": [
                 pool("GACHA_TYPE_CHARACTER_UP", "2.3", NOW - DAY, end, "avatar_list", [agent(1, "Yixuan", "S"), agent(2, "Pan", "A")]),
-                pool("GACHA_TYPE_CHARACTER_RETURN", "2.3", NOW - DAY, end, "avatar_list", [agent(3, "Miyabi", "S")])],
+                pool("GACHA_TYPE_CHARACTER_RETURN", "2.3", NOW - DAY, end, "avatar_list", [agent(3, "", "S")])],  # no name, as HoYoLAB sent a coming agent
             "weapon_gacha_schedule_list": [pool("GACHA_TYPE_WEAPON_UP", "2.3", NOW - DAY, end, "weapon_list", [
                 {"weapon_id": 14000, "rarity": "S", "icon": "", "profession": 1, "talent_title": "Some Skill",
                  "talent_content": "", "wiki_url": "", "show_upon": True}])]})
         event = genshin.models.ZZZEvent(**{"activity_id": 1, "state": "STATE_IN_PROGRESS", "name": "Main",
                                            "monochrome_got_cnt": 0, "monochrome_cnt": 0, "start_ts": str(NOW - 10 * DAY),
                                            "end_ts": str(NOW + 25 * DAY), "left_start_ts": "0", "left_end_ts": "0"})
-        info = patch.zzz_patch(gacha, [event], {14000: "Qingming Birdcage"}.get, patch._utc(NOW))
+        info = patch.zzz_patch(gacha, [event], {14000: "Qingming Birdcage"}.get, patch._utc(NOW), {3: "Miyabi"}.get)
         self.assertEqual(info.version, "2.3")
         self.assertEqual(int(info.end.timestamp()), NOW + 25 * DAY)  # the main event outlasts the first half's channels
         self.assertEqual([(b.kind, b.featured, b.others) for b in info.banners], [
