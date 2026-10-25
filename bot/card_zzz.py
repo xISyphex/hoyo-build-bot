@@ -349,21 +349,31 @@ def _nameplate(card: Image.Image, build: CharacterBuild, box, accent, images) ->
     f = FONTS
     sx0, sy0, sx1, sy1 = _bezel(card, box, 10, 5)
     light = base._mix(accent, (255, 255, 255), 0.35)
-    lx, mid = sx0 + 24, (sy0 + sy1) / 2
+    mid = (sy0 + sy1) / 2
+    draw = ImageDraw.Draw(card)
+    room = sx1 - sx0 - 32 - 30 - 24  # the display less the lamps, the divider's gaps and the margins
+    name = build.name.upper()
+    font = next((fn for fn in f.name.values() if draw.textlength(name, font=fn) <= room), f.name[28])
+    name = base._fit_text(draw, name, font, room)
+    level = str(build.level)
+    text_w = max(draw.textlength(name, font=font), 24 + draw.textlength(level, font=f.mid))
+    # lamps, divider and the name over the level as one group, centred in the display both ways
+    lx = sx0 + max(12, (sx1 - sx0 - (32 + 30 + text_w)) / 2) + 16  # the lamps' centre
     for y, (url, color) in zip((mid - 19, mid + 19), ((build.element_icon, accent), (build.path_icon, AMBER))):
         symbol = images.get(url or "")
         if symbol is not None:
             _lamp(card, symbol, lx, y, color)
-    tx = lx + 28
+    tx = lx + 16 + 30  # the text, after the lamps and the divider between them
     draw = ImageDraw.Draw(card)
-    draw.line((tx - 6, sy0 + 10, tx - 6, sy1 - 10), fill=(40, 38, 52), width=1)
-    room = sx1 - tx - 12
-    font = next((fn for fn in f.name.values() if draw.textlength(build.name.upper(), font=fn) <= room), f.name[28])
-    _text(card, (tx + 6, sy0 + 44), base._fit_text(draw, build.name.upper(), font, room), font, light, "ls")
-    y = sy1 - 17
-    ImageDraw.Draw(card).text((tx + 7, y), "LV", font=f.small, fill=SILK, anchor="lm")
-    _text(card, (tx + 31, y), str(build.level), f.mid, light, "lm")
-
+    draw.line((tx - 15, sy0 + 10, tx - 15, sy1 - 10), fill=(40, 38, 52), width=1)
+    cap = -font.getbbox("E", anchor="ls")[1]
+    lv = -f.mid.getbbox("0", anchor="ls")[1]
+    gap = 12
+    top = mid - (cap + gap + lv) / 2
+    _text(card, (tx, top + cap), name, font, light, "ls")
+    y = top + cap + gap + lv
+    draw.text((tx + 1, y), "LV", font=f.small, fill=SILK, anchor="ls")
+    _text(card, (tx + 25, y), level, f.mid, light, "ls")
 
 PLATE_SHORT = {"CRIT RATE": "CR", "CRIT DMG": "CD"}  # the short forms players use
 

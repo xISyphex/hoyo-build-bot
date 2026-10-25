@@ -504,7 +504,11 @@ class HoyolabClient:
                     meta = self.assets.data.get("zzz_weapons", {}).get(str(weapon_id), {})
                     return self.assets.zzz_text(meta.get("ItemName")) if meta else None
 
-                info = patches.zzz_patch(gacha, events, weapon_name)
+                def agent_name(agent_id) -> str | None:
+                    meta = self.assets.data.get("zzz_avatars", {}).get(str(agent_id), {})
+                    return self.assets.zzz_text(meta.get("Name")) if meta else None
+
+                info = patches.zzz_patch(gacha, events, weapon_name, agent_name=agent_name)
         except Exception as exc:
             log.warning("Could not read the %s calendar: %s", game, exc)
             raise HoyolabError("HoYoLAB didn't answer just now. Try again in a bit.") from exc
