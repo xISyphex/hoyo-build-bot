@@ -135,9 +135,11 @@ def _header(card: Image.Image, patch: Patch, now: dt.datetime) -> None:
 
 
 def _ends(card: Image.Image, box, text: str) -> None:
-    """A small readout: ENDS IN printed on the left, the time left lit on the right."""
-    sx0, sy0, sx1, sy1 = z._bezel(card, box, 9, 4)
+    """A small readout: ENDS IN printed on the left, the time left lit on the right, on a plain dark glass with a
+    faint rim (a full bezel here was too heavy, Syphex)."""
+    sx0, sy0, sx1, sy1 = box
     draw = ImageDraw.Draw(card)
+    draw.rounded_rectangle(box, 7, fill=(8, 8, 12), outline=(36, 34, 46), width=1)
     mid = (sy0 + sy1) / 2
     z._silk(draw, (sx0 + 12, mid + 4), "ENDS IN")
     draw.text((sx1 - 12, mid + 1), text.upper(), font=z.FONTS.sub, fill=z.TEAL, anchor="rm")
@@ -181,8 +183,8 @@ def _banner(card: Image.Image, b: Banner, images: dict, box, now: dt.datetime) -
         sx += SMALL + 8
     if rest:
         line = ", ".join(r[0] for r in rest).upper()
-        z._silk(draw, (tx + 2, y0 + 80 + SMALL + 20), base._fit_text(draw, line, z.FONTS.silk, x1 - 24 - tx - 200))
-    _ends(card, (x1 - 12 - 190, y1 - 12 - 40, x1 - 12, y1 - 12), pc._short(b.end - now))
+        z._silk(draw, (tx + 2, y0 + 80 + SMALL + 16), base._fit_text(draw, line, z.FONTS.silk, x1 - 24 - tx - 200))
+    _ends(card, (x1 - 16 - 176, y1 - 16 - 32, x1 - 16, y1 - 16), pc._short(b.end - now))
 
 
 def _upcoming(card: Image.Image, upcoming: list[Banner], images: dict, server, y: int) -> None:
