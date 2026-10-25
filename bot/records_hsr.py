@@ -28,6 +28,7 @@ INNER = 18  # a mode screen's padding round its teams
 HEAD_H = 96  # the header screen at the top
 HEAD = 100  # a mode screen's header: title, season line and the readouts
 TILE_W, TILE_H = 100, 118  # a character's projected tile
+LEVEL_H = 24  # the strip under its portrait that holds the level
 TILE_GAP = 10
 LABEL_H = 40  # a team's name over its tiles
 CHIPS_H = 40  # its results under them
@@ -180,17 +181,15 @@ def _readout(card: Image.Image, box, label: str, value: str, mode: str = "") -> 
 
 
 def _tile(card: Image.Image, member: Member, icon: Image.Image | None, x: int, y: int) -> None:
-    """A character projected on a tile with a cut corner: lit gold or purple by rarity, the level under it and the eidolon / superimposition on a plate at its top left."""
+    """A character projected on a tile with a cut corner: lit gold or purple by rarity, the level in a strip under it and the eidolon / superimposition on a plate at its top left."""
     w, hh = TILE_W, TILE_H
     top, bottom = RARITY_GLOW.get(member.rarity, ((40, 70, 84), (6, 20, 28)))
     grad = Image.linear_gradient("L").resize((w, hh))
     glass = Image.composite(Image.new("RGBA", (w, hh), bottom + (255,)), Image.new("RGBA", (w, hh), top + (255,)), grad)
     if icon is not None:
-        glass.alpha_composite(rc._cover(icon, w, hh - 18, top=True), (0, 0))
-    shade = Image.linear_gradient("L").resize((w, 34)).point(lambda v: min(240, round(v * 1.5)))
-    strip = Image.new("RGBA", (w, 34), DEEP + (255,))
-    strip.putalpha(shade)
-    glass.alpha_composite(strip, (0, hh - 34))
+        glass.alpha_composite(rc._cover(icon, w, hh - LEVEL_H, top=True), (0, 0))
+    glass.alpha_composite(Image.new("RGBA", (w, LEVEL_H), DEEP + (255,)), (0, hh - LEVEL_H))  # the level's own strip
+    ImageDraw.Draw(glass).line(((0, hh - LEVEL_H), (w, hh - LEVEL_H)), fill=HOLO + (150,), width=1)
     mask = Image.new("L", (w * SS, hh * SS), 0)
     shape = h._cut((0, 0, w * SS - 1, hh * SS - 1), 12 * SS)
     ImageDraw.Draw(mask).polygon(shape, fill=255)
@@ -201,9 +200,13 @@ def _tile(card: Image.Image, member: Member, icon: Image.Image | None, x: int, y
     ImageDraw.Draw(rim).line(shape + shape[:1], fill=HOLO + (150,), width=SS)
     card.alpha_composite(rim.resize((w, hh), Image.LANCZOS), (x, y))
     draw = ImageDraw.Draw(card)
-    if member.level:
-        h._spaced(draw, (x + 8, y + hh - 12), "LV", h._raj("Bold", 11), DIM, 1.4)
-        draw.text((x + 26, y + hh - 12), str(member.level), font=h._raj("Bold", 16), fill=TEXT, anchor="lm")
+    if member.level:  # "LV 80" centred in the strip under the portrait
+        small, big = h._raj("Bold", 11), h._raj("Bold", 16)
+        lw = sum(draw.textlength(ch, font=small) + 1.4 for ch in "LV")
+        tw = lw + 4 + draw.textlength(str(member.level), font=big)
+        lx, ly = x + (w - tw) / 2, y + hh - LEVEL_H / 2
+        h._spaced(draw, (lx, ly), "LV", small, DIM, 1.4)
+        draw.text((lx + lw + 4, ly), str(member.level), font=big, fill=TEXT, anchor="lm")
     label = copies_label("hsr", member)
     if label:
         eid, _, sup = label.partition("S")
