@@ -169,6 +169,19 @@ class PatchCardTest(unittest.TestCase):
         self.assertEqual(Image.open(io.BytesIO(png)).width, 1200)
         self.assertEqual(info.banners[0].items[0][:2], ("Cyrene", True))
 
+    def test_zzz_dashboard_draws_without_pictures(self):
+        import io
+        from PIL import Image
+        from bot.patch_card import draw_patch
+        now = patch._utc(NOW)
+        running = patch.Banner("Exclusive channels", ["Ellen", "Caesar"], ["Lucy"], now - dt.timedelta(days=5), now + dt.timedelta(days=5), None, "3.2",
+                               [("Ellen", True, None), ("Caesar", True, None), ("Lucy", False, None)])
+        coming = patch.Banner("W-Engine channels", ["Steel Cushion"], [], now + dt.timedelta(days=5), now + dt.timedelta(days=20), None, "3.2",
+                              [("Steel Cushion", True, None)])
+        info = patch.Patch("zzz", "3.2", now, now + dt.timedelta(days=20), [running, coming], "Europe")
+        png = draw_patch(info, {}, now)
+        self.assertEqual(Image.open(io.BytesIO(png)).width, 1200)
+
 
 class UnknownCharactersTest(unittest.TestCase):
     def test_running_featured_not_in_game_data(self):
