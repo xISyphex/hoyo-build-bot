@@ -254,7 +254,9 @@ def _starward(rec: Record, data, floor=None) -> None:
     log.info("%s starward stars: floor %s, season %s", rec.mode, floor_stars, total)
     played = getattr(floor, "has_starward_mode", False) or len(_nodes(floor)) > 2 if floor is not None else False
     if (stars := max(floor_stars, total)) or played:
-        rec.headline.insert(1, ("Starward", str(stars)))
+        # HoYoLAB sends a single star for a cleared Starward (floor 12's star_num 4 = 3 + 1), while the game shows
+        # three: Syphex's 3-star clear came back as extra_star_num 1 in all three modes.
+        rec.headline.insert(1, ("Starward", str(3 if stars == 1 else stars)))
 
 
 # Star Rail -----------------------------------------------------------------------------------------------------
