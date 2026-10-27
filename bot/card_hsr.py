@@ -363,6 +363,52 @@ def _set_lines(draw, build: CharacterBuild) -> list[tuple[str, list[str]]]:
     return out
 
 
+SUB_SHORT = {"CRIT RATE": "CR", "CRIT DMG": "CD", "BREAK EFF.": "BE", "EFFECT RES": "RES"}
+CHIP_H, CHIP_GAP = 26, 5  # the effective substats' roll counts, one small box each
+
+
+def _sub_counts(build: CharacterBuild, wanted: set[str] | None) -> list[tuple[str, int]]:
+    """Each effective substat's rolls over all relics, most first, with the short names players use."""
+    rolls: dict[str, int] = {}
+    for p in build.gear if wanted else ():
+        for sub in p.subs:
+            if sub.name in wanted:
+                name = _name(sub).upper()
+                name = SUB_SHORT.get(name, name)
+                rolls[name] = rolls.get(name, 0) + max(sub.rolls, 1)
+    return sorted(rolls.items(), key=lambda kv: -kv[1])
+
+
+def _chip_rows(draw: ImageDraw.ImageDraw, counts, width: float) -> list[list[tuple[str, int, float]]]:
+    """The count boxes laid out in rows that fit width."""
+    rows, row, x = [], [], 0
+    for name, n in counts:
+        w = draw.textlength(str(n), font=_raj("Bold", 16)) + 5 + sum(draw.textlength(ch, font=_raj("Bold", 12)) + 1 for ch in name) + 12
+        if row and x + w > width:
+            rows.append(row)
+            row, x = [], 0
+        row.append((name, n, w))
+        x += w + CHIP_GAP
+    return rows + [row] if row else rows
+
+
+def _chips(card: Image.Image, rows, x0: float, x1: float, y: float) -> None:
+    """Each row of count boxes centred between x0 and x1, the count gold and the substat beside it."""
+    draw = ImageDraw.Draw(card)
+    for row in rows:
+        x = (x0 + x1 - (sum(w for _, _, w in row) + CHIP_GAP * (len(row) - 1))) / 2
+        for name, n, w in row:
+            layer = Image.new("RGBA", card.size, (0, 0, 0, 0))
+            ImageDraw.Draw(layer).polygon(_cut((x, y, x + w, y + CHIP_H), 5), fill=HOLO + (20,), outline=HOLO + (90,))
+            card.alpha_composite(layer)
+            draw = ImageDraw.Draw(card)
+            cy = y + CHIP_H / 2
+            draw.text((x + 6, cy), str(n), font=_raj("Bold", 16), fill=GOLD, anchor="lm")
+            _spaced(draw, (x + 6 + draw.textlength(str(n), font=_raj("Bold", 16)) + 5, cy), name, _raj("Bold", 12), DIM, 1)
+            x += w + CHIP_GAP
+        y += CHIP_H + CHIP_GAP
+
+
 def _readout(card: Image.Image, build: CharacterBuild, box, wanted: set[str] | None) -> None:
     """Crit Value (or the value the character lives on), the effective substat count and the relic sets."""
     _panel(card, box)
@@ -370,13 +416,18 @@ def _readout(card: Image.Image, build: CharacterBuild, box, wanted: set[str] | N
     draw = ImageDraw.Draw(card)
     value = base.gear_value(build, wanted)
     effective = sum(piece_count(p, wanted) for p in build.gear) if wanted and build.gear else None
-    y = y0 + 24 + max(0, (y1 - y0 - _readout_h(build, wanted)) // 2)  # centred in whatever height the screen got
+    y = y0 + 24 + max(0, (y1 - y0 - _readout_h(build, wanted, x1 - x0)) // 2)  # centred in whatever height the screen got
     rows = [r for r in ((value[0], value[1], TEXT) if value else None,
                         ("EFFECTIVE SUBS", str(effective), GOLD) if effective is not None else None) if r]
     for label, text, color in rows:
         _spaced(draw, (x0 + 16, y), label, _raj("Bold", 13), DIM, 2)
         draw.text((x1 - 16, y), text, font=_raj("Bold", 24), fill=color, anchor="rm")
         y += VALUE_ROW
+    chips = _chip_rows(draw, _sub_counts(build, wanted), x1 - x0 - 20)
+    if chips:
+        _chips(card, chips, x0 + 10, x1 - 10, y - 14)
+        y += len(chips) * (CHIP_H + CHIP_GAP) + 2
+        draw = ImageDraw.Draw(card)
     sets = _set_lines(draw, build)
     if sets:
         if rows:
@@ -391,13 +442,15 @@ def _readout(card: Image.Image, build: CharacterBuild, box, wanted: set[str] | N
             y += 4
 
 
-def _readout_h(build: CharacterBuild, wanted: set[str] | None) -> int:
+def _readout_h(build: CharacterBuild, wanted: set[str] | None, width: float = 0) -> int:
     rows = bool(base.gear_value(build, wanted)) + bool(wanted and build.gear)
-    sets = _set_lines(ImageDraw.Draw(Image.new("L", (1, 1))), build)
+    draw = ImageDraw.Draw(Image.new("L", (1, 1)))
+    sets = _set_lines(draw, build)
+    chips = len(_chip_rows(draw, _sub_counts(build, wanted), width - 20)) if width else 0
     lines = sum(len(l) for _, l in sets)
     if not rows and not sets:
         return 0
-    return 12 + VALUE_ROW * rows + (4 if rows and sets else 0) + 18 * lines + 4 * len(sets) + 6
+    return 12 + VALUE_ROW * rows + chips * (CHIP_H + CHIP_GAP) + (2 if chips else 0) + (4 if rows and sets else 0) + 18 * lines + 4 * len(sets) + 6
 
 
 def _route(card: Image.Image, centres: list[tuple[float, float]]) -> None:
@@ -485,7 +538,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
     # middle: the telemetry and the readout under it
     x0, x1 = STATS_X, STATS_X + STATS_W
     # the stats screen is as tall as its rows; the readout takes the rest, so no screen has empty space at its foot
-    rh = _readout_h(build, wanted)
+    rh = _readout_h(build, wanted, x1 - x0)
     n = sum(1 for st in build.stats if not _is_zero(st.value))
     bottom = min(PAD + 40 + ROW * n, H - PAD - (rh + 12 if rh else 0))
     _telemetry(card, build, (x0, PAD, x1, bottom), wanted)
