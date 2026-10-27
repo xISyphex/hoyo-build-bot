@@ -149,7 +149,9 @@ def _art(card: Image.Image, art: Image.Image | None, face=None) -> None:
     art = art.convert("RGBA")
     scale = max((H + 20) / art.height, ART_W / art.width)  # the smallest size that still fills the space
     if face:
-        scale = min(max(scale, FACE_SIZE / face[2]), 1.0)  # small faces are enlarged, never past the picture's own size
+        # small faces are enlarged, and so is a face too near the picture's top to come down to FACE_AT (Acheron's
+        # sat behind the eidolons), never past the picture's own size
+        scale = min(max(scale, FACE_SIZE / face[2], FACE_AT[1] / max(face[1], 1)), 1.0)
     art = art.resize((round(art.width * scale), round(art.height * scale)), Image.LANCZOS)
     # where the picture's top left corner goes on the canvas, which starts 40px left of the card's edge
     if face:
@@ -229,7 +231,7 @@ def _header(card: Image.Image, build: CharacterBuild, accent, images) -> None:
 
 
 def _eidolon_chips(card: Image.Image, build: CharacterBuild, accent, images, x: float, cy: float) -> None:
-    """Six hex chips holding the eidolon icons: unlocked ones lit solid cyan, the rest outlined."""
+    """Six hex chips holding the eidolon icons: unlocked ones lit solid gold with a glow, like the rarity stars, the rest outlined."""
     n = max(0, min(build.constellation, 6))
     r, step = 21, 48
     k = SS
@@ -241,8 +243,10 @@ def _eidolon_chips(card: Image.Image, build: CharacterBuild, accent, images, x: 
         hx, hy = (10 + r + i * step) * k, (10 + r) * k
         pts = _hexagon(hx, hy, r * k)
         if i < n:
-            d.polygon(pts, fill=base._mix(HOLO, DEEP, 0.35) + (255,), outline=HOLO + (255,))
-            gd.polygon(_hexagon(10 + r + i * step, 10 + r, r), fill=HOLO + (150,))
+            lit = GOLD
+            d.polygon(pts, fill=lit + (255,), outline=base._mix(lit, (255, 255, 255), 0.6) + (255,))
+            d.line(pts + pts[:1], fill=base._mix(lit, (255, 255, 255), 0.6) + (255,), width=2 * k)
+            gd.polygon(_hexagon(10 + r + i * step, 10 + r, r + 3), fill=lit + (210,))
         else:
             d.polygon(pts, fill=(3, 30, 42, 200))
             d.line(pts + pts[:1], fill=HOLO + (90,), width=k)
