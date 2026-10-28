@@ -115,11 +115,11 @@ def _route(card: Image.Image, patch: Patch, now: dt.datetime, x0: int, x1: int, 
     f = h._raj("Bold", 13)
     if not (start and end and end > start):
         return
-    h._spaced(draw, (x0 - 4, y + 30), pc._day(start, patch.server).upper(), f, DIM, 2)
-    day = pc._day(end, patch.server).upper()
+    h._spaced(draw, (x0 - 4, y + 30), pc._day(start, patch.clock).upper(), f, DIM, 2)
+    day = pc._day(end, patch.clock).upper()
     h._spaced(draw, (x1 + 4 - _spaced_w(draw, day, f, 2), y + 30), day, f, DIM, 2)
     for when, sx in zip(halves, stations[2:]):
-        text = f"PHASE 2 · {pc._day(when, patch.server).upper()}"
+        text = f"PHASE 2 · {pc._day(when, patch.clock).upper()}"
         h._spaced(draw, (sx - _spaced_w(draw, text, f, 2) / 2, y + 30), text, f, TEXT, 2)
 
 
@@ -139,7 +139,7 @@ def _header(card: Image.Image, patch: Patch, now: dt.datetime) -> None:
         draw.text((right, y0 + 64), left, font=font, fill=HOLO, anchor="rm")
         clock = icons.clock(32, HOLO)
         card.alpha_composite(clock, (round(right - draw.textlength(left, font=font) - 14 - clock.width), y0 + 64 - clock.height // 2))
-        stamp = pc._stamp(patch.end, patch.server).upper()
+        stamp = pc._stamp(patch.end, patch.clock).upper()
         sf = h._raj("SemiBold", 14)
         h._spaced(draw, (right - _spaced_w(draw, stamp, sf, 1.4), y0 + 98), stamp, sf, FAINT, 1.4)
     else:
@@ -267,7 +267,7 @@ def draw_patch(patch: Patch, images: dict[str, Image.Image], now: dt.datetime | 
         y += 60
     if upcoming:
         _section(card, "Coming next", FAINT, y)
-        _upcoming(card, upcoming, images, patch.server, y + SECTION_HEAD)
+        _upcoming(card, upcoming, images, patch.clock, y + SECTION_HEAD)
 
     out = io.BytesIO()
     card.convert("RGB").save(out, "PNG", compress_level=3)

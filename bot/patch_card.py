@@ -15,6 +15,7 @@ from PIL import Image, ImageDraw, ImageEnhance, ImageFilter
 
 from . import card as c
 from . import record_icons as icons
+from . import timezones
 from .patch import KINDS, SERVER_UTC, TITLES, Banner, Patch, version_start
 from .records_card import GAME_ACCENT, _cover, _rarity_tile
 from .unit_traits import CRYO
@@ -41,18 +42,23 @@ def _short(delta: dt.timedelta) -> str:
     return f"{days}d {hours}h" if days else f"{hours}h {rest // 60}m"
 
 
-def _local(when: dt.datetime, server: str | None) -> dt.datetime:
-    return when.astimezone(dt.timezone(dt.timedelta(hours=SERVER_UTC.get(server or "", 0))))
+def _local(when: dt.datetime, clock: str | None) -> dt.datetime:
+    """The time on a server's clock, or in a person's own time zone (see Patch.clock)."""
+    if clock in SERVER_UTC or not clock:
+        return when.astimezone(dt.timezone(dt.timedelta(hours=SERVER_UTC.get(clock or "", 0))))
+    return when.astimezone(timezones.zone(clock) or dt.timezone.utc)
 
 
-def _day(when: dt.datetime, server: str | None) -> str:
-    t = _local(when, server)
+def _day(when: dt.datetime, clock: str | None) -> str:
+    t = _local(when, clock)
     return f"{t.day} {t:%b}"
 
 
-def _stamp(when: dt.datetime, server: str | None) -> str:
-    t = _local(when, server)
-    return f"{t:%a} {t.day} {t:%b} · {t:%H:%M}"
+def _stamp(when: dt.datetime, clock: str | None) -> str:
+    """'Fri 20 Nov · 02:00', with the zone's abbreviation ('CET') when it's a person's own."""
+    t = _local(when, clock)
+    zone = f" {t.tzname()}" if clock and clock not in SERVER_UTC and t.tzname() else ""
+    return f"{t:%a} {t.day} {t:%b} · {t:%H:%M}{zone}"
 
 
 def _fit(icon: Image.Image, w: int, h: int, weapon: bool) -> Image.Image:
@@ -154,14 +160,14 @@ def _bar(card: Image.Image, patch: Patch, now: dt.datetime, y: int, accent, ligh
     for when in halves[:1]:
         tx = x0 + round((x1 - x0) * (when - start) / (end - start))
         ld.rounded_rectangle((tx - 1, y - 5, tx + 1, y + h + 5), 1, fill=(255, 255, 255, 150))
-        draw.text((tx, y + h + 16), f"Phase 2 · {_day(when, patch.server)}", font=f.stamp, fill=c.DIM, anchor="mm")
+        draw.text((tx, y + h + 16), f"Phase 2 · {_day(when, patch.clock)}", font=f.stamp, fill=c.DIM, anchor="mm")
     glow = Image.new("RGBA", card.size, (0, 0, 0, 0))
     ImageDraw.Draw(glow).ellipse((fx - 13, y + h / 2 - 13, fx + 13, y + h / 2 + 13), fill=light + (150,))
     c._layer_onto(card, glow.filter(ImageFilter.GaussianBlur(6)))
     ld.ellipse((fx - 8, y + h / 2 - 8, fx + 8, y + h / 2 + 8), fill=(255, 255, 255, 255), outline=accent + (255,), width=3)
     c._layer_onto(card, layer)
-    draw.text((x0, y + h + 16), _day(start, patch.server), font=f.stamp, fill=c.DIM, anchor="lm")
-    draw.text((x1, y + h + 16), _day(end, patch.server), font=f.stamp, fill=c.DIM, anchor="rm")
+    draw.text((x0, y + h + 16), _day(start, patch.clock), font=f.stamp, fill=c.DIM, anchor="lm")
+    draw.text((x1, y + h + 16), _day(end, patch.clock), font=f.stamp, fill=c.DIM, anchor="rm")
 
 
 def _banner(card: Image.Image, game: str, b: Banner, images: dict, box, accent, now: dt.datetime) -> None:
@@ -222,7 +228,7 @@ def draw_patch(patch: Patch, images: dict[str, Image.Image], now: dt.datetime | 
     c.FONTS = c.FONTS or c.Fonts()
     f = c.FONTS
     now = now or dt.datetime.now(dt.timezone.utc)
-    game, server = patch.game, patch.server
+    game, server = patch.game, patch.clock
     accent = GAME_ACCENT[game]
     light = c._mix(accent, (255, 255, 255), 0.45)
     running = [one for b in patch.banners if b.start <= now < b.end for one in _split(b)]
