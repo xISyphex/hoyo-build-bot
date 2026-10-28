@@ -144,6 +144,8 @@ def _header(card: Image.Image, patch: Patch, now: dt.datetime) -> None:
         h._spaced(draw, (right - _spaced_w(draw, stamp, sf, 1.4), y0 + 98), stamp, sf, FAINT, 1.4)
     else:
         draw.text((right, y0 + 64), "END NOT ANNOUNCED", font=h._raj("Bold", 22), fill=DIM, anchor="rm")
+    zf = h._raj("SemiBold", 14)
+    h._spaced(draw, (x0 + 26, y0 + 98), pc._zone_label(patch).upper(), zf, FAINT, 1.4)
     _route(card, patch, now, x0 + 40, x1 - 40, y0 + 126)
 
 

@@ -55,10 +55,26 @@ def _day(when: dt.datetime, clock: str | None) -> str:
 
 
 def _stamp(when: dt.datetime, clock: str | None) -> str:
-    """'Fri 20 Nov · 02:00', with the zone's abbreviation ('CET') when it's a person's own."""
     t = _local(when, clock)
-    zone = f" {t.tzname()}" if clock and clock not in SERVER_UTC and t.tzname() else ""
-    return f"{t:%a} {t.day} {t:%b} · {t:%H:%M}{zone}"
+    return f"{t:%a} {t.day} {t:%b} · {t:%H:%M}"
+
+
+def _zone_label(patch: Patch) -> str:
+    """Which clock the card's times are in, for its header: 'Times in New York · UTC-5 (EST)', or the server's."""
+    clock = patch.clock
+    if not clock:
+        return ""
+    t = _local(patch.end or patch.now, clock)  # the zone as at the end time printed under the countdown
+    minutes = round(t.utcoffset().total_seconds() / 60)
+    sign, minutes = "-" if minutes < 0 else "+", abs(minutes)
+    offset = f"UTC{sign}{minutes // 60}" + (f":{minutes % 60:02d}" if minutes % 60 else "")
+    if clock in SERVER_UTC:
+        return f"Times in {clock} server time · {offset}"
+    if clock.startswith("UTC"):
+        return f"Times in {offset}"
+    place = clock.rsplit("/", 1)[-1].replace("_", " ")
+    abbr = t.tzname() or ""
+    return f"Times in {place} · {offset}" + (f" ({abbr})" if abbr and abbr[0].isalpha() and abbr != "UTC" else "")
 
 
 def _fit(icon: Image.Image, w: int, h: int, weapon: bool) -> Image.Image:
@@ -262,6 +278,7 @@ def draw_patch(patch: Patch, images: dict[str, Image.Image], now: dt.datetime | 
         draw.text((W - PAD, 134), _stamp(patch.end, server), font=f.small, fill=c.DIM, anchor="rm")
     else:
         draw.text((W - PAD, 92), "End not announced", font=f.meta, fill=c.DIM, anchor="rm")
+    draw.text((PAD + 2, 134), _zone_label(patch), font=f.small, fill=c.DIM, anchor="lm")
     _bar(card, patch, now, 152, accent, light)
 
     y = HEAD

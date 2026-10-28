@@ -131,6 +131,7 @@ def _header(card: Image.Image, patch: Patch, now: dt.datetime) -> None:
         draw.text((right, sy0 + 100), pc._stamp(patch.end, patch.clock).upper(), font=z.FONTS.tiny, fill=z.SILK, anchor="rs")
     else:
         draw.text((right, sy0 + 76), "END NOT ANNOUNCED", font=z.FONTS.mid, fill=z.SILK, anchor="rs")
+    z._silk(draw, (sx0 + 20, sy0 + 100), pc._zone_label(patch).upper())
     _gauge(card, patch, now, sx0 + 20, sx1 - 20, sy0 + 122)
 
 

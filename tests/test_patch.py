@@ -238,10 +238,15 @@ class TimezoneTest(unittest.TestCase):
         from bot import patch_card as pc
         when = dt.datetime(2026, 11, 20, 2, 0, tzinfo=dt.timezone.utc)
         self.assertEqual(pc._stamp(when, "Europe"), "Fri 20 Nov · 03:00")
-        self.assertEqual(pc._stamp(when, "America/New_York"), "Thu 19 Nov · 21:00 EST")
-        self.assertEqual(pc._stamp(when, "UTC+09:00"), "Fri 20 Nov · 11:00 UTC+09:00")
+        self.assertEqual(pc._stamp(when, "America/New_York"), "Thu 19 Nov · 21:00")
+        self.assertEqual(pc._stamp(when, "UTC+09:00"), "Fri 20 Nov · 11:00")
         info = patch.Patch("hsr", "3.7", when, when, [], "Europe", "Asia/Tokyo")
         self.assertEqual(info.clock, "Asia/Tokyo")
+        self.assertEqual(pc._zone_label(info), "Times in Tokyo · UTC+9 (JST)")
+        self.assertEqual(pc._zone_label(patch.Patch("hsr", "3.7", when, when, [], "Europe", "America/New_York")),
+                         "Times in New York · UTC-5 (EST)")
+        self.assertEqual(pc._zone_label(patch.Patch("hsr", "3.7", when, when, [], "Europe")), "Times in Europe server time · UTC+1")
+        self.assertEqual(pc._zone_label(patch.Patch("hsr", "3.7", when, when, [], "Europe", "UTC+05:30")), "Times in UTC+5:30")
 
     def test_store(self):
         import tempfile
