@@ -52,6 +52,12 @@ class Patch:
     end: dt.datetime | None
     banners: list[Banner]  # every banner HoYoLAB lists; the running ones are picked when shown
     server: str | None = None  # the server whose clock the mid-version times follow
+    timezone: str | None = None  # the time zone of whoever asked (/timezone), for the times drawn on the card
+
+    @property
+    def clock(self) -> str | None:
+        """Whose clock the card's times are drawn in: the person's own zone, else their server's."""
+        return self.timezone or self.server
 
 
 def _utc(stamp: int) -> dt.datetime:

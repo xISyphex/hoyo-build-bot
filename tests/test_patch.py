@@ -182,6 +182,19 @@ class PatchCardTest(unittest.TestCase):
         png = draw_patch(info, {}, now)
         self.assertEqual(Image.open(io.BytesIO(png)).width, 1200)
 
+    def test_hsr_hologram_draws_without_pictures(self):
+        import io
+        from PIL import Image
+        from bot.patch_card import draw_patch
+        now = patch._utc(NOW)
+        running = patch.Banner("Character warps", ["Castorice", "Acheron"], ["Pela"], now - dt.timedelta(days=5), now + dt.timedelta(days=5), None, "3.7",
+                               [("Castorice", True, None), ("Acheron", True, None), ("Pela", False, None)])
+        coming = patch.Banner("Light cone warps", ["Along the Passing Shore"], [], now + dt.timedelta(days=5), now + dt.timedelta(days=20), None, "3.7",
+                              [("Along the Passing Shore", True, None)])
+        info = patch.Patch("hsr", "3.7", now - dt.timedelta(days=5), now + dt.timedelta(days=20), [running, coming], "Europe")
+        png = draw_patch(info, {}, now)
+        self.assertEqual(Image.open(io.BytesIO(png)).width, 1200)
+
 
 class UnknownCharactersTest(unittest.TestCase):
     def test_running_featured_not_in_game_data(self):
@@ -208,3 +221,39 @@ class UnitTraitsTest(unittest.TestCase):
         self.assertIn("IconAnomaly", ut.zzz_urls(202, 1, 3)[1])
         info = patch.hsr_patch(calendar(), traits)
         self.assertEqual(len(info.banners[0].traits["Cyrene"]), 1)  # path only: no Hakushin entry for 1415 here
+
+
+class TimezoneTest(unittest.TestCase):
+    def test_parse(self):
+        from bot import timezones
+        self.assertEqual(timezones.parse("Europe/Berlin"), "Europe/Berlin")
+        self.assertEqual(timezones.parse("berlin"), "Europe/Berlin")
+        self.assertEqual(timezones.parse("new york"), "America/New_York")
+        self.assertEqual(timezones.parse("UTC+2"), "UTC+02:00")
+        self.assertEqual(timezones.parse("gmt-5:30"), "UTC-05:30")
+        self.assertIsNone(timezones.parse("Atlantis"))
+        self.assertIn("Europe/Berlin", timezones.suggest("ber"))
+
+    def test_card_times_in_own_zone(self):
+        from bot import patch_card as pc
+        when = dt.datetime(2026, 11, 20, 2, 0, tzinfo=dt.timezone.utc)
+        self.assertEqual(pc._stamp(when, "Europe"), "Fri 20 Nov · 03:00")
+        self.assertEqual(pc._stamp(when, "America/New_York"), "Thu 19 Nov · 21:00")
+        self.assertEqual(pc._stamp(when, "UTC+09:00"), "Fri 20 Nov · 11:00")
+        info = patch.Patch("hsr", "3.7", when, when, [], "Europe", "Asia/Tokyo")
+        self.assertEqual(info.clock, "Asia/Tokyo")
+        self.assertEqual(pc._zone_label(info), "Times in Tokyo · UTC+9 (JST)")
+        self.assertEqual(pc._zone_label(patch.Patch("hsr", "3.7", when, when, [], "Europe", "America/New_York")),
+                         "Times in New York · UTC-5 (EST)")
+        self.assertEqual(pc._zone_label(patch.Patch("hsr", "3.7", when, when, [], "Europe")), "Times in Europe server time · UTC+1")
+        self.assertEqual(pc._zone_label(patch.Patch("hsr", "3.7", when, when, [], "Europe", "UTC+05:30")), "Times in UTC+5:30")
+
+    def test_store(self):
+        import tempfile
+        from bot.timezones import TimezoneStore
+        with tempfile.TemporaryDirectory() as d:
+            store = TimezoneStore(f"{d}/tz.json")
+            store.set(1, "Europe/Berlin")
+            self.assertEqual(TimezoneStore(f"{d}/tz.json").get(1), "Europe/Berlin")
+            store.set(1, None)
+            self.assertIsNone(TimezoneStore(f"{d}/tz.json").get(1))

@@ -128,7 +128,7 @@ def guide_message(bot_name: str, per_hour: int, app_id: int | None = None, welco
         1,
         "Other commands",
         "`/help` opens this guide again. `/genshin-patch`, `/hsr-patch` and `/zzz-patch` show the game's current version,"
-        " how long it has left and the banners running now. And `/pat`... pats me. Not that I asked for it, Proxy."
+        " how long it has left and the banners running now; `/timezone` makes their times yours. And `/pat`... pats me. Not that I asked for it, Proxy."
         "\nExample: `/hsr-patch`",
     )
     if owner:

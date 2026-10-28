@@ -107,10 +107,10 @@ def _gauge(card: Image.Image, patch: Patch, now: dt.datetime, x0: int, x1: int, 
     for when in halves[:1]:
         tx = x0 + round((x1 - x0) * (when - start) / (end - start))
         draw.rectangle((tx - 1, y - 6, tx + 1, y + h + 6), fill=base.TEXT)
-        z._silk(draw, (tx, y + h + 24), f"PHASE 2 · {pc._day(when, patch.server).upper()}", centre=True)
+        z._silk(draw, (tx, y + h + 24), f"PHASE 2 · {pc._day(when, patch.clock).upper()}", centre=True)
     draw.polygon([(fx, y - 1), (fx - 7, y - 11), (fx + 7, y - 11)], fill=(255, 92, 72))
-    z._silk(draw, (x0, y + h + 24), pc._day(start, patch.server).upper())
-    day = pc._day(end, patch.server).upper()
+    z._silk(draw, (x0, y + h + 24), pc._day(start, patch.clock).upper())
+    day = pc._day(end, patch.clock).upper()
     z._silk(draw, (x1 - sum(draw.textlength(ch, font=z.FONTS.silk) for ch in day) - 2.4 * (len(day) - 1), y + h + 24), day)
 
 
@@ -128,9 +128,10 @@ def _header(card: Image.Image, patch: Patch, now: dt.datetime) -> None:
         draw.text((right, sy0 + 76), left, font=font, fill=z.AMBER, anchor="rs")
         clock = icons.clock(34, z.AMBER)
         card.alpha_composite(clock, (round(right - draw.textlength(left, font=font) - 14 - clock.width), sy0 + 60 - clock.height // 2))
-        draw.text((right, sy0 + 100), pc._stamp(patch.end, patch.server).upper(), font=z.FONTS.tiny, fill=z.SILK, anchor="rs")
+        draw.text((right, sy0 + 100), pc._stamp(patch.end, patch.clock).upper(), font=z.FONTS.tiny, fill=z.SILK, anchor="rs")
     else:
         draw.text((right, sy0 + 76), "END NOT ANNOUNCED", font=z.FONTS.mid, fill=z.SILK, anchor="rs")
+    z._silk(draw, (sx0 + 20, sy0 + 100), pc._zone_label(patch).upper())
     _gauge(card, patch, now, sx0 + 20, sx1 - 20, sy0 + 122)
 
 
@@ -243,7 +244,7 @@ def draw_patch(patch: Patch, images: dict[str, Image.Image], now: dt.datetime | 
     if upcoming:
         rz._pilot(card, PAD + 14, y + 22, z.SILK)
         ImageDraw.Draw(card).text((PAD + 34, y + 32), "COMING NEXT", font=z._rubik(24, 800), fill=base.TEXT, anchor="ls")
-        _upcoming(card, upcoming, images, patch.server, y + SECTION_HEAD)
+        _upcoming(card, upcoming, images, patch.clock, y + SECTION_HEAD)
 
     out = io.BytesIO()
     card.convert("RGB").save(out, "PNG", compress_level=3)

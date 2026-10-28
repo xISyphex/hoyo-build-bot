@@ -19,7 +19,7 @@ import genshin
 from discord import app_commands
 from discord.ext import tasks
 
-from . import matching, news, patch, records
+from . import matching, news, patch, records, timezones
 from .access import PRIVATE, AccessList
 from .assets import Assets
 from .claims import ClaimStore
@@ -71,6 +71,7 @@ class HoyoBot(discord.Client):
         self.assets = Assets(cache_dir)
         # Lives next to the game data, which the VM setup script and the Docker volume keep across updates.
         self.claims = ClaimStore(os.environ.get("CLAIMS_FILE", os.path.join(cache_dir, "claims.json")))
+        self.timezones = timezones.TimezoneStore(os.environ.get("TIMEZONES_FILE", os.path.join(cache_dir, "timezones.json")))
         self.access = AccessList(os.environ.get("ACCESS_FILE", os.path.join(cache_dir, "access.json")))
         # New lookups per person per hour (the owner has no limit); the dropdown and buttons don't count.
         self.lookups = LookupLimit(int(os.environ.get("LOOKUPS_PER_HOUR", "15")))
@@ -123,6 +124,7 @@ class HoyoBot(discord.Client):
         self.tree.add_command(AccessGroup())
         self.tree.add_command(HoyolabGroup())
         self.tree.add_command(help_command)
+        self.tree.add_command(timezone_command)
         self.tree.add_command(pat_command)
         self.add_dynamic_items(PageButton, OpenGuideButton)  # the guide's buttons, also on old messages
         guild_id = os.environ.get("DEV_GUILD_ID")
@@ -583,7 +585,8 @@ def make_patch_command(game: str) -> app_commands.Command:
             return
         # Mid-version banner switches happen at the same local time on every server, so move them to the player's
         server = server_name(game, uid) if uid else None
-        info = dataclasses.replace(patch.for_server(info, info.server, server), now=dt.datetime.now(dt.timezone.utc))
+        info = dataclasses.replace(patch.for_server(info, info.server, server), now=dt.datetime.now(dt.timezone.utc),
+                                   timezone=bot.timezones.get(interaction.user.id))
         try:
             png = await bot.cards.render_patch(info)
         except Exception:
@@ -650,6 +653,39 @@ async def help_command(interaction: discord.Interaction) -> None:
     embeds, files, view = guide_message(bot.user.name if bot.user else "the bot", bot.lookups.per_hour,
                                         bot.application_id, welcome=False, owner=bot.access.is_owner(interaction.user.id))
     await interaction.response.send_message(embeds=embeds, files=files, view=view, ephemeral=True)
+
+
+@app_commands.command(name="timezone", description="Set your time zone, for the times on the patch cards")
+@app_commands.describe(zone="A city (Berlin), zone (America/New_York) or offset (UTC+2); 'server' to reset")
+async def timezone_command(interaction: discord.Interaction, zone: str | None = None) -> None:
+    """Discord doesn't tell bots anyone's time zone, so people pick theirs; without one the cards keep their server's clock."""
+    bot: HoyoBot = interaction.client  # type: ignore[assignment]
+    user = interaction.user.id
+    now = dt.datetime.now(dt.timezone.utc)
+    if not zone:
+        mine = bot.timezones.get(user)
+        text = (f"Your time zone is **{mine}** (it's {now.astimezone(timezones.zone(mine)):%H:%M} there)." if mine and timezones.zone(mine)
+                else "You haven't set a time zone, so the patch cards show your server's clock.")
+        await interaction.response.send_message(text + " Change it with `/timezone zone:`.", ephemeral=True)
+        return
+    if zone.strip().lower() in ("server", "reset", "none", "off"):
+        bot.timezones.set(user, None)
+        await interaction.response.send_message("Done. The patch cards show your server's clock again.", ephemeral=True)
+        return
+    name = timezones.parse(zone)
+    if name is None:
+        await interaction.response.send_message(f"I don't know the time zone \"{zone}\". Try a city like Berlin or an "
+                                                "offset like UTC+2.", ephemeral=True)
+        return
+    bot.timezones.set(user, name)
+    local = now.astimezone(timezones.zone(name))
+    await interaction.response.send_message(f"Saved **{name}** (it's {local:%H:%M} there now). The patch cards will show "
+                                            "times in your time zone.", ephemeral=True)
+
+
+@timezone_command.autocomplete("zone")
+async def timezone_autocomplete(interaction: discord.Interaction, current: str):
+    return [app_commands.Choice(name=n, value=n) for n in timezones.suggest(current)]
 
 
 PAT_LINES = (
