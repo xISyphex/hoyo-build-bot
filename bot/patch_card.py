@@ -216,6 +216,9 @@ def draw_patch(patch: Patch, images: dict[str, Image.Image], now: dt.datetime | 
     if patch.game == "zzz":  # ZZZ's own retro dashboard, like its build card and records
         from . import patch_zzz
         return patch_zzz.draw_patch(patch, images, now)
+    if patch.game == "hsr":  # Star Rail's navigation hologram, like its build card and records
+        from . import patch_hsr
+        return patch_hsr.draw_patch(patch, images, now)
     c.FONTS = c.FONTS or c.Fonts()
     f = c.FONTS
     now = now or dt.datetime.now(dt.timezone.utc)

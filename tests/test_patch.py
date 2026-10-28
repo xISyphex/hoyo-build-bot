@@ -182,6 +182,19 @@ class PatchCardTest(unittest.TestCase):
         png = draw_patch(info, {}, now)
         self.assertEqual(Image.open(io.BytesIO(png)).width, 1200)
 
+    def test_hsr_hologram_draws_without_pictures(self):
+        import io
+        from PIL import Image
+        from bot.patch_card import draw_patch
+        now = patch._utc(NOW)
+        running = patch.Banner("Character warps", ["Castorice", "Acheron"], ["Pela"], now - dt.timedelta(days=5), now + dt.timedelta(days=5), None, "3.7",
+                               [("Castorice", True, None), ("Acheron", True, None), ("Pela", False, None)])
+        coming = patch.Banner("Light cone warps", ["Along the Passing Shore"], [], now + dt.timedelta(days=5), now + dt.timedelta(days=20), None, "3.7",
+                              [("Along the Passing Shore", True, None)])
+        info = patch.Patch("hsr", "3.7", now - dt.timedelta(days=5), now + dt.timedelta(days=20), [running, coming], "Europe")
+        png = draw_patch(info, {}, now)
+        self.assertEqual(Image.open(io.BytesIO(png)).width, 1200)
+
 
 class UnknownCharactersTest(unittest.TestCase):
     def test_running_featured_not_in_game_data(self):
