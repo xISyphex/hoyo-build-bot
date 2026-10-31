@@ -181,7 +181,7 @@ def _banner(card: Image.Image, b: Banner, images: dict, box, now: dt.datetime) -
     _diamond(draw, tx + 5, cy, 5, HOLO)
     mw = _marks(card, b.traits.get(top, []), images, tx + 20, cy, 26)
     nx = tx + 20 + (mw + 10 if mw else 0)
-    names = " & ".join(t[0] for t in tops).upper() or "?"
+    names = _plain(" & ".join(t[0] for t in tops).upper() or "?", h._raj("Bold", 26))
     room = x1 - 18 - nx
     for size, spacing in ((26, 2.4), (23, 2), (20, 1.6), (18, 1.2)):
         font = h._raj("Bold", size)
@@ -198,34 +198,86 @@ def _banner(card: Image.Image, b: Banner, images: dict, box, now: dt.datetime) -
         _tile(card, images.get(icon or ""), (sx, y0 + 70, sx + SMALL, y0 + 70 + SMALL), False, weapon)
         sx += SMALL + 8
     if rest:
-        line = ", ".join(r[0] for r in rest).upper()
+        line = _plain(", ".join(r[0] for r in rest).upper(), h._raj("SemiBold", 14))
         lf = h._raj("SemiBold", 14)
         draw = ImageDraw.Draw(card)
         h._spaced(draw, (tx + 1, y0 + 70 + SMALL + 18), base._fit_text(draw, line, lf, x1 - 18 - tx - 1.2 * len(line)), lf, DIM, 1.2)
     _ends(card, (x1 - 16 - 180, y1 - 16 - 34, x1 - 16, y1 - 16), pc._short(b.end - now))
 
 
-def _upcoming(card: Image.Image, upcoming: list[Banner], images: dict, server, y: int) -> None:
-    draw = ImageDraw.Draw(card)
-    nf, df = h._raj("Bold", 19), h._raj("Bold", 12)
-    x = PAD
-    for b in upcoming:
-        top = next((i for i in b.items if i[1]), (b.featured[0], True, b.icon))
-        name = base._fit_text(draw, top[0].upper(), nf, 170)
-        marks = [u for u in b.traits.get(top[0], []) if u in images]
-        day = f"FROM {pc._day(b.start, server).upper()}"
-        nw = _spaced_w(draw, name, nf, 1.4)
-        marks_w = len(marks) * 26 + 4 if marks else 0  # the symbols after the name, on its line
-        w = round(12 + 64 + 14 + max(nw + marks_w, _spaced_w(draw, day, df, 2.4)) + 20)
-        if x + w > W - PAD:
-            break
-        rh._box(card, (x, y, x + w, y + NEXT_H), rh.TEAM_FILL, 100, 10)
-        _tile(card, images.get(top[2] or ""), (x + 12, y + 12, x + 76, y + 76), True, b.kind in pc.WEAPON_KINDS)
+def _plain(text: str, font) -> str:
+    """The text with any letter the font has no glyph for swapped for one it has (HoYoLAB writes "Aeon ・ Aha"),
+    instead of an empty box."""
+    blank = font.getmask("\U0010FFFD")
+    missing = lambda ch: not ch.isspace() and (m := font.getmask(ch)).size == blank.size and bytes(m) == bytes(blank)
+    return "".join(SWAPS.get(ch, "·") if missing(ch) else ch for ch in text)
+
+
+SWAPS = {"：": ":", "「": '"', "」": '"', "『": '"', "』": '"', "～": "~"}
+
+
+NEW_H = 116  # the new character's screen, on a row of its own
+SUB_HEAD = 30  # a small title over a row (RERUN, LIGHT CONES)
+
+
+def _next_item(draw, b: Banner, images: dict, server, big: bool) -> tuple:
+    """A coming banner with what its screen shows, and the screen's width."""
+    nf, df = h._raj("Bold", 28 if big else 19), h._raj("Bold", 13 if big else 12)
+    tile = NEW_H - 24 if big else 64
+    top = next((i for i in b.items if i[1]), (b.featured[0], True, b.icon))
+    name = base._fit_text(draw, _plain(top[0].upper(), nf), nf, 520 if big else 230)
+    marks = [u for u in b.traits.get(top[0], []) if u in images]
+    day = f"FROM {pc._day(b.start, server).upper()}"
+    nw = _spaced_w(draw, name, nf, 2 if big else 1.4)
+    marks_w = len(marks) * (34 if big else 26) + 4 if marks else 0  # the symbols after the name, on its line
+    w = round(12 + tile + 14 + max(nw + marks_w, _spaced_w(draw, day, df, 2.4)) + 24)
+    return (b, top, name, marks, day, nw, big, min(w, W - 2 * PAD))
+
+
+def _next_layout(draw, upcoming: list[Banner], images: dict, server):
+    """Where everything coming next goes: the first new character on a row of its own, then the other characters
+    (reruns) and the light cones, each under a small title, in rows that wrap. Returns the pieces and the height."""
+    chars = [b for b in upcoming if b.kind not in pc.WEAPON_KINDS]
+    cones = [b for b in upcoming if b.kind in pc.WEAPON_KINDS]
+    groups = [("", chars[:1], True), ("RERUN", chars[1:], False), ("LIGHT CONES", cones, False)]
+    pieces, y = [], 0
+    for title, banners, big in groups:
+        if not banners:
+            continue
+        if title:
+            pieces.append(("title", title, PAD, y))
+            y += SUB_HEAD
+        x, hh = PAD, NEW_H if big else NEXT_H
+        for b in banners:
+            item = _next_item(draw, b, images, server, big)
+            if x > PAD and x + item[-1] > W - PAD:
+                x, y = PAD, y + hh + GAP
+            pieces.append(("screen", item, x, y))
+            x += item[-1] + GAP
+        y += hh + GAP
+    return pieces, y
+
+
+def _upcoming(card: Image.Image, upcoming: list[Banner], images: dict, server, y0: int) -> None:
+    pieces, _ = _next_layout(ImageDraw.Draw(card), upcoming, images, server)
+    for kind, item, x, y in pieces:
+        y += y0
         draw = ImageDraw.Draw(card)
-        h._spaced(draw, (x + 90, y + 32), name, nf, TEXT, 1.4)
-        _marks(card, marks, images, x + 90 + nw + 10, y + 32, 20)
-        h._spaced(draw, (x + 91, y + 60), day, df, DIM, 2.4)
-        x += w + GAP
+        if kind == "title":  # a small spaced label with a waypoint, like the readouts'
+            _diamond(draw, x + 8, y + 10, 4, FAINT)
+            h._spaced(draw, (x + 20, y + 11), item, h._raj("Bold", 13), DIM, 3.4)
+            continue
+        b, top, name, marks, day, nw, big, w = item
+        hh = NEW_H if big else NEXT_H
+        tile = hh - 24
+        nf, df = h._raj("Bold", 28 if big else 19), h._raj("Bold", 13 if big else 12)
+        rh._box(card, (x, y, x + w, y + hh), rh.TEAM_FILL, 100, 12 if big else 10)
+        _tile(card, images.get(top[2] or ""), (x + 12, y + 12, x + 12 + tile, y + 12 + tile), True, b.kind in pc.WEAPON_KINDS)
+        draw = ImageDraw.Draw(card)
+        tx, ny = x + 12 + tile + 14, y + (44 if big else 32)
+        h._spaced(draw, (tx, ny), name, nf, (255, 255, 255) if big else TEXT, 2 if big else 1.4)
+        _marks(card, marks, images, tx + nw + 10, ny, 26 if big else 20)
+        h._spaced(draw, (tx + 1, y + (80 if big else 60)), day, df, DIM, 2.4)
 
 
 def _section(card: Image.Image, title: str, light, y: int) -> None:
@@ -245,13 +297,13 @@ def draw_patch(patch: Patch, images: dict[str, Image.Image], now: dt.datetime | 
     sections = [(k, [b for b in running if b.kind == k]) for k in KINDS["hsr"]]
     sections = [(k, bs) for k, bs in sections if bs]
     upcoming = sorted((one for b in patch.banners if b.start > now and b.featured for one in pc._split(b)),
-                      key=lambda b: b.start)[:6]
+                      key=lambda b: b.start)[:9]
     rows = pc._rows
     height = PAD + HEAD_H + GAP + sum(SECTION_HEAD + rows(len(bs)) * (CARD_H + GAP) for _, bs in sections) + PAD
     if not sections:
         height += 60
     if upcoming:
-        height += SECTION_HEAD + NEXT_H + GAP
+        height += SECTION_HEAD + _next_layout(ImageDraw.Draw(Image.new("RGB", (1, 1))), upcoming, images, patch.clock)[1]
     card = rh._starmap(W, height, f"hsr-{patch.version}")
     _header(card, patch, now)
 
