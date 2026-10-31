@@ -266,7 +266,10 @@ class HsrComingNextTest(unittest.TestCase):
         now = patch._utc(NOW)
         coming = [patch.Banner("Character warps", [n], [], now + dt.timedelta(days=5), now + dt.timedelta(days=20), None, "3.8",
                                [(n, True, None)]) for n in ("Aeon ・ Aha", "Silver Wolf LV.999", "Sparxie", "Dan Heng", "Acheron", "Firefly")]
-        rows = patch_hsr._next_rows(patch_hsr._next_items(ImageDraw.Draw(Image.new("RGB", (1, 1))), coming, {}, "Europe"))
-        self.assertEqual(sum(len(r) for r in rows), 6)
-        self.assertGreater(len(rows), 1)
+        pieces, height = patch_hsr._next_layout(ImageDraw.Draw(Image.new("RGB", (1, 1))), coming, {}, "Europe")
+        screens = [p for p in pieces if p[0] == "screen"]
+        self.assertEqual(len(screens), 6)
+        self.assertTrue(screens[0][1][6])  # the first character, big, on its own row
+        self.assertEqual([p[1] for p in pieces if p[0] == "title"], ["RERUN"])
+        self.assertGreater(screens[1][3], screens[0][3])
         self.assertEqual(patch_hsr._plain("AEON ・ AHA", patch_hsr.h._raj("Bold", 19)), "AEON · AHA")

@@ -216,47 +216,68 @@ def _plain(text: str, font) -> str:
 SWAPS = {"：": ":", "「": '"', "」": '"', "『": '"', "』": '"', "～": "~"}
 
 
-def _next_items(draw, upcoming: list[Banner], images: dict, server) -> list[tuple[Banner, tuple, str, list, str, float, int]]:
-    """Each coming banner with what its small screen shows, and the screen's width."""
-    nf, df = h._raj("Bold", 19), h._raj("Bold", 12)
-    items = []
-    for b in upcoming:
-        top = next((i for i in b.items if i[1]), (b.featured[0], True, b.icon))
-        name = base._fit_text(draw, _plain(top[0].upper(), nf), nf, 230)
-        marks = [u for u in b.traits.get(top[0], []) if u in images]
-        day = f"FROM {pc._day(b.start, server).upper()}"
-        nw = _spaced_w(draw, name, nf, 1.4)
-        marks_w = len(marks) * 26 + 4 if marks else 0  # the symbols after the name, on its line
-        w = round(12 + 64 + 14 + max(nw + marks_w, _spaced_w(draw, day, df, 2.4)) + 20)
-        items.append((b, top, name, marks, day, nw, min(w, W - 2 * PAD)))
-    return items
+NEW_H = 116  # the new character's screen, on a row of its own
+SUB_HEAD = 30  # a small title over a row (RERUN, LIGHT CONES)
 
 
-def _next_rows(items) -> list[list]:
-    """The small screens in rows across the card, a new row when the next one doesn't fit."""
-    rows, x = [[]], PAD
-    for item in items:
-        if rows[-1] and x + item[-1] > W - PAD:
-            rows.append([])
-            x = PAD
-        rows[-1].append(item)
-        x += item[-1] + GAP
-    return rows if rows[0] else []
+def _next_item(draw, b: Banner, images: dict, server, big: bool) -> tuple:
+    """A coming banner with what its screen shows, and the screen's width."""
+    nf, df = h._raj("Bold", 28 if big else 19), h._raj("Bold", 13 if big else 12)
+    tile = NEW_H - 24 if big else 64
+    top = next((i for i in b.items if i[1]), (b.featured[0], True, b.icon))
+    name = base._fit_text(draw, _plain(top[0].upper(), nf), nf, 520 if big else 230)
+    marks = [u for u in b.traits.get(top[0], []) if u in images]
+    day = f"FROM {pc._day(b.start, server).upper()}"
+    nw = _spaced_w(draw, name, nf, 2 if big else 1.4)
+    marks_w = len(marks) * (34 if big else 26) + 4 if marks else 0  # the symbols after the name, on its line
+    w = round(12 + tile + 14 + max(nw + marks_w, _spaced_w(draw, day, df, 2.4)) + 24)
+    return (b, top, name, marks, day, nw, big, min(w, W - 2 * PAD))
 
 
-def _upcoming(card: Image.Image, upcoming: list[Banner], images: dict, server, y: int) -> None:
-    nf, df = h._raj("Bold", 19), h._raj("Bold", 12)
-    for row in _next_rows(_next_items(ImageDraw.Draw(card), upcoming, images, server)):
-        x = PAD
-        for b, top, name, marks, day, nw, w in row:
-            rh._box(card, (x, y, x + w, y + NEXT_H), rh.TEAM_FILL, 100, 10)
-            _tile(card, images.get(top[2] or ""), (x + 12, y + 12, x + 76, y + 76), True, b.kind in pc.WEAPON_KINDS)
-            draw = ImageDraw.Draw(card)
-            h._spaced(draw, (x + 90, y + 32), name, nf, TEXT, 1.4)
-            _marks(card, marks, images, x + 90 + nw + 10, y + 32, 20)
-            h._spaced(draw, (x + 91, y + 60), day, df, DIM, 2.4)
-            x += w + GAP
-        y += NEXT_H + GAP
+def _next_layout(draw, upcoming: list[Banner], images: dict, server):
+    """Where everything coming next goes: the first new character on a row of its own, then the other characters
+    (reruns) and the light cones, each under a small title, in rows that wrap. Returns the pieces and the height."""
+    chars = [b for b in upcoming if b.kind not in pc.WEAPON_KINDS]
+    cones = [b for b in upcoming if b.kind in pc.WEAPON_KINDS]
+    groups = [("", chars[:1], True), ("RERUN", chars[1:], False), ("LIGHT CONES", cones, False)]
+    pieces, y = [], 0
+    for title, banners, big in groups:
+        if not banners:
+            continue
+        if title:
+            pieces.append(("title", title, PAD, y))
+            y += SUB_HEAD
+        x, hh = PAD, NEW_H if big else NEXT_H
+        for b in banners:
+            item = _next_item(draw, b, images, server, big)
+            if x > PAD and x + item[-1] > W - PAD:
+                x, y = PAD, y + hh + GAP
+            pieces.append(("screen", item, x, y))
+            x += item[-1] + GAP
+        y += hh + GAP
+    return pieces, y
+
+
+def _upcoming(card: Image.Image, upcoming: list[Banner], images: dict, server, y0: int) -> None:
+    pieces, _ = _next_layout(ImageDraw.Draw(card), upcoming, images, server)
+    for kind, item, x, y in pieces:
+        y += y0
+        draw = ImageDraw.Draw(card)
+        if kind == "title":  # a small spaced label with a waypoint, like the readouts'
+            _diamond(draw, x + 8, y + 10, 4, FAINT)
+            h._spaced(draw, (x + 20, y + 11), item, h._raj("Bold", 13), DIM, 3.4)
+            continue
+        b, top, name, marks, day, nw, big, w = item
+        hh = NEW_H if big else NEXT_H
+        tile = hh - 24
+        nf, df = h._raj("Bold", 28 if big else 19), h._raj("Bold", 13 if big else 12)
+        rh._box(card, (x, y, x + w, y + hh), rh.TEAM_FILL, 100, 12 if big else 10)
+        _tile(card, images.get(top[2] or ""), (x + 12, y + 12, x + 12 + tile, y + 12 + tile), True, b.kind in pc.WEAPON_KINDS)
+        draw = ImageDraw.Draw(card)
+        tx, ny = x + 12 + tile + 14, y + (44 if big else 32)
+        h._spaced(draw, (tx, ny), name, nf, (255, 255, 255) if big else TEXT, 2 if big else 1.4)
+        _marks(card, marks, images, tx + nw + 10, ny, 26 if big else 20)
+        h._spaced(draw, (tx + 1, y + (80 if big else 60)), day, df, DIM, 2.4)
 
 
 def _section(card: Image.Image, title: str, light, y: int) -> None:
@@ -282,8 +303,7 @@ def draw_patch(patch: Patch, images: dict[str, Image.Image], now: dt.datetime | 
     if not sections:
         height += 60
     if upcoming:
-        next_rows = len(_next_rows(_next_items(ImageDraw.Draw(Image.new("RGB", (1, 1))), upcoming, images, patch.clock)))
-        height += SECTION_HEAD + next_rows * (NEXT_H + GAP)
+        height += SECTION_HEAD + _next_layout(ImageDraw.Draw(Image.new("RGB", (1, 1))), upcoming, images, patch.clock)[1]
     card = rh._starmap(W, height, f"hsr-{patch.version}")
     _header(card, patch, now)
 
