@@ -136,7 +136,7 @@ class AccessCheckTest(unittest.TestCase):
         self.assertNotIn("Master", guide)
         for command in ("/genshin", "/hsr", "/zzz", "/genshin-claim", "/hsr-claim", "/zzz-claim", "/pat", "/help", "/hsr-records", "15"):
             self.assertIn(command, guide)
-        self.assertEqual(guide.count("Example: "), 5)  # one usage example per kind of command
+        self.assertEqual(guide.count("Example: "), 6)  # one usage example per kind of command
         self.assertNotIn("/access", guide)
         self.assertIn("client_id=123&integration_type=1", guide)  # the link to add it to their account
         self._add(user)  # adding them again doesn't send it twice

@@ -208,3 +208,27 @@ class HsrBossArtTest(unittest.TestCase):
         R.set_bosses(rec, {"1": {"art": "a", "name": "Ice Edge"}, "3": {"art": "c", "name": ""}})
         self.assertEqual([t.art for t in rec.teams], ["a", None, "c"])
         self.assertEqual([t.label for t in rec.teams], ["Node 1 · Ice Edge", "Node 2", "Starward"])
+
+
+class StatsTest(unittest.TestCase):
+    def test_profiles_and_cards(self):
+        import io
+        import sys
+        from PIL import Image
+        sys.path.insert(0, "tests")
+        import stats_fakes as F
+        from bot import stats
+        from bot.stats_card import draw_stats, image_urls
+        gi = stats.genshin_profile("618285856", F.genshin())
+        self.assertEqual(gi.headline[0], ("Days active", "812"))
+        self.assertEqual(gi.units[0].name, "Furina")  # 5-stars first, then level and copies
+        self.assertEqual(len(gi.regions), 10)
+        hsr = stats.hsr_profile("800069903", *F.hsr())
+        self.assertEqual(hsr.nickname, "Trailblazer")
+        self.assertIn(("Memory of Chaos", "Eternal Stage 12"), hsr.headline)
+        zzz = stats.zzz_profile("1300003409", F.zzz(), "Proxy", 60)
+        self.assertEqual(zzz.title, "Virtuoso")
+        self.assertEqual([u.rarity for u in zzz.units[:2]], [5, 5])
+        for p in (gi, hsr, zzz):
+            self.assertTrue(image_urls(p))
+            self.assertEqual(Image.open(io.BytesIO(draw_stats(p, {}))).width, 1200)

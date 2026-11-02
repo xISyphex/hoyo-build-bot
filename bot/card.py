@@ -1241,6 +1241,15 @@ class CardMaker:
         images = {u: img for u, img in zip(urls + art, loaded) if img is not None}
         return await asyncio.to_thread(draw_records, game, uid, records, images, nickname)
 
+    async def render_stats(self, profile) -> bytes:
+        """The /<game>-stats image (see stats_card)."""
+        from .stats_card import draw_stats, image_urls
+
+        urls = image_urls(profile)
+        loaded = await asyncio.gather(*(self._image(u, ICON_MAX) for u in urls))
+        images = {u: img for u, img in zip(urls, loaded) if img is not None}
+        return await asyncio.to_thread(draw_stats, profile, images)
+
     async def render_patch(self, info) -> bytes:
         """The /<game>-patch image (see patch_card)."""
         from .patch_card import draw_patch, image_urls
