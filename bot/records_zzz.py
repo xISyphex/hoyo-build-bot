@@ -8,7 +8,7 @@ import functools
 import io
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter, ImageOps
 
 from . import card as base
 from . import card_zzz as z
@@ -58,15 +58,40 @@ def _pilot(card: Image.Image, cx: float, cy: float, color) -> None:
     draw.ellipse((cx - 5, cy - 5, cx + 5, cy + 5), fill=base._mix(color, (255, 255, 255), 0.3))
 
 
-def _sockets(card: Image.Image, cx: float, cy: float, lit: int, total: int = 3, r: int = 9) -> float:
-    """Stars as a row of round lamps, the earned ones lit amber. Returns the row's width."""
+def _star_pic(hard: bool, lit: bool, size: int) -> Image.Image | None:
+    """Deadly Assault's star from HoYoLAB (red in Adversity Mode), greyed out for a star not earned."""
+    key = (hard, lit, size)
+    if key not in _STAR_PICS:
+        try:
+            pic = Image.open(BADGES / ("zzz-da-star-hard.png" if hard else "zzz-da-star.png")).convert("RGBA")
+        except OSError:
+            _STAR_PICS[key] = None
+            return None
+        pic = pic.resize((size, size), Image.LANCZOS)
+        if not lit:
+            grey = ImageOps.grayscale(pic).point(lambda v: round(40 + v * 0.42))
+            pic = Image.merge("RGBA", (grey, grey, grey, pic.getchannel("A")))
+        _STAR_PICS[key] = pic
+    return _STAR_PICS[key]
+
+
+_STAR_PICS: dict = {}
+
+
+def _sockets(card: Image.Image, cx: float, cy: float, lit: int, total: int = 3, r: int = 9, style: str = "") -> float:
+    """Stars as a row of round lamps, the earned ones lit amber; Deadly Assault's as its own star badges ("da", or
+    "da-hard" for Adversity Mode). Returns the row's width."""
     draw = ImageDraw.Draw(card)
     step = 2 * r + 6
     x = cx - (total * step - 6) / 2 + r
     for i in range(total):
-        draw.ellipse((x - r, cy - r, x + r, cy + r), fill=(4, 4, 7), outline=(50, 48, 64))
-        if i < lit:
-            draw.ellipse((x - r + 3, cy - r + 3, x + r - 3, cy + r - 3), fill=z.AMBER)
+        pic = _star_pic(style == "da-hard", i < lit, 2 * r + 4) if style else None
+        if pic is not None:
+            card.alpha_composite(pic, (round(x - pic.width / 2), round(cy - pic.height / 2)))
+        else:
+            draw.ellipse((x - r, cy - r, x + r, cy + r), fill=(4, 4, 7), outline=(50, 48, 64))
+            if i < lit:
+                draw.ellipse((x - r + 3, cy - r + 3, x + r - 3, cy + r - 3), fill=z.AMBER)
         x += step
     return total * step - 6
 
@@ -101,7 +126,8 @@ def _badge(mode: str) -> Image.Image | None:
     return pic.resize((round(pic.width * BADGE_H / pic.height), BADGE_H), Image.LANCZOS)
 
 
-def _readout(card: Image.Image, box, label: str, value: str, big: bool = False, foil: bool = False) -> None:
+def _readout(card: Image.Image, box, label: str, value: str, big: bool = False, foil: bool = False,
+             stars_style: str = "") -> None:
     """A small screen with a printed label over the value (the rating on a dome lamp, stars as lamps). big: the
     taller readouts beside a stage's cartridge. foil: the value (or the rating lamp) in platinum foil."""
     sx0, sy0, sx1, sy1 = z._bezel(card, box, 10, 5)
@@ -118,7 +144,7 @@ def _readout(card: Image.Image, box, label: str, value: str, big: bool = False, 
         return
     stars = _stars(value) if key == "stars" else None
     if stars:
-        _sockets(card, cx, mid, *stars, r=13 if big else 9)
+        _sockets(card, cx, mid, *stars, r=(18 if big else 11) if stars_style else (13 if big else 9), style=stars_style)
         return
     font = z._rubik(30, 700) if big else z.FONTS.read
     if key in ("top", "adversity top"):  # coloured like the ranking badge: platinum foil for the top 1%, else gold
@@ -228,7 +254,7 @@ def _foil_text(card: Image.Image, xy, value: str, font, anchor: str) -> None:
     card.paste(foil, box[:2], mask.crop(box))
 
 
-def _chips(card: Image.Image, chips: list[tuple[str, str]], cx: float, cy: float, mode: str) -> None:
+def _chips(card: Image.Image, chips: list[tuple[str, str]], cx: float, cy: float, mode: str, stars_style: str = "") -> None:
     """A team's results in a row: the rating lamp, the stars as lamps, the score and time as printed readings."""
     draw = ImageDraw.Draw(card)
     f = z.FONTS
@@ -238,8 +264,9 @@ def _chips(card: Image.Image, chips: list[tuple[str, str]], cx: float, cy: float
             continue  # the score's colour tells the rating
         if kind == "stars" and _stars(value):
             got, of = _stars(value)
-            w = of * 20 - 6
-            parts.append((w, lambda x, got=got, of=of, w=w: _sockets(card, x + w / 2, cy, got, of, 7)))
+            r = 11 if stars_style else 7  # the star badges bigger than the lamps
+            w = of * (2 * r + 6) - 6
+            parts.append((w, lambda x, got=got, of=of, w=w, r=r: _sockets(card, x + w / 2, cy, got, of, r, stars_style)))
         else:
             label = "" if kind in UNLABELLED else kind.upper()
             lw = sum(draw.textlength(ch, font=f.silk) for ch in label) + 2.4 * (len(label) - 1) + 8 if label else 0
@@ -269,7 +296,7 @@ def _chips(card: Image.Image, chips: list[tuple[str, str]], cx: float, cy: float
         x += w + 2 * pad + gap
 
 
-def _team(card: Image.Image, team: Team, images: dict, box, mode: str) -> None:
+def _team(card: Image.Image, team: Team, images: dict, box, mode: str, stars_style: str = "") -> None:
     """A team as a cartridge: its name, its agents (and Bangboo) on monitors, its results under them."""
     x0, y0, x1, y1 = box
     sx0, sy0, sx1, sy1 = z._bezel(card, box, 12, 5)
@@ -292,7 +319,7 @@ def _team(card: Image.Image, team: Team, images: dict, box, mode: str) -> None:
         b = team.bangboo
         _monitor(card, b, images.get(b.icon_url or ""), x, top + MON_H - BANGBOO, BANGBOO, BANGBOO, button=False)
     if team.chips:
-        _chips(card, team.chips, (sx0 + sx1) / 2, sy1 - CHIPS_H / 2 - 2, mode)
+        _chips(card, team.chips, (sx0 + sx1) / 2, sy1 - CHIPS_H / 2 - 2, mode, stars_style)
 
 
 def _stage_line(card: Image.Image, text: str, y: float, x0: float, x1: float, color) -> None:
@@ -360,6 +387,7 @@ def draw_records(uid: str, records: list[Record], images: dict[str, Image.Image]
         by = y + HEAD
         col_w = (W - 2 * PAD - 2 * INNER - 2 * GAP) // 3
         for head, row in _rows(record):
+            style = ("da-hard" if "adversity" in (head or "").lower() else "da") if record.mode == "da" else ""
             if head:
                 _stage_line(card, head.upper(), by + STAGE_H / 2 - 4, PAD + INNER, W - PAD - INNER, color)
                 by += STAGE_H
@@ -368,14 +396,14 @@ def draw_records(uid: str, records: list[Record], images: dict[str, Image.Image]
             for team in row:
                 if team.plight:
                     rc._shimmer(card, (bx, by, bx + col_w, by + TEAM_H))
-                _team(card, team, images, (bx, by, bx + col_w, by + TEAM_H), record.mode)
+                _team(card, team, images, (bx, by, bx + col_w, by + TEAM_H), record.mode, style)
                 edge = bx - 2 * GAP
                 for label, value in reversed(team.left):
-                    _readout(card, (edge - SIDE_W, by + 30, edge, by + TEAM_H - 30), label, value, True)
+                    _readout(card, (edge - SIDE_W, by + 30, edge, by + TEAM_H - 30), label, value, True, stars_style=style)
                     edge -= SIDE_W + 12
                 edge = bx + col_w + 2 * GAP
                 for label, value in team.right:
-                    _readout(card, (edge, by + 30, edge + SIDE_W, by + TEAM_H - 30), label, value, True)
+                    _readout(card, (edge, by + 30, edge + SIDE_W, by + TEAM_H - 30), label, value, True, stars_style=style)
                     edge += SIDE_W + 12
                 bx += col_w + GAP
             by += TEAM_H + GAP
