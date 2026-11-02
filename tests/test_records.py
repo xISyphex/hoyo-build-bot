@@ -208,3 +208,51 @@ class HsrBossArtTest(unittest.TestCase):
         R.set_bosses(rec, {"1": {"art": "a", "name": "Ice Edge"}, "3": {"art": "c", "name": ""}})
         self.assertEqual([t.art for t in rec.teams], ["a", None, "c"])
         self.assertEqual([t.label for t in rec.teams], ["Node 1 · Ice Edge", "Node 2", "Starward"])
+
+
+class StatsTest(unittest.TestCase):
+    def test_profiles_and_cards(self):
+        import io
+        import json
+        import sys
+        from types import SimpleNamespace as NS
+        from PIL import Image
+        sys.path.insert(0, "tests")
+        import stats_fakes as F
+        from bot import stats
+        from bot.stats_card import draw_stats, image_urls
+        locs = {"TitleText_3800101": "Phaethon Returns", "MedalName2004": "Endless Ascension IV"}
+        assets = NS(data={
+            "gi_namecards": {"210189": {"Icon": "/ui/UI_NameCardPic_Chenyu1_P.jpg"}, "210001": {"Icon": "/ui/UI_NameCardPic_0_P.jpg"}},
+            "gi_pfps": {"4600": {"IconPath": "/ui/UI_AvatarIcon_Yae_Circle.png"}},
+            "hsr_head_icons": {"201308": {"Icon": "SpriteOutput/AvatarRoundIcon/Avatar/1308.png"}},
+            "zzz_pfps": {"3201004": {"Icon": "/ui/zzz/IconInterKnot1004.png"}},
+            "zzz_namecards": {"3300012": {"Icon": "/ui/zzz/ImgCardBP11.png"}},
+            "zzz_titles": {"Titles": {"3800101": {"TitleText": "TitleText_3800101", "ColorA": "00cefb", "ColorB": "0263e5"}}},
+            "zzz_medals": {"2004": {"Name": "MedalName2004", "Icon": "/ui/zzz/Tower04.png"}},
+        }, zzz_text=locs.get)
+        gi = stats.add_enka(stats.genshin_profile("618285856", F.genshin()), assets, F.GI_PLAYER)
+        self.assertEqual(gi.headline[0], ("Days active", "812"))
+        self.assertEqual(len(gi.regions), 10)
+        self.assertEqual(gi.avatar, "https://enka.network/ui/UI_AvatarIcon_Yae_Circle.png")  # the picture picked in game
+        self.assertEqual(gi.banner, "https://enka.network/ui/UI_NameCardPic_Chenyu1_P.jpg")
+        self.assertEqual(gi.world_level, ("World Level", "9"))
+        self.assertEqual(len(gi.namecards), 2)  # unknown name cards are left out
+        hsr = stats.add_enka(stats.hsr_profile("800069903", *F.hsr()), assets, F.HSR_PLAYER)
+        self.assertEqual(hsr.nickname, "Trailblazer")
+        self.assertIn(("Memory of Chaos", "Eternal Stage 12"), hsr.headline)
+        self.assertEqual(hsr.avatar, "https://enka.network/ui/hsr/SpriteOutput/AvatarRoundIcon/Avatar/1308.png")
+        self.assertEqual(hsr.banner, F.SRR_WALL)  # the phone wallpaper from HoYoLAB
+        self.assertIn(("Relics", "2,878"), dict(hsr.groups)["Collection"])
+        zzz = stats.add_enka(stats.zzz_profile("1300003409", F.zzz()), assets, F.ZZZ_PLAYER)
+        self.assertEqual((zzz.nickname, zzz.level), ("Proxy", 60))
+        self.assertEqual(zzz.title, "Phaethon Returns")
+        self.assertEqual(zzz.title_colors, ("00cefb", "0263e5"))
+        self.assertIn(("Reputation", "Virtuoso"), dict(zzz.groups)["Records"])
+        self.assertEqual([m.value for m in zzz.medals], ["30", "6", "12"])
+        self.assertEqual(zzz.medals[1].name, "Endless Ascension IV")
+        empty = stats.add_enka(stats.zzz_profile("1300003409", F.zzz()), assets, None)  # Enka down: still drawn
+        for p in (gi, hsr, zzz, empty):
+            self.assertTrue(image_urls(p) or p is empty)
+            self.assertEqual(Image.open(io.BytesIO(draw_stats(p, {}))).width, 1200)
+        json.dumps(stats.Profile("genshin", "1").__dict__)  # plain data

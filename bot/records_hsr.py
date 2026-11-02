@@ -37,6 +37,7 @@ SIDE_W = 150  # a stage's own numbers, as readouts beside its screen
 MODE_LIGHT = {"moc": (255, 112, 146), "pf": (120, 182, 255), "apoc": (255, 196, 92), "aa": (110, 230, 210)}
 RARITY_GLOW = {5: ((150, 112, 44), (34, 26, 10)), 4: ((112, 76, 170), (24, 16, 44))}  # 5★ gold, 4★ purple
 TEAM_FILL = (4, 38, 52, 205)
+FLOORS_H = 76  # Memory of Chaos: the strip of every floor's cycles over the teams
 MAX_SCORE = {"pf": (40000, 120000), "apoc": (3850, 11550)}  # foil from: a node's score, then the floor's (Syphex's picks)
 
 
@@ -357,12 +358,43 @@ def _stage_line(card: Image.Image, text: str, y: float, x0: float, x1: float) ->
         card.alpha_composite(crown, (round(mid + tw / 2 + 12), round(y - 16)))
 
 
+def _floors(card: Image.Image, floors: list[tuple[str, int, int, bool]], x0: float, x1: float, y: float) -> None:
+    """Every floor played as a small readout in a row: its number, its stars and the cycles it took (QUICK for a
+    floor skipped by quick clear)."""
+    n = len(floors)
+    gap = 8
+    w = min(120, (x1 - x0 - gap * (n - 1)) / n)
+    x = (x0 + x1 - (w * n + gap * (n - 1))) / 2
+    lf, big, small = h._raj("Bold", 12), h._raj("Bold", 22), h._raj("Bold", 11)
+    for label, stars, cycles, quick in floors:
+        box = (round(x), round(y), round(x + w), round(y + FLOORS_H - 14))
+        _box(card, box, h.PANEL, 110 if not quick else 60, 8)
+        draw = ImageDraw.Draw(card)
+        mid = x + w / 2
+        lw = sum(draw.textlength(ch, font=lf) + 2 for ch in label) - 2
+        h._spaced(draw, (mid - lw / 2, box[1] + 13), label, lf, DIM, 2)
+        if quick:
+            draw.text((mid, box[1] + 38), "QUICK", font=h._raj("Bold", 15), fill=FAINT, anchor="mm")
+        else:
+            num = str(cycles)
+            nw, uw = draw.textlength(num, font=big), sum(draw.textlength(ch, font=small) + 1.2 for ch in "CYC") - 1.2
+            cx = mid - (nw + 4 + uw) / 2
+            if cycles == 0:  # a 0-cycle clear in foil, like the totals
+                _foil_text(card, (cx, box[1] + 37), num, big, "lm")
+            else:
+                draw.text((cx, box[1] + 37), num, font=big, fill=HOLO, anchor="lm")
+            draw = ImageDraw.Draw(card)
+            h._spaced(draw, (cx + nw + 4, box[1] + 40), "CYC", small, DIM, 1.2)
+        _star_row(card, mid - (3 * 14 - 4) / 2, box[3] - 9, stars, 3, 10)
+        x += w + gap
+
+
 def _section_h(record: Record) -> int:
     if record.empty or not record.teams:
         return HEAD + 50
     chips = any(t.chips for t in record.teams)
     rows = rc._rows(record)
-    return HEAD + sum(_team_h(chips) + GAP + (STAGE_H if head else 0) for head, _ in rows) - GAP + INNER
+    return HEAD + (FLOORS_H if record.floors else 0) + sum(_team_h(chips) + GAP + (STAGE_H if head else 0) for head, _ in rows) - GAP + INNER
 
 
 def draw_records(uid: str, records: list[Record], images: dict[str, Image.Image], nickname: str | None = None) -> bytes:
@@ -411,6 +443,9 @@ def draw_records(uid: str, records: list[Record], images: dict[str, Image.Image]
         chips = any(t.chips for t in record.teams)
         th = _team_h(chips)
         by = y + HEAD
+        if record.floors:
+            _floors(card, record.floors, PAD + INNER, W - PAD - INNER, by)
+            by += FLOORS_H
         col_w = (W - 2 * PAD - 2 * INNER - 2 * GAP) // 3
         for head, row in rc._rows(record):
             if head:

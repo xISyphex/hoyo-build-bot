@@ -46,7 +46,10 @@ TEAM_C = [hsr_char(1212, 0), hsr_char(1308, 1), hsr_char(1301, 0), hsr_char(1309
 def moc() -> NS:
     floor = NS(name="Crossing the Afterlife (XII)Starward Mode", star_num=4, starward_stars=1, round_num=7, node_1=NS(avatars=TEAM_A), node_2=NS(avatars=TEAM_B),
                node_3=NS(avatars=TEAM_C))
-    return NS(name="", has_data=True, floors=[floor], seasons=[NS(name="Lupine Moon", begin_time=when(10, 6), end_time=when(11, 17, 3))], total_stars=36,
+    roman = ("I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI")
+    lower = [NS(name=f"Crossing the Afterlife ({r})", star_num=3, round_num=0 if i < 8 else (4, 5, 6)[i - 8], is_quick_clear=i < 8,
+                node_1=None if i < 8 else NS(avatars=TEAM_A), node_2=None if i < 8 else NS(avatars=TEAM_B)) for i, r in enumerate(roman)]
+    return NS(name="", has_data=True, floors=[floor] + lower[::-1], seasons=[NS(name="Lupine Moon", begin_time=when(10, 6), end_time=when(11, 17, 3))], total_stars=36,
               max_floor="Memory of Chaos (12)", total_battles=14, starward_stars=1)
 
 

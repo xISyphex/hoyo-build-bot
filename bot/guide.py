@@ -63,7 +63,7 @@ def guide_message(bot_name: str, per_hour: int, app_id: int | None = None, welco
     def section(page: int, title: str, text: str) -> None:
         nonlocal step
         step += 1
-        pages[page].add_field(name=f"{'①②③④⑤⑥⑦⑧⑨'[step - 1]} {title}", value=text, inline=False)
+        pages[page].add_field(name=f"{'①②③④⑤⑥⑦⑧⑨⑩⑪⑫'[step - 1]} {title}", value=text, inline=False)
 
     if app_id:
         section(
@@ -116,6 +116,14 @@ def guide_message(bot_name: str, per_hour: int, app_id: int | None = None, welco
         " You don't need `/hoyolab link` for these, but the player's battle records must be public:"
         " on HoYoLAB, open your profile, go to **Privacy Settings** and turn on **Show my Battle Chronicle on my profile**."
         "\nExample: `/hsr-records modes:moc pf`",
+    )
+    section(
+        1,
+        "Profiles",
+        " ".join(f"`/{cmd}-stats`" for cmd, _ in GAMES)
+        + "\nA player's profile as one picture: profile picture, name card, signature, days active, achievements,"
+        " exploration and more. Like battle records, the Battle Chronicle must be public."
+        "\nExample: `/genshin-stats`",
     )
     section(
         1,

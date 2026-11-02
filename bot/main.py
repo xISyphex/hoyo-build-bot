@@ -35,6 +35,7 @@ from .ratelimit import LookupLimit
 from .set_emojis import SetEmojis
 from .hsr_bosses import HsrBosses
 from .shiyu_bosses import ShiyuBosses
+from .stats import add_enka
 from .unit_traits import UnitTraits
 
 log = logging.getLogger("hoyo-bot")
@@ -119,6 +120,7 @@ class HoyoBot(discord.Client):
             self.tree.add_command(make_command(game))
             self.tree.add_command(make_claim_command(game))
             self.tree.add_command(make_records_command(game))
+            self.tree.add_command(make_stats_command(game))
             self.tree.add_command(make_patch_command(game))
             self.tree.add_command(make_news_command(game))
         self.tree.add_command(AccessGroup())
@@ -475,6 +477,60 @@ def make_records_command(game: str) -> app_commands.Command:
         if not done and not last:
             options.insert(0, app_commands.Choice(name="All modes", value=" ".join(keys)))
         return options[:25]
+
+    return command
+
+
+def make_stats_command(game: str) -> app_commands.Command:
+    @app_commands.command(name=f"{game}-stats", description=f"Show a player's {GAME_NAMES[game]} HoYoLAB profile")
+    @app_commands.describe(uid="In-game UID. Leave empty to use the one you claimed with /" + game + "-claim", server=SERVER_HELP)
+    @app_commands.choices(server=SERVER_CHOICES)
+    async def command(interaction: discord.Interaction, uid: str | None = None, server: str | None = None) -> None:
+        bot: HoyoBot = interaction.client  # type: ignore[assignment]
+        uid = resolve_uid(bot.claims, interaction.user.id, game, uid, bot.links, server)
+        if uid is None:
+            await interaction.response.send_message(no_uid_message(bot, interaction.user.id, game, server), ephemeral=True)
+            return
+        if not UID_RE.match(uid):
+            await interaction.response.send_message("A UID is 8 to 10 digits, like `618285856`.", ephemeral=True)
+            return
+        if not bot.hoyolab.available(game, uid):
+            await interaction.response.send_message(
+                "Profiles come from HoYoLAB. Link your account with `/hoyolab link` to see your own.", ephemeral=True)
+            return
+        if not bot.access.is_owner(interaction.user.id):
+            next_free = bot.lookups.take(interaction.user.id)
+            if next_free is not None:
+                await interaction.response.send_message(
+                    f"You've used your {bot.lookups.per_hour} lookups for this hour. "
+                    f"You can look up again <t:{math.ceil(next_free)}:R>.", ephemeral=True)
+                return
+        await interaction.response.defer(thinking=True)
+
+        async def enka_profile():  # the in-game profile: name, level, signature, profile picture and name card
+            if (cached := bot.enka.cached(game, uid)) is not None:
+                return cached
+            try:
+                return await bot.enka.fetch(game, uid)
+            except Exception as exc:
+                log.info("No Enka profile for %s %s: %s", game, uid, exc)
+                return None
+
+        found, enka = await asyncio.gather(bot.hoyolab.profile(game, uid), enka_profile(), return_exceptions=True)
+        if isinstance(found, HoyolabError):
+            await interaction.followup.send(str(found))
+            return
+        if isinstance(found, BaseException):
+            raise found
+        if not isinstance(enka, BaseException) and enka is not None:  # signature, profile picture, name card, ...
+            add_enka(found, bot.assets, enka.player, enka.nickname, enka.level)
+        try:
+            png = await bot.cards.render_stats(found)
+        except Exception:
+            log.exception("Could not draw the %s profile for %s", game, uid)
+            await interaction.followup.send("Something went wrong drawing the profile. Try again later.")
+            return
+        await interaction.followup.send(file=discord.File(io.BytesIO(png), filename="stats.png"))
 
     return command
 

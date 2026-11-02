@@ -426,6 +426,24 @@ class HoyolabClient:
                 message = "HoYoLAB returned an error. Try again later."
             raise HoyolabError(message) from exc
 
+    async def profile(self, game: str, uid: str):
+        """The player's HoYoLAB profile page (see stats.py)."""
+        from .stats import read_profile
+
+        client, linked = self._client_for(game, uid)
+        if client is None:
+            raise HoyolabError("Profiles come from HoYoLAB, and the bot has no HoYoLAB login set up.")
+        try:
+            return await read_profile(client, game, int(uid))
+        except genshin.GenshinException as exc:
+            if linked and isinstance(exc, genshin.InvalidCookies):
+                raise HoyolabError("Their HoYoLAB link has expired. They can run `/hoyolab link` again.") from exc
+            message = next((m.replace("battle records", "profile") for kind, m in RECORD_ERRORS if isinstance(exc, kind)), None)
+            if message is None:
+                log.warning("HoYoLAB profile error for %s %s: %s", game, uid, exc)
+                message = "HoYoLAB returned an error. Try again later."
+            raise HoyolabError(message) from exc
+
     async def _fetch(self, client: genshin.Client, game: str, uid: int) -> list[CharacterBuild]:
         builds = []
         if game == "genshin":

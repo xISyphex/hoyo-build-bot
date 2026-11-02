@@ -58,6 +58,7 @@ class EnkaClient:
                 return cached[1]
             data = await self._get(ENDPOINTS[game].format(uid=uid))
             profile = PARSERS[game](self.assets, uid, data)
+            profile.player = data.get("playerInfo") or data.get("detailInfo") or data.get("PlayerInfo") or {}
             self._cache[key] = (time.monotonic() + max(profile.ttl, 30), profile)
             self._prune()
             return profile
