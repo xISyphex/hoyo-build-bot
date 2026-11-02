@@ -1,6 +1,7 @@
 """/zzz-stats drawn as the same retro dashboard as ZZZ's build card, records and patch card: a console with screws,
-the Proxy's name on the top screen with the Inter-Knot level on a readout, the big numbers on bezel readouts, the
-smaller ones on a screen of their own, and every agent owned on a little CRT monitor."""
+the Proxy's calling card lit up on the top screen with their profile picture on a little monitor, name, title badge,
+signature and Inter-Knot level, the big numbers on bezel readouts, and the smaller ones and showcased medals on screens
+of their own."""
 
 from __future__ import annotations
 
@@ -11,41 +12,88 @@ from PIL import Image, ImageDraw
 from . import card as base
 from . import card_zzz as z
 from . import records_zzz as rz
-from .records import Member
 from .stats import Profile
+from .stats_card import banner, cover
 
 W = 1200
 PAD = 24
 GAP = 14
-HEAD_H = 120
+HEAD_H = 196
+AVATAR = 132
+MEDAL_ROW = 44
 BIG_H = 92
 SECTION_HEAD = 48
 ROW_H = 30
-MON_W, MON_H = 100, 108  # an agent's monitor
-MON_GAP = 10
+SILK_LIGHT = (200, 196, 214)
+SS = 4
 
 
 def _silk_w(draw, text: str) -> float:
     return sum(draw.textlength(ch, font=z.FONTS.silk) for ch in text) + 2.4 * (len(text) - 1)
 
 
-def _header(card: Image.Image, p: Profile) -> None:
-    sx0, sy0, sx1, sy1 = z._bezel(card, (PAD, PAD, W - PAD, PAD + HEAD_H), 12, 5)
+def _title_badge(card: Image.Image, text: str, colors, x: float, cy: float) -> None:
+    """The player's title on a slanted plate filled with its two colours, like in game."""
+    font = z._rubik(17, 800, italic=True)
     draw = ImageDraw.Draw(card)
-    z._silk(draw, (sx0 + 20, sy0 + 24), "ZENLESS ZONE ZERO  ·  PROXY PROFILE")
+    w = round(draw.textlength(text, font=font) + 34)
+    hh = 28
+    a, b = colors if colors else ("e6e9ea", "8ea3ae")
+    ca, cb = tuple(int(a[i:i + 2], 16) for i in (0, 2, 4)), tuple(int(b[i:i + 2], 16) for i in (0, 2, 4))
+    grad = Image.new("RGBA", (w, hh))
+    for gx in range(w):
+        t = gx / max(w - 1, 1)
+        ImageDraw.Draw(grad).line((gx, 0, gx, hh), fill=tuple(round(p + (q - p) * t) for p, q in zip(ca, cb)) + (255,))
+    mask = Image.new("L", (w * SS, hh * SS), 0)
+    ImageDraw.Draw(mask).polygon([(8 * SS, 0), (w * SS, 0), (w * SS - 8 * SS, hh * SS), (0, hh * SS)], fill=255)
+    grad.putalpha(mask.resize((w, hh), Image.LANCZOS))
+    card.alpha_composite(grad, (round(x), round(cy - hh / 2)))
+    lum = sum(ca) / 3
+    ImageDraw.Draw(card).text((x + w / 2, cy), text, font=font, fill=(20, 18, 26) if lum > 140 else (255, 255, 255), anchor="mm")
+
+
+def _header(card: Image.Image, p: Profile, images) -> None:
+    sx0, sy0, sx1, sy1 = z._bezel(card, (PAD, PAD, W - PAD, PAD + HEAD_H), 12, 5)
+    mask = Image.new("L", (sx1 - sx0, sy1 - sy0), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, mask.width - 1, mask.height - 1), 6, fill=255)
+    banner(card, images.get(p.banner or ""), (sx0, sy0, sx1, sy1), mask, shade=z.GLASS, right=0.62)
+    z._scanlines(card, (sx0, sy0, sx1, sy1), 30)
+    # the profile picture on a little monitor of its own
+    cy = (sy0 + sy1) / 2
+    ax0 = sx0 + 24
+    mx0, my0, mx1, my1 = z._bezel(card, (ax0, round(cy - AVATAR / 2), ax0 + AVATAR, round(cy + AVATAR / 2)), 12, 6)
+    pic = images.get(p.avatar or "")
+    if pic is not None:
+        art = cover(pic, mx1 - mx0, my1 - my0)
+        m = Image.new("L", art.size, 0)
+        ImageDraw.Draw(m).rounded_rectangle((0, 0, art.width - 1, art.height - 1), 6, fill=255)
+        art.putalpha(Image.composite(art.getchannel("A"), m, m))
+        card.alpha_composite(art, (mx0, my0))
+    draw = ImageDraw.Draw(card)
+    tx = ax0 + AVATAR + 28
+    z._silk(draw, (tx + 2, sy0 + 26), "ZENLESS ZONE ZERO  ·  PROXY PROFILE")
     name = (p.nickname or "Proxy").upper()
-    draw.text((sx0 + 18, sy0 + 74), base._fit_text(draw, name, z._rubik(46, 800), 620), font=z._rubik(46, 800),
+    draw.text((tx, sy0 + 78), base._fit_text(draw, name, z._rubik(46, 800), 560), font=z._rubik(46, 800),
               fill=base.TEXT, anchor="ls")
+    y = sy0 + 104
     if p.title:
-        z._silk(draw, (sx0 + 20, sy0 + 98), p.title.upper(), z.AMBER)
-    right = sx1 - 20
+        _title_badge(card, p.title, p.title_colors, tx, y)
+        y += 34
+    if p.signature:
+        draw = ImageDraw.Draw(card)
+        sf = z._rubik(17, 500)
+        lines = base._wrap(draw, p.signature.replace("\n", " "), sf, 560, 1 if p.title else 2)
+        for i, line in enumerate(lines):
+            draw.text((tx + 2, y + 6 + i * 22), line, font=sf, fill=SILK_LIGHT, anchor="lm")
+    draw = ImageDraw.Draw(card)
+    right = sx1 - 22
     if p.level:
         label = p.level_label.upper()
-        z._silk(draw, (right - _silk_w(draw, label), sy0 + 24), label)
-        draw.text((right, sy0 + 74), str(p.level), font=z._rubik(46, 800), fill=z.AMBER, anchor="rs")
+        z._silk(draw, (right - _silk_w(draw, label), sy0 + 26), label)
+        draw.text((right, sy0 + 78), str(p.level), font=z._rubik(46, 800), fill=z.AMBER, anchor="rs")
     server = base.server_name("zzz", p.uid)
     stamp = f"{server + ' · ' if server else ''}UID {p.uid}".upper()
-    z._silk(draw, (right - _silk_w(draw, stamp), sy0 + 98), stamp)
+    z._silk(draw, (right - _silk_w(draw, stamp), sy1 - 22), stamp)
 
 
 def _big(card: Image.Image, box, label: str, value: str) -> None:
@@ -84,20 +132,40 @@ def _group_h(rows: int) -> int:
     return 52 + rows * ROW_H + 14
 
 
-def _per_row() -> int:
-    return (W - 2 * PAD + MON_GAP) // (MON_W + MON_GAP)
+def _medals(card: Image.Image, box, medals, images) -> None:
+    """The medals the Proxy shows off: each one's emblem, name and number."""
+    x0, y0, x1, y1 = box
+    z._bezel(card, box, 12, 0, z.BODY_DARK)
+    rz._pilot(card, x0 + 24, y0 + 26, z.AMBER)
+    draw = ImageDraw.Draw(card)
+    draw.text((x0 + 42, y0 + 34), "MEDALS", font=z._rubik(18, 800), fill=base.TEXT, anchor="ls")
+    y = y0 + 50
+    for m in medals:
+        icon = images.get(m.icon or "")
+        if icon is not None:
+            pic = icon.convert("RGBA")
+            pic.thumbnail((MEDAL_ROW - 4, MEDAL_ROW - 4), Image.LANCZOS)
+            card.alpha_composite(pic, (x0 + 18 + (MEDAL_ROW - pic.width) // 2, y + (MEDAL_ROW - pic.height) // 2))
+        draw = ImageDraw.Draw(card)
+        draw.text((x0 + 26 + MEDAL_ROW, y + MEDAL_ROW / 2), base._fit_text(draw, m.name, z._rubik(16, 600), (x1 - x0) - 150),
+                  font=z._rubik(16, 600), fill=SILK_LIGHT, anchor="lm")
+        draw.text((x1 - 20, y + MEDAL_ROW / 2), m.value, font=z.FONTS.sub, fill=z.TEAL, anchor="rm")
+        y += MEDAL_ROW
+
+
+def _medals_h(n: int) -> int:
+    return 50 + n * MEDAL_ROW + 14
 
 
 def draw_stats(p: Profile, images: dict[str, Image.Image]) -> bytes:
     base.FONTS = base.FONTS or base.Fonts()
     z.FONTS = z.FONTS or z.Fonts()
-    groups_h = max((_group_h(len(rows)) for _, rows in p.groups), default=0)
-    per_row = _per_row()
-    unit_rows = -(-len(p.units) // per_row)
-    height = (PAD + HEAD_H + GAP + BIG_H + GAP + (groups_h + GAP if p.groups else 0)
-              + (SECTION_HEAD + unit_rows * (MON_H + MON_GAP) if p.units else 0) + PAD)
+    panels = [("group", title, rows) for title, rows in p.groups] + ([("medals", "Medals", p.medals)] if p.medals else [])
+    row_h = max([_group_h(len(rows)) for kind, _, rows in panels if kind == "group"]
+                + [_medals_h(len(p.medals)) if p.medals else 0], default=0)
+    height = PAD + HEAD_H + GAP + BIG_H + (GAP + row_h if panels else 0) + PAD
     card = rz._console(W, height)
-    _header(card, p)
+    _header(card, p, images)
 
     y = PAD + HEAD_H + GAP
     n = max(1, len(p.headline))
@@ -106,25 +174,15 @@ def draw_stats(p: Profile, images: dict[str, Image.Image]) -> bytes:
         x = PAD + i * (bw + GAP)
         _big(card, (round(x), y, round(x + bw), y + BIG_H), label, value)
     y += BIG_H + GAP
-    if p.groups:
-        n = len(p.groups)
+    if panels:
+        n = len(panels)
         gw = (W - 2 * PAD - (n - 1) * GAP) / n
-        for i, (title, rows) in enumerate(p.groups):
-            x = PAD + i * (gw + GAP)
-            _group(card, (round(x), y, round(x + gw), y + groups_h), title, rows)
-        y += groups_h + GAP
-    if p.units:
-        rz._pilot(card, PAD + 14, y + 22, z.AMBER)
-        draw = ImageDraw.Draw(card)
-        draw.text((PAD + 34, y + 32), "AGENTS", font=z._rubik(24, 800), fill=base.TEXT, anchor="ls")
-        z._silk(draw, (PAD + 34 + draw.textlength("AGENTS", font=z._rubik(24, 800)) + 12, y + 31), str(len(p.units)))
-        y += SECTION_HEAD
-        row_w = per_row * MON_W + (per_row - 1) * MON_GAP
-        x0 = (W - row_w) // 2
-        for i, u in enumerate(p.units):
-            x = x0 + (i % per_row) * (MON_W + MON_GAP)
-            ty = y + (i // per_row) * (MON_H + MON_GAP)
-            rz._monitor(card, Member(u.name, u.icon, u.level, u.rarity, u.copies), images.get(u.icon or ""), x, ty, MON_W, MON_H)
+        for i, (kind, title, rows) in enumerate(panels):
+            box = (round(PAD + i * (gw + GAP)), y, round(PAD + i * (gw + GAP) + gw), y + row_h)
+            if kind == "medals":
+                _medals(card, box, rows, images)
+            else:
+                _group(card, box, title, rows)
 
     out = io.BytesIO()
     card.convert("RGB").save(out, "PNG", compress_level=3)

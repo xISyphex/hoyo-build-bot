@@ -35,6 +35,7 @@ from .ratelimit import LookupLimit
 from .set_emojis import SetEmojis
 from .hsr_bosses import HsrBosses
 from .shiyu_bosses import ShiyuBosses
+from .stats import add_enka
 from .unit_traits import UnitTraits
 
 log = logging.getLogger("hoyo-bot")
@@ -506,7 +507,7 @@ def make_stats_command(game: str) -> app_commands.Command:
                 return
         await interaction.response.defer(thinking=True)
 
-        async def enka_profile():  # the in-game name and level, when HoYoLAB only shares them with the player's own login
+        async def enka_profile():  # the in-game profile: name, level, signature, profile picture and name card
             if (cached := bot.enka.cached(game, uid)) is not None:
                 return cached
             try:
@@ -521,9 +522,8 @@ def make_stats_command(game: str) -> app_commands.Command:
             return
         if isinstance(found, BaseException):
             raise found
-        if not isinstance(enka, BaseException) and enka is not None:
-            found.nickname = found.nickname or enka.nickname
-            found.level = found.level or enka.level
+        if not isinstance(enka, BaseException) and enka is not None:  # signature, profile picture, name card, ...
+            add_enka(found, bot.assets, enka.player, enka.nickname, enka.level)
         try:
             png = await bot.cards.render_stats(found)
         except Exception:

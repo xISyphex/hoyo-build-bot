@@ -121,8 +121,8 @@ def guide_message(bot_name: str, per_hour: int, app_id: int | None = None, welco
         1,
         "Profiles",
         " ".join(f"`/{cmd}-stats`" for cmd, _ in GAMES)
-        + "\nA player's HoYoLAB profile as one picture: days active, characters owned, achievements, exploration and"
-        " every character with their level and copies. Like battle records, the Battle Chronicle must be public."
+        + "\nA player's profile as one picture: profile picture, name card, signature, days active, achievements,"
+        " exploration and more. Like battle records, the Battle Chronicle must be public."
         "\nExample: `/genshin-stats`",
     )
     section(

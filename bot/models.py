@@ -70,3 +70,5 @@ class PlayerProfile:
     profile_url: str
     # Names shown on the profile even when detailed builds are hidden.
     showcase_names: list[str] = field(default_factory=list)
+    # Enka's player block as sent (signature, profile picture, name card, ...), for /<game>-stats.
+    player: dict = field(default_factory=dict, repr=False)

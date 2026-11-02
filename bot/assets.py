@@ -41,6 +41,14 @@ FILES = {
     "zzz_weapons": "zzz/weapons.json",
     "zzz_equipments": "zzz/equipments.json",
     "zzz_locs": "zzz/locs.json",
+    # profile pictures, name cards, titles and medals, for /<game>-stats
+    "gi_pfps": "gi/pfps.json",
+    "gi_namecards": "gi/namecards.json",
+    "hsr_head_icons": "hsr/honker_avatars.json",
+    "zzz_pfps": "zzz/pfps.json",
+    "zzz_namecards": "zzz/namecards.json",
+    "zzz_titles": "zzz/titles.json",
+    "zzz_medals": "zzz/medals.json",
 }
 
 # Files that don't come from Enka's store. Light cone passives (text plus the

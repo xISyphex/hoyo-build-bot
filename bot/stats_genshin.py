@@ -1,6 +1,7 @@
 """/genshin-stats in Genshin's own look, like its build card, records and patch card: dark glass panels lit gold
-from the top left. The Traveler's name and Adventure Rank on top, the big numbers on panels, the world's numbers in
-groups, each region's exploration as a bar, and every character owned on its rarity colour."""
+from the top left. The Traveler's name card behind the header with their profile picture, name, signature, Adventure
+Rank and World Level, the big numbers on panels, the world's numbers in groups, each region's exploration as a bar,
+and the name cards they show off."""
 
 from __future__ import annotations
 
@@ -10,18 +11,20 @@ from PIL import Image, ImageDraw, ImageFilter
 
 from . import card as c
 from . import records_card as rc
-from .records import Member
 from .stats import Profile
+from .stats_card import banner, cover, round_avatar
 
 W = 1200
 PAD = 32
 GAP = 16
-HEAD = 146
+HEAD_H = 196  # the header panel
+HEAD = PAD + HEAD_H + GAP
 BIG_H = 92
 ROW_H = 28
 REGION_H = 38  # a region's exploration bar
 SECTION_HEAD = 46
-TILE_GAP = 12
+NC_W, NC_H = 212, 101  # a showcased name card
+NC_GAP = 19
 ACCENT = rc.GAME_ACCENT["genshin"]
 
 
@@ -81,37 +84,75 @@ def _region(card: Image.Image, x0: float, x1: float, y: float, name: str, explor
     c._layer_onto(card, layer)
 
 
-def _per_row() -> int:
-    return (W - 2 * PAD + TILE_GAP) // (rc.PORTRAIT + TILE_GAP)
+def _header(card: Image.Image, p: Profile, images, light) -> None:
+    f = c.FONTS
+    box = (PAD, PAD, W - PAD, PAD + HEAD_H)
+    c._panel(card, box, 18)
+    mask = Image.new("L", (box[2] - box[0], box[3] - box[1]), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, mask.width - 1, mask.height - 1), 18, fill=255)
+    banner(card, images.get(p.banner or ""), box, mask)
+    layer = Image.new("RGBA", card.size, (0, 0, 0, 0))
+    ImageDraw.Draw(layer).rounded_rectangle(box, 18, outline=ACCENT + (90,), width=2)
+    c._layer_onto(card, layer)
+    cy = (box[1] + box[3]) / 2
+    r = 62
+    round_avatar(card, images.get(p.avatar or ""), box[0] + 34 + r, cy, r, light)
+    draw = ImageDraw.Draw(card)
+    x = box[0] + 34 + 2 * r + 34
+    c._spaced(draw, (x + 2, box[1] + 40), "GENSHIN IMPACT  ·  TRAVELER PROFILE", f.label, light, 2.4)
+    draw.text((x, box[1] + 86), c._fit_text(draw, p.nickname or "Traveler", f.name[50], 560), font=f.name[50], fill=c.TEXT,
+              anchor="lm")
+    if p.signature:
+        lines = c._wrap(draw, p.signature.replace("\n", " "), f.small, 560, 2)
+        for i, line in enumerate(lines):
+            draw.text((x + 2, box[1] + 128 + i * 24), line, font=f.small, fill=c.DIM, anchor="lm")
+    right = box[2] - 32
+    if p.level:
+        label = p.level_label.upper()
+        c._spaced(draw, (right - draw.textlength(label, font=f.label) - 2.4 * (len(label) - 1), box[1] + 40), label,
+                  f.label, c.DIM, 2.4)
+        draw.text((right, box[1] + 86), str(p.level), font=f.name[50], fill=light, anchor="rm")
+    if p.world_level:  # World Level on a line of its own under the Adventure Rank
+        label, value = p.world_level
+        vw = draw.textlength(value, font=f.stat_b)
+        draw.text((right, box[1] + 128), value, font=f.stat_b, fill=c.TEXT, anchor="rm")
+        text = label.upper()
+        c._spaced(draw, (right - vw - 12 - draw.textlength(text, font=f.label) - 2.4 * (len(text) - 1), box[1] + 129), text,
+                  f.label, c.DIM, 2.4)
+    server = c.server_name("genshin", p.uid)
+    draw.text((right, box[3] - 28), f"{server + ' · ' if server else ''}UID {p.uid}", font=f.stamp, fill=c.DIM, anchor="rm")
+
+
+def _namecard(card: Image.Image, pic: Image.Image | None, x: int, y: int) -> None:
+    if pic is None:
+        return
+    art = cover(pic, NC_W, NC_H, 0.5)
+    mask = Image.new("L", (NC_W, NC_H), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, NC_W - 1, NC_H - 1), 10, fill=255)
+    art.putalpha(mask)
+    card.alpha_composite(art, (x, y))
+    layer = Image.new("RGBA", card.size, (0, 0, 0, 0))
+    ImageDraw.Draw(layer).rounded_rectangle((x, y, x + NC_W - 1, y + NC_H - 1), 10, outline=(255, 255, 255, 40))
+    c._layer_onto(card, layer)
 
 
 def draw_stats(p: Profile, images: dict[str, Image.Image]) -> bytes:
     c.FONTS = c.FONTS or c.Fonts()
-    f = c.FONTS
     light = c._mix(ACCENT, (255, 255, 255), 0.45)
     groups_h = max((_group_h(len(rows)) for _, rows in p.groups), default=0)
     region_rows = -(-len(p.regions) // 2)
-    per_row = _per_row()
-    unit_rows = -(-len(p.units) // per_row)
+    cards = [images[u] for u in p.namecards if u in images]
+    per_row = (W - 2 * PAD + NC_GAP) // (NC_W + NC_GAP)
+    card_rows = -(-len(cards) // per_row)
     height = (HEAD + BIG_H + GAP + (groups_h + GAP if p.groups else 0)
               + (SECTION_HEAD + region_rows * REGION_H + GAP if p.regions else 0)
-              + (SECTION_HEAD + 8 + unit_rows * (rc.PORTRAIT + TILE_GAP) if p.units else 0) + PAD)
+              + (SECTION_HEAD + card_rows * (NC_H + NC_GAP) if cards else 0) + PAD)
     card = Image.new("RGBA", (W, height), (14, 12, 24, 255))
     glow = Image.new("RGBA", (W, height), (0, 0, 0, 0))
     ImageDraw.Draw(glow).ellipse((-300, -260, 700, 300), fill=c._mix((14, 12, 24), ACCENT, 0.45) + (255,))
     ImageDraw.Draw(glow).ellipse((W - 420, -200, W + 300, 220), fill=c._mix((14, 12, 24), ACCENT, 0.25) + (255,))
     card.alpha_composite(glow.filter(ImageFilter.GaussianBlur(120)))
-    draw = ImageDraw.Draw(card)
-
-    # The name on the left, the Adventure Rank on the right
-    c._spaced(draw, (PAD + 2, 40), "GENSHIN IMPACT  ·  TRAVELER PROFILE", f.label, light, 2.4)
-    draw.text((PAD, 86), c._fit_text(draw, p.nickname or "Traveler", f.name[56], 700), font=f.name[56], fill=c.TEXT, anchor="lm")
-    if p.level:
-        label = p.level_label.upper()
-        c._spaced(draw, (W - PAD - draw.textlength(label, font=f.label) - 2.4 * (len(label) - 1), 40), label, f.label, c.DIM, 2.4)
-        draw.text((W - PAD, 86), str(p.level), font=f.name[56], fill=light, anchor="rm")
-    server = c.server_name("genshin", p.uid)
-    draw.text((W - PAD, 124), f"{server + ' · ' if server else ''}UID {p.uid}", font=f.stamp, fill=c.DIM, anchor="rm")
+    _header(card, p, images, light)
 
     y = HEAD
     n = max(1, len(p.headline))
@@ -135,16 +176,14 @@ def draw_stats(p: Profile, images: dict[str, Image.Image]) -> bytes:
             x = PAD + (i % 2) * (cw + 3 * GAP)
             _region(card, x, x + cw, y + (i // 2) * REGION_H, r.name, r.explored, light)
         y += region_rows * REGION_H + GAP
-    if p.units:
-        _section(card, "Characters", y, str(len(p.units)))
-        y += SECTION_HEAD + 8  # the copies pills stick out above the tiles
-        row_w = per_row * rc.PORTRAIT + (per_row - 1) * TILE_GAP
-        x0 = (W - row_w) // 2
-        for i, u in enumerate(p.units):
-            x = x0 + (i % per_row) * (rc.PORTRAIT + TILE_GAP)
-            ty = y + (i // per_row) * (rc.PORTRAIT + TILE_GAP)
-            rc._gi_portrait(card, "genshin", Member(u.name, u.icon, u.level, u.rarity, u.copies), images.get(u.icon or ""),
-                            x, ty, ACCENT)
+    if cards:
+        _section(card, "Name Cards", y)
+        y += SECTION_HEAD
+        for i, pic in enumerate(cards):
+            row = i // per_row
+            in_row = min(per_row, len(cards) - row * per_row)
+            x0 = (W - (in_row * NC_W + (in_row - 1) * NC_GAP)) // 2
+            _namecard(card, pic, x0 + (i % per_row) * (NC_W + NC_GAP), y + row * (NC_H + NC_GAP))
 
     out = io.BytesIO()
     card.convert("RGB").save(out, "PNG", compress_level=3)

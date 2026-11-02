@@ -1246,7 +1246,8 @@ class CardMaker:
         from .stats_card import draw_stats, image_urls
 
         urls = image_urls(profile)
-        loaded = await asyncio.gather(*(self._image(u, ICON_MAX) for u in urls))
+        big = {profile.banner, *profile.namecards}  # name cards are shown wide, not as icons
+        loaded = await asyncio.gather(*(self._image(u, ART_MAX if u in big else ICON_MAX) for u in urls))
         images = {u: img for u, img in zip(urls, loaded) if img is not None}
         return await asyncio.to_thread(draw_stats, profile, images)
 
