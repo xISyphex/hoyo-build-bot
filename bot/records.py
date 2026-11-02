@@ -61,6 +61,8 @@ class Record:
     medal: str | None = None  # Anomaly Arbitration's medal picture from HoYoLAB
     season_id: str = ""  # ZZZ Shiyu Defense: HoYoLAB's zone id for the season; Star Rail: the season's schedule id
     floor_id: str = ""  # Star Rail Memory of Chaos / Pure Fiction: the shown floor's maze id
+    # Star Rail Memory of Chaos: every floor played this season, shallowest first, as (floor, stars, cycles, quick clear)
+    floors: list[tuple[str, int, int, bool]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -186,6 +188,32 @@ def _floor_no(name: str) -> str:
     return found[-1] if found else name
 
 
+def _roman(name: str) -> str:
+    """A floor's number as the game writes it: 'Crossing the Afterlife (XII)Starward Mode' -> 'XII', '(12)' -> 'XII'."""
+    if found := re.search(r"\(([IVXL]+)\)", name or ""):
+        return found[1]
+    n = _floor_no(name)
+    if not n.isdigit():
+        return n
+    n, out = int(n), ""
+    for value, letters in ((10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I")):
+        while n >= value:
+            out, n = out + letters, n - value
+    return out
+
+
+def _moc_floors(floors) -> list[tuple[str, int, int, bool]]:
+    """Each floor played, shallowest first, with its own stars (without Starward's) and cycles."""
+    out = []
+    for f in reversed(list(floors or ())):
+        quick = bool(getattr(f, "is_quick_clear", False))
+        if not (_nodes(f) or quick):
+            continue
+        stars = (getattr(f, "star_num", 0) or 0) - (getattr(f, "starward_stars", 0) or 0)
+        out.append((_roman(f.name), max(0, min(stars, 3)), getattr(f, "round_num", 0) or 0, quick))
+    return out
+
+
 def _season(seasons, fallback: str = "") -> str:
     for s in seasons or ():
         if getattr(s, "name", ""):
@@ -269,6 +297,8 @@ def hsr_moc(data) -> Record:
         rec.empty = "No Memory of Chaos runs this season yet."
         return rec
     rec.headline = [("Stars", _stars(data.total_stars, 36)), ("Cycles", str(floor.round_num))]
+    rec.floors = _moc_floors(data.floors)
+    log.info("moc floors (floor, stars, cycles, quick): %s", rec.floors)
     _starward(rec, data, floor)
     for i, node in enumerate(_nodes(floor), 1):
         rec.teams.append(Team(_node_label(i), [], [_hsr_member(c) for c in node.avatars], key=_node_key(floor, node)))
