@@ -37,7 +37,7 @@ SIDE_W = 150  # a stage's own numbers, as readouts beside its screen
 MODE_LIGHT = {"moc": (255, 112, 146), "pf": (120, 182, 255), "apoc": (255, 196, 92), "aa": (110, 230, 210)}
 RARITY_GLOW = {5: ((150, 112, 44), (34, 26, 10)), 4: ((112, 76, 170), (24, 16, 44))}  # 5★ gold, 4★ purple
 TEAM_FILL = (4, 38, 52, 205)
-FLOORS_H = 76  # Memory of Chaos: the strip of every floor's cycles over the teams
+FLOORS_H = 76  # Memory of Chaos: the strip of every floor's cycles under the teams
 MAX_SCORE = {"pf": (40000, 120000), "apoc": (3850, 11550)}  # foil from: a node's score, then the floor's (Syphex's picks)
 
 
@@ -443,9 +443,6 @@ def draw_records(uid: str, records: list[Record], images: dict[str, Image.Image]
         chips = any(t.chips for t in record.teams)
         th = _team_h(chips)
         by = y + HEAD
-        if record.floors:
-            _floors(card, record.floors, PAD + INNER, W - PAD - INNER, by)
-            by += FLOORS_H
         col_w = (W - 2 * PAD - 2 * INNER - 2 * GAP) // 3
         for head, row in rc._rows(record):
             if head:
@@ -467,6 +464,8 @@ def draw_records(uid: str, records: list[Record], images: dict[str, Image.Image]
                     edge += SIDE_W + 12
                 bx += col_w + GAP
             by += th + GAP
+        if record.floors:  # every floor's stars and cycles, under the teams
+            _floors(card, record.floors, PAD + INNER, W - PAD - INNER, by)
         y += sh + GAP
 
     out = io.BytesIO()
