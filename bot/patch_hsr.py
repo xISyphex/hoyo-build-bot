@@ -2,12 +2,14 @@
 behind cyan holo screens with cut corners. The version and its time left sit on the top screen over the version's
 star-rail route (stations at its start, its second phase and its end, the train lit where we are now). Each running
 warp is a screen with its 5-star on a gold projected tile, its name with element and Path symbols, the 4-stars on
-small purple tiles and its time left on a readout. The ones coming next sit on small screens at the bottom."""
+small purple tiles and its time left on a readout. Each character warp has its light cone warp beside it on the right.
+The next phase's warps sit on smaller screens at the bottom, paired the same way."""
 
 from __future__ import annotations
 
 import datetime as dt
 import io
+from itertools import zip_longest
 
 from PIL import Image, ImageDraw, ImageFilter
 
@@ -221,40 +223,48 @@ SUB_HEAD = 30  # a small title over a row (RERUN, LIGHT CONES)
 
 
 def _next_item(draw, b: Banner, images: dict, server, big: bool) -> tuple:
-    """A coming banner with what its screen shows, and the screen's width."""
-    nf, df = h._raj("Bold", 28 if big else 19), h._raj("Bold", 13 if big else 12)
-    tile = NEW_H - 24 if big else 64
+    """A coming banner with what its screen shows; every screen is a column wide."""
+    nf = h._raj("Bold", 28 if big else 19)
+    tile = (NEW_H if big else NEXT_H) - 24
     top = next((i for i in b.items if i[1]), (b.featured[0], True, b.icon))
-    name = base._fit_text(draw, _plain(top[0].upper(), nf), nf, 520 if big else 230)
     marks = [u for u in b.traits.get(top[0], []) if u in images]
-    day = f"FROM {pc._day(b.start, server).upper()}"
-    nw = _spaced_w(draw, name, nf, 2 if big else 1.4)
     marks_w = len(marks) * (34 if big else 26) + 4 if marks else 0  # the symbols after the name, on its line
-    w = round(12 + tile + 14 + max(nw + marks_w, _spaced_w(draw, day, df, 2.4)) + 24)
-    return (b, top, name, marks, day, nw, big, min(w, W - 2 * PAD))
+    room = CARD_W - (12 + tile + 14) - 20 - marks_w
+    spacing = 2 if big else 1.4
+    name = base._fit_text(draw, _plain(top[0].upper(), nf), nf, room - spacing * 30)
+    day = f"FROM {pc._day(b.start, server).upper()}"
+    nw = _spaced_w(draw, name, nf, spacing)
+    return (b, top, name, marks, day, nw, big, CARD_W)
+
+
+def phase_one(upcoming: list[Banner]) -> list[Banner]:
+    """Only the next phase's warps: the ones starting with the first coming one (a later phase waits its turn)."""
+    if not upcoming:
+        return []
+    first = min(b.start for b in upcoming)
+    return [b for b in upcoming if b.start - first < dt.timedelta(days=1)]
+
+
+def _pairs(banners: list[Banner]) -> list[tuple[Banner | None, Banner | None]]:
+    """Each character warp with its light cone warp: HoYoLAB lists both in the same order."""
+    chars = [b for b in banners if b.kind not in pc.WEAPON_KINDS]
+    cones = [b for b in banners if b.kind in pc.WEAPON_KINDS]
+    return list(zip_longest(chars, cones))
 
 
 def _next_layout(draw, upcoming: list[Banner], images: dict, server):
-    """Where everything coming next goes: the first new character on a row of its own, then the other characters
-    (reruns) and the light cones, each under a small title, in rows that wrap. Returns the pieces and the height."""
-    chars = [b for b in upcoming if b.kind not in pc.WEAPON_KINDS]
-    cones = [b for b in upcoming if b.kind in pc.WEAPON_KINDS]
-    groups = [("", chars[:1], True), ("RERUN", chars[1:], False), ("LIGHT CONES", cones, False)]
+    """Where everything coming next goes: each character on the left with its light cone on the right, the first
+    (new) one on taller screens, the reruns under a small title. Returns the pieces and the height."""
     pieces, y = [], 0
-    for title, banners, big in groups:
-        if not banners:
-            continue
-        if title:
-            pieces.append(("title", title, PAD, y))
+    for i, pair in enumerate(_pairs(upcoming)):
+        big = i == 0
+        if i == 1:
+            pieces.append(("title", "RERUN", PAD, y))
             y += SUB_HEAD
-        x, hh = PAD, NEW_H if big else NEXT_H
-        for b in banners:
-            item = _next_item(draw, b, images, server, big)
-            if x > PAD and x + item[-1] > W - PAD:
-                x, y = PAD, y + hh + GAP
-            pieces.append(("screen", item, x, y))
-            x += item[-1] + GAP
-        y += hh + GAP
+        for col, b in enumerate(pair):
+            if b is not None:
+                pieces.append(("screen", _next_item(draw, b, images, server, big), PAD + col * (CARD_W + GAP), y))
+        y += (NEW_H if big else NEXT_H) + GAP
     return pieces, y
 
 
@@ -280,43 +290,42 @@ def _upcoming(card: Image.Image, upcoming: list[Banner], images: dict, server, y
         h._spaced(draw, (tx + 1, y + (80 if big else 60)), day, df, DIM, 2.4)
 
 
-def _section(card: Image.Image, title: str, light, y: int) -> None:
+def _section(card: Image.Image, title: str, light, y: int, x: int = PAD) -> None:
     """A section's title with a status light before it, like the records' modes."""
     draw = ImageDraw.Draw(card)
-    draw.rectangle((PAD + 6, y + 12, PAD + 9, y + 38), fill=light)
+    draw.rectangle((x + 6, y + 12, x + 9, y + 38), fill=light)
     glow = Image.new("RGBA", (40, 60), (0, 0, 0, 0))
     ImageDraw.Draw(glow).rectangle((18, 18, 21, 44), fill=light + (200,))
-    card.alpha_composite(glow.filter(ImageFilter.GaussianBlur(5)), (PAD + 6 - 18, y - 6))
-    h._top_text(card, (PAD + 22, y + 10), title.upper(), h._raj("Bold", 26), (255, 255, 255), 3)
+    card.alpha_composite(glow.filter(ImageFilter.GaussianBlur(5)), (x + 6 - 18, y - 6))
+    h._top_text(card, (x + 22, y + 10), title.upper(), h._raj("Bold", 26), (255, 255, 255), 3)
 
 
 def draw_patch(patch: Patch, images: dict[str, Image.Image], now: dt.datetime | None = None) -> bytes:
     base.FONTS = base.FONTS or base.Fonts()
     now = now or dt.datetime.now(dt.timezone.utc)
     running = [one for b in patch.banners if b.start <= now < b.end for one in pc._split(b)]
-    sections = [(k, [b for b in running if b.kind == k]) for k in KINDS["hsr"]]
-    sections = [(k, bs) for k, bs in sections if bs]
-    upcoming = sorted((one for b in patch.banners if b.start > now and b.featured for one in pc._split(b)),
-                      key=lambda b: b.start)[:9]
-    rows = pc._rows
-    height = PAD + HEAD_H + GAP + sum(SECTION_HEAD + rows(len(bs)) * (CARD_H + GAP) for _, bs in sections) + PAD
-    if not sections:
-        height += 60
+    pairs = _pairs(running)
+    upcoming = phase_one(sorted((one for b in patch.banners if b.start > now and b.featured for one in pc._split(b)),
+                                key=lambda b: b.start))
+    height = PAD + HEAD_H + GAP + (SECTION_HEAD + len(pairs) * (CARD_H + GAP) if pairs else 60) + PAD
     if upcoming:
         height += SECTION_HEAD + _next_layout(ImageDraw.Draw(Image.new("RGB", (1, 1))), upcoming, images, patch.clock)[1]
     card = rh._starmap(W, height, f"hsr-{patch.version}")
     _header(card, patch, now)
 
     y = PAD + HEAD_H + GAP
-    for kind, banners in sections:
-        _section(card, kind, SECTION_LIGHT.get(kind, HOLO), y)
+    if pairs:  # characters on the left, each one's light cone beside it on the right
+        for col, kind in enumerate(KINDS["hsr"]):
+            if any(pair[col] for pair in pairs):
+                _section(card, kind, SECTION_LIGHT.get(kind, HOLO), y, PAD + col * (CARD_W + GAP))
         y += SECTION_HEAD
-        for i, b in enumerate(banners):
-            bx = PAD + (i % COLS) * (CARD_W + GAP)
-            by = y + (i // COLS) * (CARD_H + GAP)
-            _banner(card, b, images, (bx, by, bx + CARD_W, by + CARD_H), now)
-        y += rows(len(banners)) * (CARD_H + GAP)
-    if not sections:
+        for pair in pairs:
+            for col, b in enumerate(pair):
+                if b is not None:
+                    bx = PAD + col * (CARD_W + GAP)
+                    _banner(card, b, images, (bx, y, bx + CARD_W, y + CARD_H), now)
+            y += CARD_H + GAP
+    else:
         ImageDraw.Draw(card).text((PAD + 8, y + 30), "No warps are running right now.", font=h._raj("SemiBold", 20), fill=DIM, anchor="lm")
         y += 60
     if upcoming:
