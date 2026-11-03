@@ -273,3 +273,25 @@ class HsrComingNextTest(unittest.TestCase):
         self.assertEqual([p[1] for p in pieces if p[0] == "title"], ["RERUN"])
         self.assertGreater(screens[1][3], screens[0][3])
         self.assertEqual(patch_hsr._plain("AEON ・ AHA", patch_hsr.h._raj("Bold", 19)), "AEON · AHA")
+
+
+class HsrPhaseAndPairsTest(unittest.TestCase):
+    def test_only_next_phase_and_cones_beside_their_characters(self):
+        from PIL import ImageDraw, Image
+        from bot import patch_hsr
+        now = patch._utc(NOW)
+        day = dt.timedelta(days=1)
+
+        def warp(kind, name, start):
+            return patch.Banner(kind, [name], [], start, start + 20 * day, None, "3.8", [(name, True, None)])
+        coming = [warp("Character warps", "Aeon", now + 5 * day), warp("Character warps", "Sparxie", now + 5 * day),
+                  warp("Light cone warps", "Echo", now + 5 * day), warp("Light cone warps", "Flowery", now + 5 * day),
+                  warp("Character warps", "Acheron", now + 26 * day)]  # the second phase: not shown yet
+        first = patch_hsr.phase_one(coming)
+        self.assertNotIn("Acheron", [b.featured[0] for b in first])
+        pairs = patch_hsr._pairs(first)
+        self.assertEqual([(c.featured[0], l.featured[0]) for c, l in pairs], [("Aeon", "Echo"), ("Sparxie", "Flowery")])
+        pieces, _ = patch_hsr._next_layout(ImageDraw.Draw(Image.new("RGB", (1, 1))), first, {}, "Europe")
+        screens = [(p[1][0].featured[0], p[2], p[3]) for p in pieces if p[0] == "screen"]
+        self.assertEqual(screens[0][2], screens[1][2])  # Aeon and its light cone on the same row
+        self.assertLess(screens[0][1], screens[1][1])  # the character on the left
