@@ -35,6 +35,7 @@ CHIPS_H = 40  # its results under them
 STAGE_H = 46  # the line over a stage of its own (the King)
 SIDE_W = 150  # a stage's own numbers, as readouts beside its screen
 MODE_LIGHT = {"moc": (255, 112, 146), "pf": (120, 182, 255), "apoc": (255, 196, 92), "aa": (110, 230, 210)}
+COPY_COLOR = {5: GOLD, 4: (196, 160, 255)}  # an eidolon / superimposition by rarity: 5★ gold, 4★ purple
 RARITY_GLOW = {5: ((150, 112, 44), (34, 26, 10)), 4: ((112, 76, 170), (24, 16, 44))}  # 5★ gold, 4★ purple
 TEAM_FILL = (4, 38, 52, 205)
 FLOORS_H = 76  # Memory of Chaos: the strip of every floor's cycles under the teams
@@ -219,9 +220,11 @@ def _tile(card: Image.Image, member: Member, icon: Image.Image | None, x: int, y
         ImageDraw.Draw(layer).rectangle(plate, fill=(2, 16, 26, 215), outline=HOLO + (120,))
         base._layer_onto(card, layer)
         draw = ImageDraw.Draw(card)
-        draw.text((plate[0] + 6, plate[1] + 10), eid, font=f, fill=GOLD if member.copies else TEXT, anchor="lm")
+        # each letter lit by its own rarity, however many copies: gold for 5-stars, purple for 4-stars
+        draw.text((plate[0] + 6, plate[1] + 10), eid, font=f, fill=COPY_COLOR.get(member.rarity, TEXT), anchor="lm")
         if sup:
-            draw.text((plate[0] + 10 + draw.textlength(eid, font=f), plate[1] + 10), sup, font=f, fill=HOLO, anchor="lm")
+            draw.text((plate[0] + 10 + draw.textlength(eid, font=f), plate[1] + 10), sup, font=f,
+                      fill=COPY_COLOR.get(member.weapon_rarity or 0, HOLO), anchor="lm")
 
 
 def _chips(card: Image.Image, chips: list[tuple[str, str]], cx: float, cy: float, mode: str = "") -> None:
