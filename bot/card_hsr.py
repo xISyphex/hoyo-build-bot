@@ -564,10 +564,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
         ImageDraw.Draw(card).text((GEAR_X + 20, PAD + 44), "No relics equipped.", font=_raj("SemiBold", 20), fill=DIM, anchor="lm")
 
     if uid:
-        server = base.server_name(build.game, uid)
-        foot = f"{server} · UID {uid}" if server else f"UID {uid}"
-        if build.source == "hoyolab":
-            foot = f"via HoYoLAB · {foot}"
+        foot = base.foot_text(build, uid)
         ImageDraw.Draw(card).text((W - 8, H - 3), foot.upper(), font=_raj("SemiBold", 13), fill=FAINT, anchor="rd")
 
     out = io.BytesIO()

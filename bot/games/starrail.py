@@ -13,7 +13,7 @@ from collections import defaultdict
 
 from ..assets import Assets
 from ..models import CharacterBuild, Gear, PlayerProfile, Stat, Weapon
-from . import fmt_int, fmt_pct
+from . import _with_raw, fmt_int, fmt_pct
 
 ELEMENTS = {
     "Thunder": "Lightning",
@@ -307,7 +307,7 @@ def parse_profile(assets: Assets, uid: str, data: dict) -> PlayerProfile:
         if info.get("avatarId") in seen:
             continue
         seen.add(info.get("avatarId"))
-        characters.append(parse_character(assets, info))
+        characters.append(_with_raw(parse_character(assets, info), info))
     return PlayerProfile(
         game="hsr",
         uid=uid,

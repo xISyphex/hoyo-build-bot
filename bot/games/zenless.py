@@ -16,7 +16,7 @@ from collections import defaultdict
 
 from ..assets import Assets
 from ..models import CharacterBuild, Gear, PlayerProfile, Stat, Weapon
-from . import fmt_int
+from . import _with_raw, fmt_int
 
 RARITY = {4: "S", 3: "A", 2: "B"}
 ELEMENTS = {
@@ -252,7 +252,7 @@ def parse_profile(assets: Assets, uid: str, data: dict) -> PlayerProfile:
     player = data.get("PlayerInfo", {})
     profile = player.get("SocialDetail", {}).get("ProfileDetail", {})
     avatars = (player.get("ShowcaseDetail") or {}).get("AvatarList") or []
-    characters = [parse_character(assets, a) for a in avatars]
+    characters = [_with_raw(parse_character(assets, a), a) for a in avatars]
     return PlayerProfile(
         game="zzz",
         uid=uid,

@@ -19,7 +19,7 @@ import genshin
 from discord import app_commands
 from discord.ext import tasks
 
-from . import matching, news, patch, records, timezones
+from . import borrow, matching, news, patch, records, timezones
 from .access import PRIVATE, AccessList
 from .assets import Assets
 from .claims import ClaimStore
@@ -198,20 +198,35 @@ class HoyoBot(discord.Client):
         await super().close()
 
 
-async def render(bot: HoyoBot, profile: PlayerProfile, build: CharacterBuild) -> dict:
+async def render(bot: HoyoBot, profile: PlayerProfile, build: CharacterBuild, donor: CharacterBuild | None = None) -> dict:
     """The build card image and its dropdown for one character, ready to send.
 
-    If the card can't be drawn, the reply falls back to the all-text embed.
+    With a donor, the character wears the donor's weapon and gear (a what-if), and so does every character picked
+    from the dropdown. If the card can't be drawn, the reply falls back to the all-text embed.
     """
-    view = CharacterView(profile, build)
+    view = CharacterView(profile, build, donor)
+    shown = build
+    if donor and donor.name != build.name:
+        shown = borrow.borrow(bot.assets, build, donor)
+    content = borrowed_line(shown)
     try:
-        png = await bot.cards.render(profile, build)
+        png = await bot.cards.render(profile, shown)
     except Exception:
-        log.exception("Could not draw the build card for %s", build.name)
+        log.exception("Could not draw the build card for %s", shown.name)
     else:
-        return {"embed": None, "view": view, "file": discord.File(io.BytesIO(png), filename="build.png")}
-    pieces = await bot.set_emojis.for_pieces(build)
-    return {"embed": build_embed(profile, build, piece_emojis=pieces), "view": view}
+        return {"content": content, "embed": None, "view": view, "file": discord.File(io.BytesIO(png), filename="build.png")}
+    pieces = await bot.set_emojis.for_pieces(shown)
+    return {"content": content, "embed": build_embed(profile, shown, piece_emojis=pieces), "view": view}
+
+
+def borrowed_line(build: CharacterBuild) -> str | None:
+    """The line above a what-if card, saying whose gear it is."""
+    if not build.borrowed_from:
+        return None
+    line = f"**{build.name}** wearing **{build.borrowed_from}**'s {borrow.GEAR_WORDS[build.game]}"
+    if build.game == "genshin":  # the store has no numbers for weapon passives, so those can't be moved
+        line += "\n-# Weapon passive stats (like Mistsplitter's DMG Bonus) aren't moved, only the weapon's own stats."
+    return line
 
 
 def as_edit(reply: dict) -> dict:
@@ -225,7 +240,7 @@ def as_edit(reply: dict) -> dict:
 class CharacterSelect(discord.ui.Select):
     """Dropdown to flip between the other characters in the same showcase."""
 
-    def __init__(self, profile: PlayerProfile, current: str):
+    def __init__(self, profile: PlayerProfile, current: str, donor: CharacterBuild | None = None):
         shown = profile.characters[:25]
         if all(c.name != current for c in shown):  # Discord allows 25 options; keep the one on screen
             shown = [*shown[:24], *(c for c in profile.characters if c.name == current)]
@@ -237,21 +252,23 @@ class CharacterSelect(discord.ui.Select):
             )
             for c in shown
         ]
-        super().__init__(placeholder="Show another character", options=options)
+        placeholder = f"Try {donor.name}'s gear on another character" if donor else "Show another character"
+        super().__init__(placeholder=placeholder[:150], options=options)
         self.profile = profile
+        self.donor = donor
 
     async def callback(self, interaction: discord.Interaction) -> None:
         build = next(c for c in self.profile.characters if c.name == self.values[0])
         # Drawing a new card can take longer than Discord's 3-second reply window.
         await interaction.response.defer()
-        await interaction.edit_original_response(**as_edit(await render(interaction.client, self.profile, build)))
+        await interaction.edit_original_response(**as_edit(await render(interaction.client, self.profile, build, self.donor)))
 
 
 class CharacterView(discord.ui.View):
-    def __init__(self, profile: PlayerProfile, build: CharacterBuild):
+    def __init__(self, profile: PlayerProfile, build: CharacterBuild, donor: CharacterBuild | None = None):
         super().__init__(timeout=600)
         if len(profile.characters) > 1:
-            self.add_item(CharacterSelect(profile, build.name))
+            self.add_item(CharacterSelect(profile, build.name, donor))
         self.add_item(discord.ui.Button(label="Open on Enka.Network", url=profile.profile_url))
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -265,12 +282,13 @@ def make_command(game: str) -> app_commands.Command:
     @app_commands.command(name=game, description=f"Show a {GAME_NAMES[game]} character's stats and build")
     @app_commands.describe(
         character="Character name (from the player's showcase)",
+        gear_from=f"Another character whose {borrow.GEAR_WORDS[game]} the first one should wear, to see their stats",
         uid="In-game UID. Leave empty to use the one you claimed with /" + game + "-claim",
         server=SERVER_HELP,
     )
     @app_commands.choices(server=SERVER_CHOICES)
-    async def command(interaction: discord.Interaction, character: str, uid: str | None = None,
-                      server: str | None = None) -> None:
+    async def command(interaction: discord.Interaction, character: str, gear_from: str | None = None,
+                      uid: str | None = None, server: str | None = None) -> None:
         bot: HoyoBot = interaction.client  # type: ignore[assignment]
         uid = resolve_uid(bot.claims, interaction.user.id, game, uid, bot.links, server)
         if uid is None:
@@ -339,9 +357,18 @@ def make_command(game: str) -> app_commands.Command:
                 )
             return
         build = next(c for c in profile.characters if c.name == match)
-        await interaction.followup.send(**await render(bot, profile, build))
+        donor = None
+        if gear_from:
+            donor_name = pick(bot, game, profile, gear_from)
+            donor = next((c for c in profile.characters if c.name == donor_name), None)
+            problem = borrow_problem(game, profile, build, donor, gear_from)
+            if problem:
+                await interaction.followup.send(problem)
+                return
+        await interaction.followup.send(**await render(bot, profile, build, donor))
 
     @command.autocomplete("character")
+    @command.autocomplete("gear_from")
     async def character_autocomplete(interaction: discord.Interaction, current: str):
         bot: HoyoBot = interaction.client  # type: ignore[assignment]
         uid = resolve_uid(bot.claims, interaction.user.id, game, getattr(interaction.namespace, "uid", None), bot.links,
@@ -546,6 +573,21 @@ def pick(bot: HoyoBot, game: str, profile: PlayerProfile, query: str) -> str | N
     if wanted in names:
         return wanted
     return None if wanted else matching.find(query, names)
+
+
+def borrow_problem(game: str, profile: PlayerProfile, build: CharacterBuild, donor: CharacterBuild | None,
+                   asked: str) -> str | None:
+    """Why the first character can't wear the second one's gear, if they can't."""
+    showcase = [c.name for c in profile.characters if borrow.can_borrow(c)]
+    if donor is None:
+        return f"**{asked}** isn't in {profile.nickname}'s showcase, so there's no gear to borrow."
+    if donor.name == build.name:
+        return f"Pick two different characters: **{build.name}** already wears their own {borrow.GEAR_WORDS[game]}."
+    missing = [c.name for c in (build, donor) if not borrow.can_borrow(c)]
+    if missing:
+        return (f"**{' and '.join(missing)}** {'is' if len(missing) == 1 else 'are'} only known from HoYoLAB, so their "
+                f"gear can't be swapped. Characters on the in-game showcase can: {', '.join(showcase) or 'none'}.")
+    return None
 
 
 def with_hoyolab(profile: PlayerProfile, builds: list[CharacterBuild]) -> PlayerProfile:
