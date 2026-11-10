@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from bot import cone_effects, optimize
+from bot import cone_effects, kit, optimize
 from bot.games import starrail
 from bot.hoyolab import _sr_promotion
 from bot.main import excluded_names, optimize_text
@@ -65,7 +65,7 @@ class OptimizeTest(unittest.TestCase):
         self.assertAlmostEqual(result.build.score_gain, (result.index / result.current - 1) * 100)
         # and nothing beats it: every single-piece swap is no better
         scorer = optimize.Scorer(self.assets, {**result.build.calc, "bonus": self.bare_bonus(result.build)},
-                                 {"CRIT Rate", "CRIT DMG", "HP%"}, cone=result.cone_effect)
+                                 {"CRIT Rate", "CRIT DMG", "HP%"}, cone=result.cone_effect, kit=result.kit)
         ids = optimize.set_ids(self.assets)
         sets = {ids[RELICS]: 4, ids[PLANAR]: 2}
         self.assertAlmostEqual(scorer.index([p.props for p in result.pieces], sets), result.index)
@@ -128,6 +128,31 @@ class OptimizeTest(unittest.TestCase):
         self.assertEqual(optimize.recommended(self.assets, look, name, False), [RELICS])  # unknown ids are dropped
         self.assertEqual(optimize.recommended(self.assets, look, name, True), [PLANAR])
         self.assertEqual(optimize.recommended(self.assets, look, "Nobody At All", False), [])
+
+    def test_own_abilities_count(self):
+        """The strongest hit's multiplier and the buffs a kit gives its owner, read from the ability texts."""
+        saved = {k: dict(self.assets.data.get(k, {})) for k in ("srr_characters", "srr_character_skills", "srr_skill_trees")}
+        self.addCleanup(self.assets.data.update, saved)
+        self.assets.data["srr_characters"]["9990"] = {"skills": ["999001", "999002", "999004"], "skill_trees": ["9990101"]}
+        self.assets.data["srr_character_skills"] = {
+            "999001": {"type": "Normal", "name": "Poke", "desc": "Deals Ice DMG equal to #1[i]% of Dr. Test's ATK.",
+                       "params": [[0.5]] * 5 + [[1.0]]},
+            "999002": {"type": "BPSkill", "name": "Big Hit", "params": [[1.0, 1]] * 9 + [[2.5, 1]],
+                       "desc": "Deals Ice DMG equal to #1[i]% of Dr. Test's ATK to one enemy and gains #2[i] stack(s)."},
+            "999004": {"type": "Talent", "name": "Focus", "params": [[0.2, 1.0, 0.3]] * 9 + [[0.5, 1.0, 0.4]],
+                       "desc": "Enters the Focus state with their action advanced by #2[i]% and their CRIT Rate increased "
+                               "by #1[i]%. Increases all allies' ATK by #3[i]%. Increases one designated ally's CRIT DMG by #2[i]%."}}
+        self.assets.data["srr_skill_trees"]["9990101"] = {"desc": "Ultimate deals #1[i]% more DMG.", "params": [[0.2]]}
+        found = kit.kit(self.assets, 9990)
+        self.assertEqual((found.multiplier, found.scaling, found.hit), (2.5, "atk", "Big Hit"))
+        # the team-wide ATK counts (they are on the team); another ally's buff and the action advance don't
+        self.assertEqual(found.buffs, {"CriticalChanceBase": 0.5, "AttackAddedRatio": 0.4, "DMG": 0.2})
+        self.assertEqual(kit.kit(self.assets, 123456).multiplier, 1.0)  # a character without ability data
+        calc = {"hp": 1000, "atk": 1000, "def": 500, "spd": 100, "element": "Ice", "bonus": {"CriticalDamageBase": 0.5}}
+        stats = {"CRIT Rate", "CRIT DMG", "ATK%"}
+        plain = optimize.Scorer(self.assets, calc, stats)
+        with_kit = optimize.Scorer(self.assets, calc, stats, kit=found)
+        self.assertAlmostEqual(with_kit.index([{}], {}), plain.index([{"CriticalChanceBase": 0.5, "IceAddedRatio": 0.2, "AttackAddedRatio": 0.4}], {}) * 2.5)
 
     def test_speed_can_be_switched(self):
         self.assertEqual(optimize.with_speed({"CRIT Rate", "SPD"}, None), {"CRIT Rate", "SPD"})

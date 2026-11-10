@@ -460,6 +460,15 @@ def optimize_text(result: optimize.Result, target: CharacterBuild, relic_set: st
     if result.build.weapon and effect:
         counted = ", ".join(f"+{value * 100:.3g}% {CONE_WORDS.get(key, key)}" for key, value in effect.items())
         lines.append(f"-# {result.build.weapon.name}'s effect is counted as {counted}.")
+    if result.kit and (result.kit.buffs or result.kit.hit):
+        buffs = {k: v for k, v in result.kit.buffs.items() if "Break" not in k or "Break Effect" in result.counted}
+        parts = []
+        if result.kit.hit:
+            stat = {"atk": "ATK", "hp": "Max HP", "def": "DEF"}.get(result.kit.scaling or "", "")
+            parts.append(f"strongest hit {result.kit.hit} ({result.kit.multiplier * 100:.0f}% of {stat})")
+        if buffs:
+            parts.append("own buffs " + ", ".join(f"+{v * 100:.3g}% {CONE_WORDS.get(k, k)}" for k, v in buffs.items()))
+        lines.append(f"-# {name}'s abilities are counted as: {'; '.join(parts)}.")
     owners: dict[str, list[str]] = {}
     for piece in result.pieces:
         owners.setdefault(piece.owner, []).append(piece.gear.slot)

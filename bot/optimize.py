@@ -30,7 +30,9 @@ not the gear, so they multiply every candidate alike and are left at 1.
 ... CYCLES cycles are averaged (as turns per 100 action value, so 100 SPD is about 1).
 
 A light cone counts with its base stats and its whole passive, read from the passive's text (bot/cone_effects.py):
-like the sets, as active and at full stacks.
+like the sets, as active and at full stacks. The character's own abilities count the same way (bot/kit.py): the buffs
+their kit gives them, and the multiplier of their strongest hit, so the index is the size of that hit before the
+enemy's RES and the team's buffs.
 """
 
 from __future__ import annotations
@@ -39,7 +41,7 @@ import itertools
 from collections import defaultdict
 from dataclasses import dataclass, replace
 
-from . import cone_effects
+from . import cone_effects, kit as kits
 from .assets import Assets
 from .games import starrail as sr
 from .models import CharacterBuild, Gear
@@ -73,6 +75,7 @@ class Result:
     cone_owner: str | None = None  # whose light cone was picked (None: no light cone to pick)
     cones: int = 0  # how many light cones were tried
     cone_effect: dict[str, float] | None = None  # what the picked light cone's passive was counted as
+    kit: kits.Kit | None = None  # what the character's own abilities were counted as
 
 
 class OptimizeError(Exception):
@@ -219,9 +222,10 @@ class Scorer:
     """The damage index of one character for any set of relic stats."""
 
     def __init__(self, assets: Assets, calc: dict, wanted: set[str] | None, level: int = 80, elation: bool = False,
-                 cone: dict[str, float] | None = None):
+                 cone: dict[str, float] | None = None, kit: kits.Kit | None = None):
         self.calc = calc
         self.cone = cone or {}  # what the light cone's passive adds in combat
+        self.kit = kit or kits.Kit()  # the character's own abilities: their strongest hit and self-buffs
         self.level = level
         self.elation = elation  # an Elation character: Elation DMG's formula
         self.wanted = set(wanted or DEFAULT_WANTED)
@@ -256,8 +260,9 @@ class Scorer:
 
     def index(self, props: list[dict[str, float]], sets: dict[str, int]) -> float:
         bonus = self.bonus(props, sets)
-        for key, value in self.cone.items():
-            bonus[key] += value
+        for extra in (self.cone, self.kit.buffs):
+            for key, value in extra.items():
+                bonus[key] += value
         totals = sr.totals(self.calc, bonus)
         for set_id, count in sets.items():
             effect = SET_EFFECTS.get(set_id)
@@ -287,7 +292,7 @@ class Scorer:
             score *= (1 + bonus["BreakDamageAddedRatioBase"]) * (1 + bonus["BreakDMG"])
         if self.speed:
             score *= turns(totals["spd"])
-        return score * (1 + bonus["Vulnerability"])
+        return score * (1 + bonus["Vulnerability"]) * self.kit.multiplier
 
 
 def _undominated(pieces: list[Piece], keys: set[str]) -> list[Piece]:
@@ -315,11 +320,14 @@ def optimize(assets: Assets, target: CharacterBuild, builds: list[CharacterBuild
     info = sr.maxed(assets, info)  # fully built: Lv. 80 with every trace
     path = assets.data["hsr_characters"].get(str(info.get("avatarId")), {}).get("AvatarBaseType")
     elation = path == "Elation"
+    enhanced = any(int(p.get("pointId", 0)) > 10_000_000 for p in info.get("skillTreeList", []))
 
     def with_cone(equipment: dict | None) -> tuple[CharacterBuild, Scorer]:
         bare = sr.parse_character(assets, {**{k: v for k, v in info.items() if k != "equipment"},
                                            **({"equipment": equipment} if equipment else {})})
-        return bare, Scorer(assets, bare.calc, wanted, bare.level, elation, cone_effects.effect(assets, equipment))
+        scorer = Scorer(assets, bare.calc, wanted, bare.level, elation, cone_effects.effect(assets, equipment))
+        scorer.kit = kits.kit(assets, info.get("avatarId"), enhanced, scorer.scaling)
+        return bare, scorer
 
     # The light cones to try: their own first, then every one of their Path that another character wears.
     cones: list[tuple[str, dict | None]] = [(target.name, info.get("equipment"))]
@@ -351,9 +359,12 @@ def optimize(assets: Assets, target: CharacterBuild, builds: list[CharacterBuild
     keys = {k for k in keys if not k.endswith("AddedRatio") or k == scorer.dmg_key
             or k in ("HPAddedRatio", "AttackAddedRatio", "DefenceAddedRatio", "SpeedAddedRatio")}
     slots = [_undominated(by_slot[slot], keys) for slot in sr.SLOT_ORDER]
-    while _product(slots) * len(cones) > MAX_TRIES:  # far more than anyone owns of one set; trims the weakest of the fullest slot
-        fullest = max(slots, key=len)
-        fullest.pop()
+    # More pieces than can be tried (an account with many characters in the same set): the fullest slot loses the
+    # piece that does the least for this character on its own, until the search fits.
+    for slot_pieces in slots:
+        slot_pieces.sort(key=lambda p: -scorer.index([p.props], {}))
+    while _product(slots) * len(cones) > MAX_TRIES:
+        max(slots, key=len).pop()
 
     sets = {ids[relic_set]: 4, ids[planar_set]: 2}
     best, best_index, tried, best_cone = None, -1.0, 0, 0
@@ -365,6 +376,14 @@ def optimize(assets: Assets, target: CharacterBuild, builds: list[CharacterBuild
             value = cone_scorer.index(props, sets)
             if value > best_index:
                 best, best_index, best_cone = combo, value, n
+
+    # What the character wears now is always a candidate, so trimming can never make the answer worse than it.
+    own = [next((p for p in by_slot[slot] if p.owner == target.name), None) for slot in sr.SLOT_ORDER]
+    if all(own):
+        for n, (_, cone_scorer) in enumerate(tries):
+            value = cone_scorer.index([p.props for p in own], sets)
+            if value > best_index:
+                best, best_index, best_cone = tuple(own), value, n
 
     current = None
     if target.gear:
@@ -385,7 +404,7 @@ def optimize(assets: Assets, target: CharacterBuild, builds: list[CharacterBuild
                     talents=target.talents or bare.talents, weapon=weapon, borrowed_from=None, optimized=True, score=best_index,
                     score_gain=(best_index / current - 1) * 100 if current else None)
     return Result(build, list(best), best_index, current, scorer.counted(), tried,
-                  cones[best_cone][0] if weapon else None, len(cones), dict(best_scorer.cone))
+                  cones[best_cone][0] if weapon else None, len(cones), dict(best_scorer.cone), best_scorer.kit)
 
 
 def _cone_key(equipment: dict | None) -> tuple:

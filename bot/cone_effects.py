@@ -21,8 +21,9 @@ STATS: list[tuple[str, str | None]] = [
     (r"Outgoing Healing|Incoming Healing|Energy Regeneration|Effect RES|Effect Hit Rate|All-Type RES|Shield"
      r"|Weakness Break Efficiency|DMG taken (?:by the wearer )?(?:is )?(?:reduced|decreases)|less DMG"
      r"|DMG dealt to (?:all )?all(?:y|ies)|SPD (?:is )?(?:lowered|reduced|decreased|decreases)|restores? HP|Additional DMG"
-     r"|DMG they receive decreases", None),
-    (r"ignor\w*|DEF (?:is |are )?(?:decrease[sd]?|reduced|lowered)|(?:decreases|reduces) [^.,]*DEF", "DefIgnore"),
+     r"|DMG they receive decreases|multiplier|[Aa]ction\b|[Aa]dvanced?\b|Energy|chance"
+     r"|[Rr]educ\w*[^.,]*?\b(?:ATK|SPD)\b|[Rr]educ\w* the DMG (?:he|she|they|it) receives?", None),
+    (r"ignor\w*|DEF (?:is |are |gets )?(?:decrease[sd]?|reduced|lowered)|(?:decreases|[Rr]educ\w*) [^.,]*DEF", "DefIgnore"),
     (r"DMG (?:taken|received)|DMG they receive|\b(?:take|receive)s?\b|Vulnerab", "Vulnerability"),
     (r"CRIT DMG", "CriticalDamageBase"),
     (r"CRIT Rate", "CriticalChanceBase"),
@@ -90,6 +91,8 @@ def parse(desc: str, params: list[float], always: dict[str, float] | None = None
             if after.startswith(" of") and not verb.startswith("ignore"):
                 continue  # "equal to #2% of their ATK": an amount, not a bonus
             if verb.startswith("deal"):  # "deals #1% more CRIT DMG": the stat comes after the number
+                if not re.match(r" (?:more|increased|higher|extra|additional)\b", after):
+                    continue  # "deals #1% Fire DMG": a hit of its own, not a bonus
                 clause = after.split(" to ")[0].split(",")[0]
             clause = re.sub(r"(?:current )?HP percentage", "", clause)  # a condition on the enemy, not the wearer's HP
             key = _stat(clause)
