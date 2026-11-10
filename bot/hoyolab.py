@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import logging
+import math
 import re
 import time
 
@@ -265,6 +266,47 @@ def _zzz_sub(prop, rarity: str) -> Stat:
     return stat
 
 
+def _zzz_units(prop) -> float:
+    """A HoYoLAB line's value the way the showcase counts it: percentages in hundredths ("7.2%" -> 720)."""
+    _, kind = zz.GROUPS.get(int(prop.type) // 100, ("", "int"))
+    return _num(prop.value) * 100 if _is_pct(prop.value) or kind == "pct" else _num(prop.value)
+
+
+def _zzz_raw(assets: Assets, agent) -> dict:
+    """The agent as a showcase entry, so bot/borrow.py can swap gear with HoYoLAB's agents too. HoYoLAB gives a
+    disc line's total; the showcase stores what it is built from (the main stat at level 0, one roll of a substat)."""
+    core = next((s.level for s in agent.skills if int(s.type) == 5), 1)
+    info: dict = {"Id": agent.id, "Level": agent.level, "PromotionLevel": min(6, (max(agent.level, 1) + 9) // 10),
+                  "TalentLevel": agent.rank, "CoreSkillEnhancement": max(0, min(6, core - 1)),
+                  "SkillLevelList": [{"Index": int(s.type), "Level": s.level} for s in agent.skills if int(s.type) != 5]}
+    if getattr(agent, "outfit_id", None):
+        info["SkinId"] = agent.outfit_id
+    w = agent.w_engine
+    if w:
+        # The ascension isn't sent: it is the one whose base ATK (or other main stat) matches the one shown.
+        main = (assets.data["zzz_weapons"].get(str(w.id), {}).get("MainStat") or {}).get("PropertyValue", 0)
+        shown = _num(w.main_properties[0].value) if w.main_properties else 0
+        brk = min(range(6), key=lambda b: abs(math.floor(main * (1 + 0.1568166666666667 * w.level + 0.8922 * b)) - shown))
+        info["Weapon"] = {"Id": w.id, "Level": w.level, "BreakLevel": brk if main and shown else min(5, w.level // 10),
+                          "UpgradeLevel": int(w.refinement)}
+    items = assets.data["zzz_equipments"].get("Items", {})
+    info["EquippedList"] = []
+    for disc in agent.discs:
+        rarity = int(items.get(str(disc.id), {}).get("Rarity", ZZZ_RARITY.get(disc.rarity, 4)))
+        grow = 1 + disc.level * zz.DISC_SCALE.get(rarity, 0.2)
+        subs = []
+        for prop in disc.properties:
+            rolls = _zzz_sub(prop, disc.rarity).rolls or 1
+            subs.append({"PropertyId": int(prop.type), "PropertyValue": _zzz_units(prop) / rolls, "PropertyLevel": rolls})
+        info["EquippedList"].append({"Slot": disc.position, "Equipment": {
+            "Id": disc.id, "Level": disc.level,
+            # half a point on top, so that rounding down after growing it lands on the value shown
+            "MainPropertyList": [{"PropertyId": int(p.type), "PropertyValue": (_zzz_units(p) + 0.5) / grow}
+                                 for p in disc.main_properties[:1]],
+            "RandomPropertyList": subs}})
+    return info
+
+
 def zzz_build(assets: Assets, agent) -> CharacterBuild:
     """One genshin.py ZZZFullAgent as a build card."""
     outfit = getattr(agent, "outfit_id", None)
@@ -296,8 +338,13 @@ def zzz_build(assets: Assets, agent) -> CharacterBuild:
             subs=[_zzz_sub(p, disc.rarity) for p in disc.properties], piece_icon=disc.icon or None,
         ))
     gear.sort(key=lambda g: g.slot)
+    try:
+        raw = _zzz_raw(assets, agent)
+    except Exception:  # gear swaps need it; the card doesn't
+        log.exception("Could not rebuild a showcase entry for HoYoLAB agent %s", getattr(agent, "id", "?"))
+        raw = {}
     return dataclasses.replace(
-        skeleton, level=agent.level, constellation=agent.rank, stats=stats or skeleton.stats,
+        skeleton, raw=raw, level=agent.level, constellation=agent.rank, stats=stats or skeleton.stats,
         talents=talents or skeleton.talents, weapon=weapon, gear=gear, set_bonuses=_sets(gear), notes=[NOTE], source="hoyolab",
         # an outfit Enka doesn't know yet: HoYoLAB's own picture of it
         art_url=agent.banner_icon if outfit and skeleton.art_url == plain.art_url and getattr(agent, "banner_icon", None) else skeleton.art_url,

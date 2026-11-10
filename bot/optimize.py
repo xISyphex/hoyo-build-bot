@@ -116,6 +116,21 @@ def set_names(assets: Assets, planar: bool) -> list[str]:
     return sorted(name for name, sid in set_ids(assets).items() if (int(sid) >= 300) == planar)
 
 
+def character_id(assets: Assets, name: str) -> str | None:
+    for cid, info in assets.data.get("hsr_characters", {}).items():
+        if (info.get("Name") or assets.hsr_text(info.get("AvatarName", {}).get("Hash"))) == name:
+            return cid
+    return None
+
+
+def recommended(assets: Assets, set_ids_for, name: str, planar: bool) -> list[str]:
+    """The names of the sets the game recommends for the character called name, best first. set_ids_for is
+    EffectiveStats.recommended_sets."""
+    cid = character_id(assets, name)
+    by_id = {int(sid): set_name for set_name, sid in set_ids(assets).items()}
+    return [by_id[i] for i in (set_ids_for(cid, planar) if cid else []) if i in by_id]
+
+
 def pool(builds: list[CharacterBuild]) -> list[Piece]:
     """Every relic the player's characters wear that has its stats (HoYoLAB hides them for other players)."""
     pieces = []
@@ -179,6 +194,16 @@ SET_EFFECTS = {
     "326": lambda t, b: {"AttackAddedRatio": 0.24, "CriticalDamageBase": 0.12},
     "327": lambda t, b: {"CriticalDamageBase": 0.32},
 }
+
+
+def with_speed(wanted: set[str] | None, speed: bool | None) -> set[str]:
+    """The stats to score on, with Speed forced in or out when the player says so (None: as the character builds)."""
+    stats = set(wanted or DEFAULT_WANTED)
+    if speed is True:
+        stats.add("SPD")
+    elif speed is False:
+        stats.discard("SPD")
+    return stats
 
 
 def turns(spd: float) -> float:
@@ -275,8 +300,10 @@ def _undominated(pieces: list[Piece], keys: set[str]) -> list[Piece]:
 
 
 def optimize(assets: Assets, target: CharacterBuild, builds: list[CharacterBuild], relic_set: str, planar_set: str,
-             wanted: set[str] | None) -> Result:
-    """The target in the best pieces of the two sets that the player's characters wear."""
+             wanted: set[str] | None, exclude: set[str] | None = None) -> Result:
+    """The target in the best pieces of the two sets that the player's characters wear. The relics of the characters
+    and the light cones of the characters named in exclude stay where they are."""
+    exclude = (exclude or set()) - {target.name}  # the target's own gear is theirs to keep or swap
     ids = set_ids(assets)
     for name, planar in ((relic_set, False), (planar_set, True)):
         if name not in ids or (int(ids[name]) >= 300) != planar:
@@ -299,12 +326,14 @@ def optimize(assets: Assets, target: CharacterBuild, builds: list[CharacterBuild
     seen = {_cone_key(info.get("equipment"))}
     for other in builds:
         eq = (other.bare or other.raw).get("equipment")
+        if other.name in exclude:
+            continue
         if eq and _cone_key(eq) not in seen and assets.data["hsr_weapons"].get(str(eq.get("tid")), {}).get("AvatarBaseType") == path:
             seen.add(_cone_key(eq))
             cones.append((other.name, eq))
     bare, scorer = with_cone(info.get("equipment"))
 
-    everything = pool(builds)
+    everything = pool([b for b in builds if b.name not in exclude])
     by_slot: dict[str, list[Piece]] = {}
     missing = []
     for slot in sr.SLOT_ORDER:
@@ -314,7 +343,8 @@ def optimize(assets: Assets, target: CharacterBuild, builds: list[CharacterBuild
             missing.append(f"{slot} ({wanted_set})")
     if missing:
         raise OptimizeError("None of this player's characters wears these pieces with readable stats: "
-                            + ", ".join(missing) + ". Only relics worn by a character can be used.")
+                            + ", ".join(missing) + ". Only relics worn by a character can be used."
+                            + (" Excluded: " + ", ".join(sorted(exclude)) + "." if exclude else ""))
 
     # Stats nothing in the index or the set effects reads can't change the result, so pieces are compared without them.
     keys = {k for p in everything for k in p.props} - {"HealRatioBase", "SPRatioBase"}

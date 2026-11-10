@@ -7,7 +7,7 @@ import unittest
 from bot import cone_effects, optimize
 from bot.games import starrail
 from bot.hoyolab import _sr_promotion
-from bot.main import optimize_text
+from bot.main import excluded_names, optimize_text
 from bot.models import Gear, Stat
 from tests.test_parsers import fixture, load_assets
 
@@ -102,6 +102,42 @@ class OptimizeTest(unittest.TestCase):
         self.assertEqual(optimize.turns(135), optimize.turns(142))
         self.assertGreater(optimize.turns(160), optimize.turns(159))
         self.assertAlmostEqual(optimize.turns(200), 2.0)
+
+    def test_excluded_characters_keep_their_relics(self):
+        builds = self.account()
+        target, other = builds[0], builds[1]
+        stats = {"CRIT Rate", "CRIT DMG", "HP%"}
+        result = optimize.optimize(self.assets, target, builds, RELICS, PLANAR, stats, {other.name})
+        self.assertNotIn(other.name, {p.owner for p in result.pieces})
+        self.assertEqual(result.tried, 3 ** 6 * result.cones)
+        self.assertLessEqual(result.index, optimize.optimize(self.assets, target, builds, RELICS, PLANAR, stats).index)
+        alone = optimize.optimize(self.assets, target, builds, RELICS, PLANAR, stats, {b.name for b in builds})
+        self.assertEqual({p.owner for p in alone.pieces}, {target.name})  # their own gear is always theirs to use
+        self.assertEqual(alone.cones, 1)  # and nobody else's light cone is tried
+        names = [b.name for b in builds]
+        self.assertEqual(excluded_names(f" {other.name.lower()},, {target.name} ,Nobody Here", names),
+                         ([other.name, target.name], ["Nobody Here"]))
+        self.assertEqual(excluded_names(None, names), ([], []))
+
+    def test_recommended_sets_come_first(self):
+        ids = optimize.set_ids(self.assets)
+        name = self.account()[0].name
+        cid = optimize.character_id(self.assets, name)
+        table = {cid: {"relic": [int(ids[RELICS]), 999999], "planar": [int(ids[PLANAR])]}}
+        look = lambda c, planar: table.get(c, {}).get("planar" if planar else "relic", [])
+        self.assertEqual(optimize.recommended(self.assets, look, name, False), [RELICS])  # unknown ids are dropped
+        self.assertEqual(optimize.recommended(self.assets, look, name, True), [PLANAR])
+        self.assertEqual(optimize.recommended(self.assets, look, "Nobody At All", False), [])
+
+    def test_speed_can_be_switched(self):
+        self.assertEqual(optimize.with_speed({"CRIT Rate", "SPD"}, None), {"CRIT Rate", "SPD"})
+        self.assertEqual(optimize.with_speed({"CRIT Rate", "SPD"}, False), {"CRIT Rate"})
+        self.assertEqual(optimize.with_speed({"CRIT Rate"}, True), {"CRIT Rate", "SPD"})
+        self.assertNotIn("SPD", optimize.with_speed(None, False))  # a character the game recommends nothing for
+        calc = {"hp": 1000, "atk": 1000, "def": 500, "spd": 100, "element": "Ice", "bonus": {}}
+        off = optimize.Scorer(self.assets, calc, optimize.with_speed({"ATK%", "SPD"}, False))
+        self.assertEqual(off.index([{"SpeedDelta": 60}], {}), off.index([{}], {}))
+        self.assertNotIn("SPD", off.counted())
 
     def test_light_cone_passives(self):
         parse = cone_effects.parse
