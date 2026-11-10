@@ -58,6 +58,8 @@ class CharacterBuild:
     cons_icons: list[str] = field(default_factory=list)  # constellation / eidolon icons in unlock order (ZZZ has none)
     source: str = "enka"  # "hoyolab" for characters that aren't on the in-game showcase
     optimized: bool = False  # wearing the best pieces found among the player's relics (bot/optimize.py)
+    score: float | None = None  # optimized builds: the damage score the pieces were picked by
+    score_gain: float | None = None  # ... and its change against what the character wears now, in percent
     borrowed_from: str | None = None  # wearing this character's weapon and gear (a what-if, see bot/borrow.py)
     raw: dict = field(default_factory=dict, repr=False, compare=False)  # the showcase entry it was read from
     # Star Rail, for bot/optimize.py: the numbers behind the stats ({"hp", "atk", "def", "spd", "element", "bonus"})

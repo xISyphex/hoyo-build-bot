@@ -419,6 +419,7 @@ def _readout(card: Image.Image, build: CharacterBuild, box, wanted: set[str] | N
     y = y0 + 24 + max(0, (y1 - y0 - _readout_h(build, wanted, x1 - x0)) // 2)  # centred in whatever height the screen got
     rows = [r for r in ((value[0], value[1], TEXT) if value else None,
                         ("EFFECTIVE SUBS", str(effective), GOLD) if effective is not None else None) if r]
+    rows = _score_rows(build) + rows
     for label, text, color in rows:
         _spaced(draw, (x0 + 16, y), label, _raj("Bold", 13), DIM, 2)
         draw.text((x1 - 16, y), text, font=_raj("Bold", 24), fill=color, anchor="rm")
@@ -442,8 +443,18 @@ def _readout(card: Image.Image, build: CharacterBuild, box, wanted: set[str] | N
             y += 4
 
 
+def _score_rows(build: CharacterBuild) -> list[tuple[str, str, tuple]]:
+    """An optimized build's damage score, and how it compares with what the character wears now."""
+    if build.score is None:
+        return []
+    rows = [("DMG SCORE", f"{build.score:,.0f}", HOLO)]
+    if build.score_gain is not None:
+        rows.append(("VS CURRENT", f"{build.score_gain:+.1f}%", GOLD if build.score_gain >= 0.05 else TEXT))
+    return rows
+
+
 def _readout_h(build: CharacterBuild, wanted: set[str] | None, width: float = 0) -> int:
-    rows = bool(base.gear_value(build, wanted)) + bool(wanted and build.gear)
+    rows = bool(base.gear_value(build, wanted)) + bool(wanted and build.gear) + len(_score_rows(build))
     draw = ImageDraw.Draw(Image.new("L", (1, 1)))
     sets = _set_lines(draw, build)
     chips = len(_chip_rows(draw, _sub_counts(build, wanted), width - 20)) if width else 0

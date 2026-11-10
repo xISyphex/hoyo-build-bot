@@ -330,7 +330,8 @@ def optimize(assets: Assets, target: CharacterBuild, builds: list[CharacterBuild
         weapon = target.weapon
     build = replace(bare, gear=gear, stats=sr.stat_lines(bare.calc, bonus), set_bonuses=[f"4pc {relic_set}", f"2pc {planar_set}"],
                     source=target.source, art_url=target.art_url, icon_url=target.icon_url, outfit_icon=target.outfit_icon,
-                    talents=target.talents or bare.talents, weapon=weapon, borrowed_from=None, optimized=True)
+                    talents=target.talents or bare.talents, weapon=weapon, borrowed_from=None, optimized=True, score=best_index,
+                    score_gain=(best_index / current - 1) * 100 if current else None)
     return Result(build, list(best), best_index, current, scorer.counted(), tried,
                   cones[best_cone][0] if weapon else None, len(cones))
 
