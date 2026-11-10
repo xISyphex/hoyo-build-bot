@@ -3,7 +3,8 @@ the buffs their kit gives them.
 
 Both are read from the ability texts in the game data (StarRailRes: a sentence with numbered blanks and the numbers
 per level), at the levels a fully built character has: Basic ATK 6, everything else 10, every trace. Eidolons aren't
-counted. Buffs are read the way light cone passives are (bot/cone_effects.py): as active, at full stacks.
+counted. Buffs are read the way light cone passives are (bot/cone_effects.py): as active, at full stacks. Buffs for
+the whole team count, since the character is on it; buffs for one other ally don't.
 """
 
 from __future__ import annotations
@@ -36,9 +37,11 @@ def _params(entry: dict, level: int) -> list[float]:
     return [float(p) for p in rows[min(level, len(rows)) - 1]]
 
 
-# Sentences that aren't a buff on the character's own damage: other allies' buffs, a hit's own multiplier growing,
-# turn order, chances, Energy. Reading them as buffs is the usual way to get a wrong number, so they are left out.
-NOT_SELF = re.compile(r"\ball(?:y|ies)\b|teammate|that target|\btheir ATK\b|the target's (?:CRIT|ATK|DMG)|target has a summon"
+# Sentences that aren't a buff on the character's own damage: a buff for one other ally, healing, shields. Reading
+# them as buffs is the usual way to get a wrong number, so they are left out. Buffs for all allies stay in: the
+# character is one of them.
+NOT_SELF = re.compile(r"(?:\bone|single|designated|target|\ban|\bthat|another|other|chosen|specific) all(?:y|ies)\b|\bally target\b(?!s)"
+                      r"|\ball(?:y|ies) (?:target |character )?(?:with|who|whose|that)\b|\bexcept\b|excluding|teammate|that target|\btheir ATK\b|the target's (?:CRIT|ATK|DMG)|target has a summon"
                       r"|Toughness|SPD by default|has #\d\[\w+\] SPD|is reduced|are reduced|DMG taken by|DMG dealt to (?!enem)"
                       r"|Outgoing Healing|Shield|restores?|heals?|Weakness Break Efficiency|\bRES\b", re.I)
 LIMITS = {"CriticalChanceBase": 1.0, "CriticalDamageBase": 2.5, "AttackAddedRatio": 2.0, "HPAddedRatio": 1.0,
