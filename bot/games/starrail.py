@@ -266,6 +266,28 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
     )
 
 
+def maxed(assets: Assets, info: dict) -> dict:
+    """The showcase entry as if the character were fully built: Lv. 80, every trace unlocked, skills at their cap
+    (eidolons stay as they are). For what-if builds (bot/borrow.py, bot/optimize.py)."""
+    avatar_id = str(info["avatarId"])
+    short = lambda pid: str(int(pid) % 10_000_000)
+    # Enhanced characters (Jingliu) have a second copy of the tree under ids with a leading 1, and the entry uses one
+    # of the two: every node is counted once, under the ids the entry already uses.
+    given = [int(p["pointId"]) for p in info.get("skillTreeList", [])]
+    prefix = (given[0] // 10_000_000 if given else int(bool(info.get("enhancedId")))) * 10_000_000
+    have = {short(p["pointId"]): int(p.get("level", 1)) for p in info.get("skillTreeList", [])}
+    tree = assets.data["hsr_skilltree"].get(avatar_id, {})
+    levels: dict[str, int] = {}
+    for pid, cap in zip(tree.get("0", []), (6, 10, 10, 10)):
+        levels[short(pid)] = max(cap, have.get(short(pid), 1))
+    groups = [tree.get("0", []), *tree.get("1", []), *tree.get("2", [])]
+    stat_nodes = [k for k in assets.data["hsr_meta"]["tree"] if short(k).startswith(avatar_id) and len(short(k)) == len(avatar_id) + 3]
+    for pid in [*(p for group in groups for p in group), *stat_nodes, *have]:
+        levels.setdefault(short(pid), have.get(short(pid), 1))
+    return {**info, "level": 80, "promotion": 6,
+            "skillTreeList": [{"pointId": prefix + int(pid), "level": lvl} for pid, lvl in levels.items()]}
+
+
 def totals(calc: dict, bonus: dict | None = None) -> dict[str, float]:
     """HP, ATK, DEF and SPD from the base values and the collected bonuses (calc's own, or another set of them)."""
     b = defaultdict(float, calc["bonus"] if bonus is None else bonus)

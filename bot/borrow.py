@@ -1,5 +1,9 @@
 """What-if builds: one character wearing another character's weapon and gear (/hsr Moze Feixiao).
 
+The wearer is shown fully built in Star Rail and ZZZ (max level, every trace or the core skill at F, skills capped;
+eidolons and mindscapes as they are), so the card answers "what could they have". Genshin can't be: its showcase only
+sends finished stats.
+
 Star Rail and ZZZ stats are computed from the raw showcase entry, so the wearer's entry is simply given the donor's
 light cone and relics (W-Engine and discs) and read again. Genshin's showcase sends finished stats instead, so the
 wearer's own weapon, artifacts and 2-piece set stats are taken off them and the donor's put on.
@@ -45,7 +49,7 @@ def _hsr_from_cards(assets: Assets, wearer: CharacterBuild, donor: CharacterBuil
     numbers (level, traces, eidolons) with the donor's light cone, and the donor's relics added from their card lines."""
     from . import optimize
 
-    own = wearer.raw or wearer.bare
+    own = starrail.maxed(assets, wearer.raw or wearer.bare)
     info = {k: v for k, v in own.items() if k not in GEAR_KEYS["hsr"]}
     cone = (donor.raw or donor.bare).get("equipment")
     if cone:
@@ -76,7 +80,8 @@ def borrow(assets: Assets, wearer: CharacterBuild, donor: CharacterBuild) -> Cha
         info = _genshin_info(assets, wearer.raw, donor.raw)
         build = genshin.parse_character(assets, info)
     else:
-        info = {k: v for k, v in wearer.raw.items() if k not in GEAR_KEYS[wearer.game]}
+        own = starrail.maxed(assets, wearer.raw) if wearer.game == "hsr" else zenless.maxed(wearer.raw)
+        info = {k: v for k, v in own.items() if k not in GEAR_KEYS[wearer.game]}
         info.update({k: donor.raw[k] for k in GEAR_KEYS[wearer.game] if k in donor.raw})
         build = (starrail if wearer.game == "hsr" else zenless).parse_character(assets, info)
     build.raw = info

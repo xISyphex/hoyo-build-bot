@@ -234,6 +234,9 @@ def borrowed_line(build: CharacterBuild) -> str | None:
     line = f"**{build.name}** wearing **{build.borrowed_from}**'s {borrow.GEAR_WORDS[build.game]}"
     if build.game == "genshin":  # the store has no numbers for weapon passives, so those can't be moved
         line += "\n-# Weapon passive stats (like Mistsplitter's DMG Bonus) aren't moved, only the weapon's own stats."
+    elif build.source != "beta":
+        built = "Lv. 80 with every trace" if build.game == "hsr" else "Lv. 60 with the core skill at F"
+        line += f"\n-# {build.name} is shown fully built: {built}."
     if build.source == "beta":
         line += f"\n-# {build.name} isn't released yet: beta stats at max level with all traces, which can still change."
     return line
@@ -432,6 +435,8 @@ def optimize_text(result: optimize.Result, target: CharacterBuild, relic_set: st
                             for owner, slots in owners.items()))
     lines.append(f"-# Scored on {', '.join(result.counted)}. {result.tried:,} combinations tried. Set effects count at full "
                  "stacks; light cone effects that need a trigger, team buffs and enemy debuffs don't.")
+    if target.source != "beta":
+        lines.append(f"-# {name} is scored fully built: Lv. 80 with every trace.")
     if target.source == "beta":
         lines.append(f"-# {name} isn't released yet: beta stats at max level with all traces, which can still change.")
     return "\n".join(lines)
