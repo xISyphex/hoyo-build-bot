@@ -43,7 +43,7 @@ def _params(entry: dict, level: int) -> list[float]:
 NOT_SELF = re.compile(r"(?:\bone|single|designated|target|\ban|\bthat|another|other|chosen|specific) all(?:y|ies)\b|\bally target\b(?!s)"
                       r"|\ball(?:y|ies) (?:target |character )?(?:with|who|whose|that)\b|\bexcept\b|excluding|teammate|that target|\btheir ATK\b|the target's (?:CRIT|ATK|DMG)|target has a summon"
                       r"|Toughness|SPD by default|has #\d\[\w+\] SPD|is reduced|are reduced|DMG taken by|DMG dealt to (?!enem)"
-                      r"|Outgoing Healing|Shield|restores?|heals?|Weakness Break Efficiency|\bRES\b", re.I)
+                      r"|Outgoing Healing|Shield|restores?|heals?|\bRES\b", re.I)
 LIMITS = {"CriticalChanceBase": 1.0, "CriticalDamageBase": 2.5, "AttackAddedRatio": 2.0, "HPAddedRatio": 1.0,
           "DefenceAddedRatio": 1.0, "SpeedAddedRatio": 0.5, "DMG": 2.0, "DefIgnore": 0.6, "Vulnerability": 0.6,
           "BreakDMG": 1.0, "BreakDefIgnore": 0.6, "BreakDamageAddedRatioBase": 1.5, "ElationDamageAddedRatioBase": 1.5}
