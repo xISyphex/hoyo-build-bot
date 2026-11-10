@@ -512,6 +512,8 @@ def foot_text(build: CharacterBuild, uid: str) -> str:
     foot = f"{server} · UID {uid}" if server else f"UID {uid}"
     if build.source == "hoyolab":
         foot = f"via HoYoLAB · {foot}"
+    if build.source == "beta":
+        foot = f"Unreleased, beta stats · {foot}"
     if build.borrowed_from:
         foot = f"With {build.borrowed_from}'s gear · {foot}"
     return foot

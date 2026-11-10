@@ -33,6 +33,7 @@ from .hoyolab_links import LinkStore, cookie_string, games_of, load_key
 from .models import CharacterBuild, PlayerProfile
 from .ratelimit import LookupLimit
 from .set_emojis import SetEmojis
+from .unreleased import Unreleased
 from .hsr_bosses import HsrBosses
 from .shiyu_bosses import ShiyuBosses
 from .stats import add_enka
@@ -86,6 +87,8 @@ class HoyoBot(discord.Client):
         cookies = os.environ.get("HOYOLAB_COOKIES", "").strip()
         # Which substats each character wants, for the effective substat count on the card.
         self.effective = EffectiveStats(cache_dir)
+        self.unreleased = Unreleased(cache_dir)  # the beta's new characters, for trying gear on them
+        self.assets.extras.append(self.unreleased.apply)
         self.shiyu_bosses = ShiyuBosses(cache_dir)  # Shiyu Defense boss names for /zzz-records
         self.hsr_bosses = HsrBosses(cache_dir)  # Memory of Chaos / Pure Fiction boss pictures for /hsr-records
         self.hoyolab = HoyolabClient(cookies or None, self.assets, self.links, self.effective)
@@ -142,6 +145,7 @@ class HoyoBot(discord.Client):
     async def refresh_assets(self) -> None:
         if self.assets.is_stale():
             await self.assets.refresh(self.session)
+        await self.unreleased.refresh(self.session, self.assets)
         if self.effective.is_stale():
             await self.effective.refresh(self.session)
             await self.hoyolab.learn_own()
@@ -222,10 +226,15 @@ async def render(bot: HoyoBot, profile: PlayerProfile, build: CharacterBuild, do
 def borrowed_line(build: CharacterBuild) -> str | None:
     """The line above a what-if card, saying whose gear it is."""
     if not build.borrowed_from:
+        if build.source == "beta":
+            return (f"**{build.name}** isn't released yet. These are beta stats at max level with all traces and no gear.\n"
+                    "-# Add `gear_from` to see them in another character's gear.")
         return None
     line = f"**{build.name}** wearing **{build.borrowed_from}**'s {borrow.GEAR_WORDS[build.game]}"
     if build.game == "genshin":  # the store has no numbers for weapon passives, so those can't be moved
         line += "\n-# Weapon passive stats (like Mistsplitter's DMG Bonus) aren't moved, only the weapon's own stats."
+    if build.source == "beta":
+        line += f"\n-# {build.name} isn't released yet: beta stats at max level with all traces, which can still change."
     return line
 
 
@@ -329,14 +338,17 @@ def make_command(game: str) -> app_commands.Command:
             profile = with_hoyolab(profile, known)
 
         match, hoyolab_problem = pick(bot, game, profile, character), None
-        if not match and hoyolab and bot.hoyolab.cached(game, uid) is None:
+        beta = None
+        if not match:  # a character from the next version's beta: shown bare, or in gear_from's gear
+            beta = bot.unreleased.build(bot.assets, game, matching.find(character, bot.assets.character_names(game)) or "")
+        if not match and not beta and hoyolab and bot.hoyolab.cached(game, uid) is None:
             # Not on the showcase: HoYoLAB has every character, if the player's Battle Chronicle is public.
             try:
                 profile = with_hoyolab(profile, await bot.hoyolab.fetch(game, uid))
             except HoyolabError as exc:
                 hoyolab_problem = str(exc)
             match = pick(bot, game, profile, character)
-        if not match:
+        if not match and not beta:
             extra = f"\n{hoyolab_problem}" if hoyolab_problem else ""
             if problem:
                 await interaction.followup.send(problem + extra)
@@ -356,7 +368,7 @@ def make_command(game: str) -> app_commands.Command:
                     + extra
                 )
             return
-        build = next(c for c in profile.characters if c.name == match)
+        build = beta or next(c for c in profile.characters if c.name == match)
         donor = None
         if gear_from:
             donor_name = pick(bot, game, profile, gear_from)

@@ -273,17 +273,17 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
         rarity=int(char.get("Rarity", 0)),
         element=ELEMENTS.get(element, element),
         constellation=rank,
-        icon_url=f"https://enka.network/ui/hsr/{icon_path}" if icon_path else None,
+        icon_url=char.get("Icon") or (f"https://enka.network/ui/hsr/{icon_path}" if icon_path else None),
         stats=stats,
         talents=talents,
         weapon=weapon,
         gear=gear,
         set_bonuses=set_bonuses,
         notes=notes,
-        art_url=f"{SRR_IMAGES}character_portrait/{avatar_id}.png",
+        art_url=char.get("Art") or f"{SRR_IMAGES}character_portrait/{avatar_id}.png",  # "Art": bot/unreleased.py
         path_icon=f"{SRR_PATH_ICONS}{PATH_ICONS[path]}.png" if (path := char.get("AvatarBaseType")) in PATH_ICONS else None,
         element_icon=f"{SRR_ELEMENT_ICONS}{element}.png" if element in ELEMENTS else None,
-        cons_icons=_eidolon_icons(assets, avatar_id),
+        cons_icons=char.get("RankIcons") or _eidolon_icons(assets, avatar_id),
     )
 
 
