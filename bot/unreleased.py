@@ -146,6 +146,7 @@ class Unreleased:
         self.path = Path(cache_dir) / "unreleased.json"
         self.saved: dict[str, dict[str, dict]] = {}
         self.raw: dict[str, dict[str, dict]] = {g: {} for g in GAMES}  # game -> name -> made-up showcase entry
+        self._gi_raw: dict[str, dict] = {}  # Genshin characters the player doesn't own, read from Hakushin
         try:
             self.saved = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -222,3 +223,44 @@ class Unreleased:
         build.raw = raw
         build.source = "beta"
         return build
+
+    async def unowned(self, session, assets: Assets, game: str, name: str) -> CharacterBuild | None:
+        """A released character the player doesn't have, fully built with no eidolons and no gear, to try gear on.
+
+        Star Rail and ZZZ are computed from the game data. Genshin's level curves aren't in Enka's store, so the
+        character's page on Hakushin (live version) supplies them, once per character."""
+        if game == "hsr":
+            cid = next((k for k, c in assets.data["hsr_characters"].items()
+                        if (c.get("Name") or assets.hsr_text(c.get("AvatarName", {}).get("Hash"))) == name), None)
+            raw = cid and starrail.maxed(assets, {"avatarId": int(cid), "rank": 0, "skillTreeList": []})
+        elif game == "zzz":
+            cid = next((k for k, c in assets.data["zzz_avatars"].items() if assets.zzz_text(c.get("Name")) == name), None)
+            raw = cid and zenless.maxed({"Id": int(cid), "TalentLevel": 0})
+        else:
+            cid = next((k for k, c in assets.data["gi_avatars"].items()
+                        if "-" not in k and assets.gi_text(c.get("NameTextMapHash")) == name), None)
+            raw = cid and await self._genshin_raw(session, cid)
+        if not raw:
+            return None
+        build = PARSERS[game].parse_character(assets, raw)
+        build.raw = raw
+        build.source = "unowned"
+        return build
+
+    async def _genshin_raw(self, session, cid: str) -> dict | None:
+        if cid in self._gi_raw:
+            return self._gi_raw[cid]
+        try:
+            async with session.get(f"{HAKUSHIN}/manifest.json") as resp:
+                live = (await resp.json(content_type=None))["gi"]["live"]
+            async with session.get(f"{HAKUSHIN}/gi/{live}/en/character/{cid}.json") as resp:
+                resp.raise_for_status()
+                page = await resp.json(content_type=None)
+            raw = _genshin(cid, page)["raw"]
+        except Exception:
+            log.exception("Could not read Genshin character %s from Hakushin", cid)
+            return None
+        if len(self._gi_raw) > 200:
+            self._gi_raw.clear()
+        self._gi_raw[cid] = raw
+        return raw

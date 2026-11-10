@@ -60,6 +60,8 @@ class OptimizeTest(unittest.TestCase):
         self.assertEqual(result.build.name, target.name)
         # their own pieces are one of the combinations, so the best can't be worse
         self.assertGreaterEqual(result.index, result.current)
+        self.assertEqual(result.build.score, result.index)  # drawn on the card, with the gain
+        self.assertAlmostEqual(result.build.score_gain, (result.index / result.current - 1) * 100)
         # and nothing beats it: every single-piece swap is no better
         scorer = optimize.Scorer(self.assets, {**result.build.calc, "bonus": self.bare_bonus(result.build)},
                                  {"CRIT Rate", "CRIT DMG", "HP%"})

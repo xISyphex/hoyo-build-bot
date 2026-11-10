@@ -92,3 +92,41 @@ class UnreleasedTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UnownedTest(unittest.IsolatedAsyncioTestCase):
+    """Released characters the player doesn't have can still try gear on: fully built, with no eidolons."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.assets = load_assets()
+        cls.dir = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls.dir.cleanup)
+        cls.beta = Unreleased(cls.dir.name)
+
+    def other(self, game: str, profile) -> str:
+        """A character of the game who isn't on the fixture's showcase."""
+        have = {c.name for c in profile.characters}
+        return next(n for n in self.assets.character_names(game) if n not in have and "Trailblazer" not in n)
+
+    async def test_star_rail_and_zzz_come_from_the_game_data(self):
+        for game, level in (("hsr", 80), ("zzz", 60)):
+            with self.subTest(game=game):
+                module, file = LIVE[game]
+                profile = module.parse_profile(self.assets, "1", fixture(file))
+                name = self.other(game, profile)
+                build = await self.beta.unowned(None, self.assets, game, name)
+                self.assertEqual((build.name, build.level, build.constellation, build.source), (name, level, 0, "unowned"))
+                self.assertIsNone(build.weapon)
+                self.assertEqual(build.gear, [])
+                self.assertTrue(borrow.can_borrow(build))
+                donor = profile.characters[0]
+                worn = borrow.borrow(self.assets, build, donor)
+                self.assertEqual((worn.name, worn.source, worn.borrowed_from), (name, "unowned", donor.name))
+                self.assertEqual(worn.weapon.name, donor.weapon.name)
+                self.assertEqual(len(worn.gear), len(donor.gear))
+                self.assertIn("isn't on this account", borrowed_line(worn))
+
+    async def test_unknown_names_give_nothing(self):
+        for game in LIVE:
+            self.assertIsNone(await self.beta.unowned(None, self.assets, game, "Nobody At All"))

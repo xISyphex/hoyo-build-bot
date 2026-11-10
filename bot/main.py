@@ -234,6 +234,9 @@ def borrowed_line(build: CharacterBuild) -> str | None:
     line = f"**{build.name}** wearing **{build.borrowed_from}**'s {borrow.GEAR_WORDS[build.game]}"
     if build.game == "genshin":  # the store has no numbers for weapon passives, so those can't be moved
         line += "\n-# Weapon passive stats (like Mistsplitter's DMG Bonus) aren't moved, only the weapon's own stats."
+    elif build.source == "unowned":
+        built = "max level, all traces, no eidolons" if build.game == "hsr" else "max level, core skill F, no mindscapes"
+        line += f"\n-# {build.name} isn't on this account, so they are shown fully built: {built}."
     elif build.source != "beta":
         built = "Lv. 80 with every trace" if build.game == "hsr" else "Lv. 60 with the core skill at F"
         line += f"\n-# {build.name} is shown fully built: {built}."
@@ -352,6 +355,10 @@ def make_command(game: str) -> app_commands.Command:
             except HoyolabError as exc:
                 hoyolab_problem = str(exc)
             match = pick(bot, game, profile, character)
+        if not match and not beta and gear_from:
+            # A character they don't own can still try gear on: fully built, with no eidolons.
+            beta = await bot.unreleased.unowned(bot.session, bot.assets, game,
+                                                matching.find(character, bot.assets.character_names(game)) or "")
         if not match and not beta:
             extra = f"\n{hoyolab_problem}" if hoyolab_problem else ""
             if problem:
@@ -435,7 +442,9 @@ def optimize_text(result: optimize.Result, target: CharacterBuild, relic_set: st
                             for owner, slots in owners.items()))
     lines.append(f"-# Scored on {', '.join(result.counted)}. {result.tried:,} combinations tried. Set effects count at full "
                  "stacks; light cone effects that need a trigger, team buffs and enemy debuffs don't.")
-    if target.source != "beta":
+    if target.source == "unowned":
+        lines.append(f"-# {name} isn't on this account, so they are scored fully built with no eidolons.")
+    elif target.source != "beta":
         lines.append(f"-# {name} is scored fully built: Lv. 80 with every trace.")
     if target.source == "beta":
         lines.append(f"-# {name} isn't released yet: beta stats at max level with all traces, which can still change.")
@@ -513,6 +522,9 @@ def make_optimize_command() -> app_commands.Command:
         target = next((c for c in profile.characters if c.name == match), None)
         if target is None:
             target = bot.unreleased.build(bot.assets, game, matching.find(character, bot.assets.character_names(game)) or "")
+        if target is None:  # not owned: fully built, with no eidolons
+            target = await bot.unreleased.unowned(bot.session, bot.assets, game,
+                                                  matching.find(character, bot.assets.character_names(game)) or "")
         if target is None:
             await interaction.followup.send(f"**{character}** isn't among {profile.nickname}'s characters.")
             return
