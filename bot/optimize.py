@@ -181,6 +181,16 @@ SET_EFFECTS = {
 }
 
 
+def with_speed(wanted: set[str] | None, speed: bool | None) -> set[str]:
+    """The stats to score on, with Speed forced in or out when the player says so (None: as the character builds)."""
+    stats = set(wanted or DEFAULT_WANTED)
+    if speed is True:
+        stats.add("SPD")
+    elif speed is False:
+        stats.discard("SPD")
+    return stats
+
+
 def turns(spd: float) -> float:
     """Turns per 100 action value in Memory of Chaos, averaged over clears of 1 to CYCLES cycles."""
     total = 0.0

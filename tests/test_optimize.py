@@ -103,6 +103,16 @@ class OptimizeTest(unittest.TestCase):
         self.assertGreater(optimize.turns(160), optimize.turns(159))
         self.assertAlmostEqual(optimize.turns(200), 2.0)
 
+    def test_speed_can_be_switched(self):
+        self.assertEqual(optimize.with_speed({"CRIT Rate", "SPD"}, None), {"CRIT Rate", "SPD"})
+        self.assertEqual(optimize.with_speed({"CRIT Rate", "SPD"}, False), {"CRIT Rate"})
+        self.assertEqual(optimize.with_speed({"CRIT Rate"}, True), {"CRIT Rate", "SPD"})
+        self.assertNotIn("SPD", optimize.with_speed(None, False))  # a character the game recommends nothing for
+        calc = {"hp": 1000, "atk": 1000, "def": 500, "spd": 100, "element": "Ice", "bonus": {}}
+        off = optimize.Scorer(self.assets, calc, optimize.with_speed({"ATK%", "SPD"}, False))
+        self.assertEqual(off.index([{"SpeedDelta": 60}], {}), off.index([{}], {}))
+        self.assertNotIn("SPD", off.counted())
+
     def test_light_cone_passives(self):
         parse = cone_effects.parse
         self.assertEqual(parse("Increases the wearer's ATK by #1[i]%. After the wearer uses Skill, increases ATK by #2[i]%, "

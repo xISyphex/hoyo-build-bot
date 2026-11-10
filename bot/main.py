@@ -451,8 +451,9 @@ def optimize_text(result: optimize.Result, target: CharacterBuild, relic_set: st
     lines.append(" · ".join(f"{', '.join(slots)} from {'their own' if owner == name else owner}"
                             for owner, slots in owners.items()))
     lines.append(f"-# Scored on {', '.join(result.counted)}. {result.tried:,} combinations tried. Set effects count at full "
-                 "stacks, and so do light cone effects; team buffs and enemy debuffs don't. Speed counts by Memory of Chaos "
-                 "breakpoints.")
+                 "stacks, and so do light cone effects; team buffs and enemy debuffs don't. "
+                 + ("Speed counts by Memory of Chaos breakpoints." if "SPD" in result.counted
+                    else "Speed isn't counted (the `speed` option turns it on)."))
     if target.source == "unowned":
         lines.append(f"-# {name} isn't on this account, so they are scored fully built with no eidolons.")
     elif target.source != "beta":
@@ -471,12 +472,14 @@ def make_optimize_command() -> app_commands.Command:
         character="The character to gear up",
         relic_set="The 4-piece relic set to use",
         planar_set="The 2-piece planar ornament set to use",
+        speed="Count Speed in the score? Leave empty to count it only for characters who build Speed",
         uid="In-game UID. Leave empty to use the one you claimed with /hsr-claim",
         server=SERVER_HELP,
     )
-    @app_commands.choices(server=SERVER_CHOICES)
+    @app_commands.choices(server=SERVER_CHOICES, speed=[app_commands.Choice(name="On", value="on"),
+                                                        app_commands.Choice(name="Off", value="off")])
     async def command(interaction: discord.Interaction, character: str, relic_set: str, planar_set: str,
-                      uid: str | None = None, server: str | None = None) -> None:
+                      speed: str | None = None, uid: str | None = None, server: str | None = None) -> None:
         bot: HoyoBot = interaction.client  # type: ignore[assignment]
         uid = resolve_uid(bot.claims, interaction.user.id, game, uid, bot.links, server)
         if uid is None:
@@ -541,7 +544,9 @@ def make_optimize_command() -> app_commands.Command:
             return
         try:
             result = await asyncio.to_thread(optimize.optimize, bot.assets, target, profile.characters, sets[False],
-                                             sets[True], bot.effective.wanted(target))
+                                             sets[True],
+                                             optimize.with_speed(bot.effective.wanted(target),
+                                                                 {"on": True, "off": False}.get(speed or "")))
         except optimize.OptimizeError as exc:
             hint = "" if extra else ("\nOnly the showcase characters' relics are visible. With `/hoyolab link`, every "
                                     "character's relics can be used.")
