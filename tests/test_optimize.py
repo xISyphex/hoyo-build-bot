@@ -12,6 +12,7 @@ from bot.models import Gear, Stat
 from tests.test_parsers import fixture, load_assets
 
 RELICS, PLANAR = "Scholar Lost in Erudition", "Rutilant Arena"
+DEF = 100 / (115 + 100)  # the DEF multiplier of a Lv. 95 enemy against a Lv. 80 character
 
 
 class OptimizeTest(unittest.TestCase):
@@ -27,6 +28,11 @@ class OptimizeTest(unittest.TestCase):
             for g in b.gear:
                 g.set_name = PLANAR if g.slot in optimize.PLANAR_SLOTS else RELICS
         return builds
+
+    def bare_bonus(self, build) -> dict:
+        """The character's own bonuses, without the relics the optimized build's stats were made with."""
+        return starrail.parse_character(self.assets, {**{k: v for k, v in build.raw.items() if k != "relicList"}}).calc["bonus"] \
+            if build.raw else build.calc["bonus"]
 
     def test_reads_a_relics_stats_back(self):
         piece = Gear("Body", RELICS, 15, 5, Stat("CRIT Rate", "32.4%"),
@@ -48,14 +54,15 @@ class OptimizeTest(unittest.TestCase):
         target = builds[0]
         result = optimize.optimize(self.assets, target, builds, RELICS, PLANAR, {"CRIT Rate", "CRIT DMG", "HP%"})
         self.assertEqual([p.gear.slot for p in result.pieces], starrail.SLOT_ORDER)
-        self.assertEqual(result.tried, 4 ** 6)
+        self.assertEqual(result.tried, 4 ** 6 * result.cones)
         self.assertEqual(result.build.set_bonuses, [f"4pc {RELICS}", f"2pc {PLANAR}"])
         self.assertTrue(result.build.optimized)
         self.assertEqual(result.build.name, target.name)
         # their own pieces are one of the combinations, so the best can't be worse
         self.assertGreaterEqual(result.index, result.current)
         # and nothing beats it: every single-piece swap is no better
-        scorer = optimize.Scorer(self.assets, result.build.calc, {"CRIT Rate", "CRIT DMG", "HP%"})
+        scorer = optimize.Scorer(self.assets, {**result.build.calc, "bonus": self.bare_bonus(result.build)},
+                                 {"CRIT Rate", "CRIT DMG", "HP%"})
         ids = optimize.set_ids(self.assets)
         sets = {ids[RELICS]: 4, ids[PLANAR]: 2}
         self.assertAlmostEqual(scorer.index([p.props for p in result.pieces], sets), result.index)
@@ -66,7 +73,7 @@ class OptimizeTest(unittest.TestCase):
                     self.assertLessEqual(scorer.index([p.props for p in swapped], sets), result.index + 1e-9)
         text = optimize_text(result, target, RELICS, PLANAR)
         self.assertIn("Damage index", text)
-        self.assertIn("Scored on HP, CRIT Rate, CRIT DMG", text)
+        self.assertIn("Scored on HP, ", text)
 
     def test_set_effects_depend_on_the_build(self):
         """Rutilant Arena's DMG bonus needs 70% CRIT Rate."""
@@ -75,15 +82,40 @@ class OptimizeTest(unittest.TestCase):
         arena = {optimize.set_ids(self.assets)[PLANAR]: 2}
         low = scorer.index([{"CriticalChanceBase": 0.61}], arena)  # 69% with the set's own 8%
         high = scorer.index([{"CriticalChanceBase": 0.62}], arena)
-        self.assertAlmostEqual(low, 1000 * (1 + 0.69 * 0.5))
-        self.assertAlmostEqual(high, 1000 * 1.2 * (1 + 0.70 * 0.5))
+        self.assertAlmostEqual(low, 1000 * (1 + 0.69 * 0.5) * DEF)
+        self.assertAlmostEqual(high, 1000 * 1.2 * (1 + 0.70 * 0.5) * DEF)
 
     def test_scored_on_what_the_character_builds(self):
         calc = {"hp": 1000, "atk": 1000, "def": 500, "spd": 100, "element": "Fire", "bonus": {}}
         breaker = optimize.Scorer(self.assets, calc, {"Break Effect", "SPD", "ATK%"})
         self.assertEqual(breaker.counted(), ["ATK", "Fire DMG", "Break Effect", "SPD"])
         self.assertAlmostEqual(breaker.index([{"BreakDamageAddedRatioBase": 1.0, "SpeedDelta": 50, "CriticalChanceBase": 0.5}], {}),
-                               1000 * 2.0 * 1.5)
+                               1000 * 2.0 * 1.5 * DEF)
+
+    def test_elation_formula(self):
+        """Elation DMG: a fixed base and Elation in place of ATK and DMG Boost, with crit."""
+        calc = {"hp": 1000, "atk": 1000, "def": 500, "spd": 100, "element": "Quantum", "bonus": {"CriticalDamageBase": 0.5}}
+        scorer = optimize.Scorer(self.assets, calc, {"CRIT Rate", "CRIT DMG", "SPD"}, elation=True)
+        self.assertEqual(scorer.counted(), ["Elation", "CRIT Rate", "CRIT DMG", "SPD"])
+        props = {"ElationDamageAddedRatioBase": 0.4, "CriticalChanceBase": 0.5, "AttackAddedRatio": 0.9, "QuantumAddedRatio": 0.4}
+        self.assertAlmostEqual(scorer.index([props], {}), 7535.107 * 1.4 * 1.25 * DEF)
+        girl = {"129": 4}  # Ever-Glorious Magical Girl: 16% CRIT DMG, Elation DMG ignores 20% DEF at full stacks
+        self.assertAlmostEqual(scorer.index([props], girl), 7535.107 * 1.4 * (1 + 0.5 * 0.66) * 100 / (115 * 0.8 + 100))
+
+    def test_tries_same_path_light_cones(self):
+        builds = self.account(keep=8)
+        paths = {}
+        for b in builds:
+            paths.setdefault(self.assets.data["hsr_characters"][b.character_id]["AvatarBaseType"], []).append(b)
+        same = next(group for group in paths.values() if len(group) >= 2 and all(b.weapon for b in group))
+        target = same[0]
+        result = optimize.optimize(self.assets, target, builds, RELICS, PLANAR, None)
+        names = {b.weapon.name for b in same}
+        self.assertEqual(result.cones, len(names))
+        self.assertIn(result.build.weapon.name, names)
+        owner = next(b for b in same if b.name == result.cone_owner)
+        self.assertEqual(owner.weapon.name, result.build.weapon.name)
+        self.assertIn("Light cone: **", optimize_text(result, target, RELICS, PLANAR))
 
     def test_missing_pieces(self):
         builds = self.account()

@@ -414,13 +414,17 @@ def optimize_text(result: optimize.Result, target: CharacterBuild, relic_set: st
         verdict = (f"{gain:+.1f}% against what {name} wears now" if abs(gain) >= 0.05
                    else f"the same as what {name} wears now")
         lines.append(f"Damage index: **{verdict}**")
+    if result.build.weapon and result.cones > 1:
+        whose = "their own" if result.cone_owner == name else f"from {result.cone_owner}"
+        lines.append(f"Light cone: **{result.build.weapon.name}** ({whose}), the best of the {result.cones} of their "
+                     "Path worn on this account")
     owners: dict[str, list[str]] = {}
     for piece in result.pieces:
         owners.setdefault(piece.owner, []).append(piece.gear.slot)
     lines.append(" · ".join(f"{', '.join(slots)} from {'their own' if owner == name else owner}"
                             for owner, slots in owners.items()))
     lines.append(f"-# Scored on {', '.join(result.counted)}. {result.tried:,} combinations tried. Set effects count at full "
-                 "stacks; team buffs and enemy stats don't.")
+                 "stacks; light cone effects that need a trigger, team buffs and enemy debuffs don't.")
     if target.source == "beta":
         lines.append(f"-# {name} isn't released yet: beta stats at max level with all traces, which can still change.")
     return "\n".join(lines)

@@ -4,15 +4,27 @@ HoYoLAB (and the showcase) list every character's relics, so those are the piece
 relic set and a planar set; every way to fill the six slots with their pieces of those sets is tried, and the one
 with the highest damage index wins.
 
-The damage index is the general damage formula's parts that gear changes, multiplied together:
+The light cone is part of the search too: every light cone of the character's Path that one of the player's
+characters wears is tried with every relic combination.
 
-    scaling stat (ATK, HP or DEF) x (1 + CRIT Rate x CRIT DMG) x (1 + DMG Boost) x (1 + Break Effect) x SPD
+The damage index follows the game's damage formula
+(Base DMG x DMG% x DEF x RES x DMG Taken x DMG Reduction x Weaken, times the crit multiplier), keeping the parts gear
+changes:
+
+    scaling stat (ATK, HP or DEF) x (1 + DMG Boost) x (1 + CRIT Rate x CRIT DMG) x DEF multiplier
+    x (1 + Break Effect) x SPD
+
+Elation characters deal Elation DMG, which uses a fixed base instead of ATK and Elation instead of DMG Boost:
+
+    7535.107 (at Lv. 80) x (1 + Elation) x (1 + CRIT Rate x CRIT DMG) x DEF multiplier x SPD
 
 Only the parts the character builds for count: the stats the game itself recommends for them (the same list the
 build card's effective substats use). So Firefly is scored on ATK, Break Effect and SPD, and Castorice on HP and crit.
 Set effects that depend on the build (Space Sealing Station's SPD 120, Rutilant Arena's 70% CRIT Rate) and the ones a
-set gives its wearer in combat are counted, at full stacks. Enemy DEF and RES, team buffs and light cone effects that
-need a trigger multiply every candidate alike or aren't known here, so they are left out.
+set gives its wearer in combat are counted, at full stacks. The DEF multiplier is for an enemy of ENEMY_LEVEL with the
+sets' DEF ignore. RES, DMG Taken, DMG Reduction, Weaken, Merrymaking and Punchline come from the enemy and the team,
+not the gear, so they multiply every candidate alike and are left at 1. A light cone counts with its base stats and
+the stats its passive always gives; passive effects that need a trigger aren't in the game data as numbers.
 """
 
 from __future__ import annotations
@@ -30,6 +42,8 @@ PLANAR_SLOTS = sr.SLOT_ORDER[4:]
 PROP_OF = {name: prop for prop, name in sr.PROP_SHORT.items()}  # "CRIT Rate" -> "CriticalChanceBase"
 DEFAULT_WANTED = ("CRIT Rate", "CRIT DMG", "ATK%", "SPD")  # for characters the game has no recommendation for yet
 MAX_TRIES = 400_000
+ENEMY_LEVEL = 95  # Memory of Chaos, last floors
+ELATION_BASE = 7535.107  # what Elation DMG uses in place of ATK at Lv. 80
 SCALING = {"ATK%": "atk", "HP%": "hp", "DEF%": "def"}
 
 
@@ -48,6 +62,8 @@ class Result:
     current: float | None  # the index of what they wear now (None when they wear nothing)
     counted: list[str]  # the stats the index is made of, for the reply
     tried: int
+    cone_owner: str | None = None  # whose light cone was picked (None: no light cone to pick)
+    cones: int = 0  # how many light cones were tried
 
 
 class OptimizeError(Exception):
@@ -114,10 +130,14 @@ SET_EFFECTS = {
     "104": lambda t, b: {"CriticalDamageBase": 0.25},
     "105": lambda t, b: {"AttackAddedRatio": 0.25},
     "107": lambda t, b: {"FireAddedRatio": 0.12, "DMG": 0.12},
+    "108": lambda t, b: {"DefIgnore": 0.20},
     "109": lambda t, b: {"AttackAddedRatio": 0.20},
     "112": lambda t, b: {"CriticalChanceBase": 0.10},
     "113": lambda t, b: {"CriticalChanceBase": 0.16},
     "115": lambda t, b: {"AttackAddedRatio": 0.48, "DMG": 0.20},
+    "116": lambda t, b: {"DefIgnore": 0.18},
+    "119": lambda t, b: {"BreakDefIgnore": _at(b["BreakDamageAddedRatioBase"], [(1.5, 0.10), (2.5, 0.25)])},
+    "129": lambda t, b: {"ElationDefIgnore": 0.20},
     "117": lambda t, b: {"DMG": 0.12, "CriticalChanceBase": 0.04, "CriticalDamageBase": 0.24},
     "120": lambda t, b: {"DMG": 0.36},
     "122": lambda t, b: {"DMG": 0.20},
@@ -155,21 +175,23 @@ SET_EFFECTS = {
 class Scorer:
     """The damage index of one character for any set of relic stats."""
 
-    def __init__(self, assets: Assets, calc: dict, wanted: set[str] | None):
+    def __init__(self, assets: Assets, calc: dict, wanted: set[str] | None, level: int = 80, elation: bool = False):
         self.calc = calc
+        self.level = level
+        self.elation = elation  # an Elation character: Elation DMG's formula
         self.wanted = set(wanted or DEFAULT_WANTED)
         self.skills = assets.data["hsr_meta"]["relic"]["setSkill"]
-        self.scaling = next((key for name, key in SCALING.items() if name in self.wanted), "atk")
-        self.crit = "CRIT Rate" in self.wanted
+        self.scaling = next((key for name, key in SCALING.items() if name in self.wanted), None if elation else "atk")
+        self.crit = "CRIT Rate" in self.wanted or elation
         self.crit_dmg = "CRIT DMG" in self.wanted
         self.break_effect = "Break Effect" in self.wanted
         self.speed = "SPD" in self.wanted
         self.dmg_key = f"{calc['element']}AddedRatio"
 
     def counted(self) -> list[str]:
-        names = [self.scaling.upper()]
+        names = [self.scaling.upper()] if self.scaling else []
+        names += ["Elation"] if self.elation else [f"{sr.ELEMENTS.get(self.calc['element'], 'Elemental')} DMG"]
         names += ["CRIT Rate", "CRIT DMG"] if self.crit else ["CRIT DMG"] if self.crit_dmg else []
-        names += [f"{sr.ELEMENTS.get(self.calc['element'], 'Elemental')} DMG"]
         names += ["Break Effect"] if self.break_effect else []
         names += ["SPD"] if self.speed else []
         return names
@@ -196,8 +218,19 @@ class Scorer:
                 for key, value in effect(totals, bonus).items():
                     bonus[key] += value
         totals = sr.totals(self.calc, bonus)
-        score = totals[self.scaling]
-        score *= 1 + bonus[self.dmg_key] + bonus["AllDamageTypeAddedRatio"] + bonus["DMG"]
+        ignore = bonus["DefIgnore"]
+        if self.elation:
+            # Elation DMG: a fixed base in place of ATK, Elation in place of DMG Boost. A stat the game still
+            # recommends for the character (their kit turns it into Elation or other damage) stays in.
+            score = ELATION_BASE * (1 + bonus["ElationDamageAddedRatioBase"])
+            score *= totals[self.scaling] / self.calc[self.scaling] if self.scaling else 1
+            ignore += bonus["ElationDefIgnore"]
+        else:
+            score = totals[self.scaling]
+            score *= 1 + bonus[self.dmg_key] + bonus["AllDamageTypeAddedRatio"] + bonus["DMG"]
+        if self.break_effect:
+            ignore += bonus["BreakDefIgnore"]
+        score *= (self.level + 20) / ((ENEMY_LEVEL + 20) * (1 - min(ignore, 1.0)) + self.level + 20)
         rate = min(max(bonus["CriticalChanceBase"], 0.0), 1.0)
         if self.crit:
             score *= 1 + rate * bonus["CriticalDamageBase"]
@@ -230,8 +263,23 @@ def optimize(assets: Assets, target: CharacterBuild, builds: list[CharacterBuild
     info = target.bare or {k: v for k, v in target.raw.items() if k != "relicList"}
     if not info:
         raise OptimizeError(f"I can't read **{target.name}**'s level and traces, so their stats can't be worked out.")
-    bare = sr.parse_character(assets, info)
-    scorer = Scorer(assets, bare.calc, wanted)
+    path = assets.data["hsr_characters"].get(str(info.get("avatarId")), {}).get("AvatarBaseType")
+    elation = path == "Elation"
+
+    def with_cone(equipment: dict | None) -> tuple[CharacterBuild, Scorer]:
+        bare = sr.parse_character(assets, {**{k: v for k, v in info.items() if k != "equipment"},
+                                           **({"equipment": equipment} if equipment else {})})
+        return bare, Scorer(assets, bare.calc, wanted, bare.level, elation)
+
+    # The light cones to try: their own first, then every one of their Path that another character wears.
+    cones: list[tuple[str, dict | None]] = [(target.name, info.get("equipment"))]
+    seen = {_cone_key(info.get("equipment"))}
+    for other in builds:
+        eq = (other.bare or other.raw).get("equipment")
+        if eq and _cone_key(eq) not in seen and assets.data["hsr_weapons"].get(str(eq.get("tid")), {}).get("AvatarBaseType") == path:
+            seen.add(_cone_key(eq))
+            cones.append((other.name, eq))
+    bare, scorer = with_cone(info.get("equipment"))
 
     everything = pool(builds)
     by_slot: dict[str, list[Piece]] = {}
@@ -250,17 +298,20 @@ def optimize(assets: Assets, target: CharacterBuild, builds: list[CharacterBuild
     keys = {k for k in keys if not k.endswith("AddedRatio") or k == scorer.dmg_key
             or k in ("HPAddedRatio", "AttackAddedRatio", "DefenceAddedRatio", "SpeedAddedRatio")}
     slots = [_undominated(by_slot[slot], keys) for slot in sr.SLOT_ORDER]
-    while _product(slots) > MAX_TRIES:  # far more than anyone owns of one set; trims the weakest of the fullest slot
+    while _product(slots) * len(cones) > MAX_TRIES:  # far more than anyone owns of one set; trims the weakest of the fullest slot
         fullest = max(slots, key=len)
         fullest.pop()
 
     sets = {ids[relic_set]: 4, ids[planar_set]: 2}
-    best, best_index, tried = None, -1.0, 0
-    for combo in itertools.product(*slots):
-        tried += 1
-        value = scorer.index([p.props for p in combo], sets)
-        if value > best_index:
-            best, best_index = combo, value
+    best, best_index, tried, best_cone = None, -1.0, 0, 0
+    tries = [with_cone(eq) for _, eq in cones]
+    combos = [(combo, [p.props for p in combo]) for combo in itertools.product(*slots)]
+    for n, (_, cone_scorer) in enumerate(tries):
+        for combo, props in combos:
+            tried += 1
+            value = cone_scorer.index(props, sets)
+            if value > best_index:
+                best, best_index, best_cone = combo, value, n
 
     current = None
     if target.gear:
@@ -271,12 +322,21 @@ def optimize(assets: Assets, target: CharacterBuild, builds: list[CharacterBuild
         current = scorer.index([gear_props(g) for g in target.gear], dict(counts))
 
     gear = [p.gear for p in best]
-    bonus = scorer.bonus([p.props for p in best], sets)
+    bare, best_scorer = tries[best_cone]
+    bonus = best_scorer.bonus([p.props for p in best], sets)
+    weapon = bare.weapon
+    if best_cone == 0 and target.weapon:
+        weapon = target.weapon
     build = replace(bare, gear=gear, stats=sr.stat_lines(bare.calc, bonus), set_bonuses=[f"4pc {relic_set}", f"2pc {planar_set}"],
                     source=target.source, art_url=target.art_url, icon_url=target.icon_url, outfit_icon=target.outfit_icon,
-                    talents=target.talents or bare.talents, weapon=target.weapon or bare.weapon,
-                    borrowed_from=None, optimized=True)
-    return Result(build, list(best), best_index, current, scorer.counted(), tried)
+                    talents=target.talents or bare.talents, weapon=weapon, borrowed_from=None, optimized=True)
+    return Result(build, list(best), best_index, current, scorer.counted(), tried,
+                  cones[best_cone][0] if weapon else None, len(cones))
+
+
+def _cone_key(equipment: dict | None) -> tuple:
+    e = equipment or {}
+    return (str(e.get("tid")), int(e.get("rank", 1) or 1), int(e.get("level", 1) or 1)) if e else ()
 
 
 def _product(slots: list[list[Piece]]) -> int:
