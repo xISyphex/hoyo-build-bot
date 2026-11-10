@@ -422,6 +422,12 @@ def make_command(game: str) -> app_commands.Command:
     return command
 
 
+CONE_WORDS = {"DMG": "DMG", "CriticalDamageBase": "CRIT DMG", "CriticalChanceBase": "CRIT Rate", "AttackAddedRatio": "ATK",
+              "HPAddedRatio": "HP", "DefenceAddedRatio": "DEF", "SpeedAddedRatio": "SPD", "DefIgnore": "DEF ignored",
+              "BreakDamageAddedRatioBase": "Break Effect", "ElationDamageAddedRatioBase": "Elation",
+              "Vulnerability": "DMG taken by enemies", "BreakDMG": "Break DMG", "BreakDefIgnore": "DEF ignored by Break DMG"}
+
+
 def optimize_text(result: optimize.Result, target: CharacterBuild, relic_set: str, planar_set: str) -> str:
     """The lines above an optimized card: what was scored, the gain and whose relic each piece is."""
     name = result.build.name
@@ -435,13 +441,18 @@ def optimize_text(result: optimize.Result, target: CharacterBuild, relic_set: st
         whose = "their own" if result.cone_owner == name else f"from {result.cone_owner}"
         lines.append(f"Light cone: **{result.build.weapon.name}** ({whose}), the best of the {result.cones} of their "
                      "Path worn on this account")
+    effect = {k: v for k, v in (result.cone_effect or {}).items() if "Break" not in k or "Break Effect" in result.counted}
+    if result.build.weapon and effect:
+        counted = ", ".join(f"+{value * 100:.3g}% {CONE_WORDS.get(key, key)}" for key, value in effect.items())
+        lines.append(f"-# {result.build.weapon.name}'s effect is counted as {counted}.")
     owners: dict[str, list[str]] = {}
     for piece in result.pieces:
         owners.setdefault(piece.owner, []).append(piece.gear.slot)
     lines.append(" · ".join(f"{', '.join(slots)} from {'their own' if owner == name else owner}"
                             for owner, slots in owners.items()))
     lines.append(f"-# Scored on {', '.join(result.counted)}. {result.tried:,} combinations tried. Set effects count at full "
-                 "stacks; light cone effects that need a trigger, team buffs and enemy debuffs don't.")
+                 "stacks, and so do light cone effects; team buffs and enemy debuffs don't. Speed counts by Memory of Chaos "
+                 "breakpoints.")
     if target.source == "unowned":
         lines.append(f"-# {name} isn't on this account, so they are scored fully built with no eidolons.")
     elif target.source != "beta":

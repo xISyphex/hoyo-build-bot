@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from bot import optimize
+from bot import cone_effects, optimize
 from bot.games import starrail
 from bot.hoyolab import _sr_promotion
 from bot.main import optimize_text
@@ -12,6 +12,7 @@ from bot.models import Gear, Stat
 from tests.test_parsers import fixture, load_assets
 
 RELICS, PLANAR = "Scholar Lost in Erudition", "Rutilant Arena"
+SLOW = optimize.turns(100)  # what 100 SPD is worth
 DEF = 100 / (115 + 100)  # the DEF multiplier of a Lv. 95 enemy against a Lv. 80 character
 
 
@@ -64,7 +65,7 @@ class OptimizeTest(unittest.TestCase):
         self.assertAlmostEqual(result.build.score_gain, (result.index / result.current - 1) * 100)
         # and nothing beats it: every single-piece swap is no better
         scorer = optimize.Scorer(self.assets, {**result.build.calc, "bonus": self.bare_bonus(result.build)},
-                                 {"CRIT Rate", "CRIT DMG", "HP%"})
+                                 {"CRIT Rate", "CRIT DMG", "HP%"}, cone=result.cone_effect)
         ids = optimize.set_ids(self.assets)
         sets = {ids[RELICS]: 4, ids[PLANAR]: 2}
         self.assertAlmostEqual(scorer.index([p.props for p in result.pieces], sets), result.index)
@@ -92,7 +93,34 @@ class OptimizeTest(unittest.TestCase):
         breaker = optimize.Scorer(self.assets, calc, {"Break Effect", "SPD", "ATK%"})
         self.assertEqual(breaker.counted(), ["ATK", "Fire DMG", "Break Effect", "SPD"])
         self.assertAlmostEqual(breaker.index([{"BreakDamageAddedRatioBase": 1.0, "SpeedDelta": 50, "CriticalChanceBase": 0.5}], {}),
-                               1000 * 2.0 * 1.5 * DEF)
+                               1000 * 2.0 * optimize.turns(150) * DEF)
+
+    def test_speed_pays_at_the_breakpoints(self):
+        """Memory of Chaos: 134 SPD takes a second turn in the first cycle, 133 doesn't; 160 takes four turns in two."""
+        self.assertEqual(optimize.turns(128), optimize.turns(133))
+        self.assertGreater(optimize.turns(134), optimize.turns(133) * 1.1)
+        self.assertEqual(optimize.turns(135), optimize.turns(142))
+        self.assertGreater(optimize.turns(160), optimize.turns(159))
+        self.assertAlmostEqual(optimize.turns(200), 2.0)
+
+    def test_light_cone_passives(self):
+        parse = cone_effects.parse
+        self.assertEqual(parse("Increases the wearer's ATK by #1[i]%. After the wearer uses Skill, increases ATK by #2[i]%, "
+                               "stacking up to #3[i] times.", [0.16, 0.08, 3], {"AttackAddedRatio": 0.16}),
+                         {"AttackAddedRatio": 0.24})  # the 16% is in the light cone's own stats already
+        self.assertEqual(parse("Gains 1 stack of Eclipse, up to a max of #2[i] stack(s). Each stack of Eclipse increases the "
+                               "DMG of the wearer's next attack by #3[f1]%. When #2[i] stack(s) are reached, additionally "
+                               "enables that attack to ignore #4[i]% of the enemy's DEF.", [0.2, 3, 0.14, 0.12]),
+                         {"DMG": 0.42, "DefIgnore": 0.12})
+        self.assertEqual(parse("The wearer deals #1[i]% more CRIT DMG to Slowed enemies. Enemies take #2[i]% increased DMG.",
+                               [0.24, 0.1]), {"CriticalDamageBase": 0.24, "Vulnerability": 0.1})
+        self.assertEqual(parse("Restores HP equal to #1[i]% of the wearer's ATK. The next ally taking action (except the "
+                               "wearer) deals #2[i]% more DMG. Regenerates #3[i] Energy.", [0.1, 0.3, 4]), {})
+        # and the scorer uses them: a passive's CRIT DMG is worth what the same CRIT DMG on a relic is
+        calc = {"hp": 1000, "atk": 1000, "def": 500, "spd": 100, "element": "Ice", "bonus": {"CriticalChanceBase": 0.5}}
+        plain = optimize.Scorer(self.assets, calc, {"CRIT Rate", "CRIT DMG", "ATK%"})
+        cone = optimize.Scorer(self.assets, calc, {"CRIT Rate", "CRIT DMG", "ATK%"}, cone={"CriticalDamageBase": 0.4})
+        self.assertAlmostEqual(cone.index([{}], {}), plain.index([{"CriticalDamageBase": 0.4}], {}))
 
     def test_elation_formula(self):
         """Elation DMG: a fixed base and Elation in place of ATK and DMG Boost, with crit."""
@@ -100,9 +128,9 @@ class OptimizeTest(unittest.TestCase):
         scorer = optimize.Scorer(self.assets, calc, {"CRIT Rate", "CRIT DMG", "SPD"}, elation=True)
         self.assertEqual(scorer.counted(), ["Elation", "CRIT Rate", "CRIT DMG", "SPD"])
         props = {"ElationDamageAddedRatioBase": 0.4, "CriticalChanceBase": 0.5, "AttackAddedRatio": 0.9, "QuantumAddedRatio": 0.4}
-        self.assertAlmostEqual(scorer.index([props], {}), 7535.107 * 1.4 * 1.25 * DEF)
+        self.assertAlmostEqual(scorer.index([props], {}), 7535.107 * 1.4 * 1.25 * DEF * SLOW)
         girl = {"129": 4}  # Ever-Glorious Magical Girl: 16% CRIT DMG, Elation DMG ignores 20% DEF at full stacks
-        self.assertAlmostEqual(scorer.index([props], girl), 7535.107 * 1.4 * (1 + 0.5 * 0.66) * 100 / (115 * 0.8 + 100))
+        self.assertAlmostEqual(scorer.index([props], girl), 7535.107 * 1.4 * (1 + 0.5 * 0.66) * 100 / (115 * 0.8 + 100) * SLOW)
 
     def test_tries_same_path_light_cones(self):
         builds = self.account(keep=8)
