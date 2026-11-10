@@ -263,6 +263,7 @@ def optimize(assets: Assets, target: CharacterBuild, builds: list[CharacterBuild
     info = target.bare or {k: v for k, v in target.raw.items() if k != "relicList"}
     if not info:
         raise OptimizeError(f"I can't read **{target.name}**'s level and traces, so their stats can't be worked out.")
+    info = sr.maxed(assets, info)  # fully built: Lv. 80 with every trace
     path = assets.data["hsr_characters"].get(str(info.get("avatarId")), {}).get("AvatarBaseType")
     elation = path == "Elation"
 

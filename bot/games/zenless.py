@@ -248,6 +248,14 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
     )
 
 
+def maxed(info: dict) -> dict:
+    """The showcase entry as if the agent were fully built: Lv. 60, core skill F, skills at 12 (mindscapes stay as
+    they are). For what-if builds (bot/borrow.py)."""
+    levels = {**_skill_levels(info.get("SkillLevelList")), **{index: 12 for index in (0, 1, 2, 3, 6)}}
+    return {**info, "Level": 60, "PromotionLevel": 6, "CoreSkillEnhancement": 6,
+            "SkillLevelList": [{"Index": i, "Level": lvl} for i, lvl in sorted(levels.items())]}
+
+
 def parse_profile(assets: Assets, uid: str, data: dict) -> PlayerProfile:
     player = data.get("PlayerInfo", {})
     profile = player.get("SocialDetail", {}).get("ProfileDetail", {})
