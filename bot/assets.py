@@ -68,6 +68,7 @@ class Assets:
         self.cache_dir = Path(cache_dir)
         self.lang = lang
         self.data: dict[str, dict] = {}
+        self.extras: list = []  # called with the assets after each load, to add to the game data (bot/unreleased.py)
         self._hsr_names: dict[float, str] = {}
         self._gi_names: dict[str, str] = {}
 
@@ -104,6 +105,8 @@ class Assets:
                 self.data[key] = {}
         self._fill_hsr_gaps()
         self._build_indexes()
+        for extra in self.extras:
+            extra(self)
 
     def _fill_hsr_gaps(self) -> None:
         """Add what StarRailRes knows and Enka's store doesn't, in the store's own shapes.

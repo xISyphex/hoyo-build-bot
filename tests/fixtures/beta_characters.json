@@ -1,0 +1,500 @@
+{
+ "hsr": {
+  "name": "Beta \u2605 Tester",
+  "rarity": "CombatPowerAvatarRarityType5",
+  "base_type": "Mage",
+  "damage_type": "Ice",
+  "ranks": {
+   "1": {
+    "id": 990001,
+    "icon": "SkillIcon_9901_Rank1.png"
+   },
+   "2": {
+    "id": 990002,
+    "icon": "SkillIcon_9901_Rank2.png"
+   },
+   "3": {
+    "id": 990003,
+    "icon": "SkillIcon_9901_Rank3.png"
+   },
+   "4": {
+    "id": 990004,
+    "icon": "SkillIcon_9901_Rank4.png"
+   },
+   "5": {
+    "id": 990005,
+    "icon": "SkillIcon_9901_Rank5.png"
+   },
+   "6": {
+    "id": 990006,
+    "icon": "SkillIcon_9901_Rank6.png"
+   }
+  },
+  "stats": {
+   "0": {
+    "attack_base": 101.64,
+    "attack_add": 5.082,
+    "defence_base": 76.23,
+    "defence_add": 3.812,
+    "hp_base": 156.816,
+    "hp_add": 7.841,
+    "speed_base": 94,
+    "critical_chance": 0.05,
+    "critical_damage": 0.5
+   },
+   "1": {
+    "attack_base": 142.296,
+    "attack_add": 5.082,
+    "defence_base": 106.722,
+    "defence_add": 3.812,
+    "hp_base": 219.542,
+    "hp_add": 7.841,
+    "speed_base": 94,
+    "critical_chance": 0.05,
+    "critical_damage": 0.5
+   },
+   "2": {
+    "attack_base": 182.952,
+    "attack_add": 5.082,
+    "defence_base": 137.214,
+    "defence_add": 3.812,
+    "hp_base": 282.269,
+    "hp_add": 7.841,
+    "speed_base": 94,
+    "critical_chance": 0.05,
+    "critical_damage": 0.5
+   },
+   "3": {
+    "attack_base": 223.608,
+    "attack_add": 5.082,
+    "defence_base": 167.706,
+    "defence_add": 3.812,
+    "hp_base": 344.995,
+    "hp_add": 7.841,
+    "speed_base": 94,
+    "critical_chance": 0.05,
+    "critical_damage": 0.5
+   },
+   "4": {
+    "attack_base": 264.264,
+    "attack_add": 5.082,
+    "defence_base": 198.198,
+    "defence_add": 3.812,
+    "hp_base": 407.722,
+    "hp_add": 7.841,
+    "speed_base": 94,
+    "critical_chance": 0.05,
+    "critical_damage": 0.5
+   },
+   "5": {
+    "attack_base": 304.92,
+    "attack_add": 5.082,
+    "defence_base": 228.69,
+    "defence_add": 3.812,
+    "hp_base": 470.448,
+    "hp_add": 7.841,
+    "speed_base": 94,
+    "critical_chance": 0.05,
+    "critical_damage": 0.5
+   },
+   "6": {
+    "attack_base": 345.576,
+    "attack_add": 5.082,
+    "defence_base": 259.182,
+    "defence_add": 3.812,
+    "hp_base": 533.174,
+    "hp_add": 7.841,
+    "speed_base": 94,
+    "critical_chance": 0.05,
+    "critical_damage": 0.5
+   }
+  },
+  "skill_trees": {
+   "point01": {
+    "6": {
+     "anchor": "Point01",
+     "max_level": 6,
+     "point_id": 9901001,
+     "status_add_list": []
+    }
+   },
+   "point02": {
+    "10": {
+     "anchor": "Point02",
+     "max_level": 10,
+     "point_id": 9901002,
+     "status_add_list": []
+    }
+   },
+   "point03": {
+    "10": {
+     "anchor": "Point03",
+     "max_level": 10,
+     "point_id": 9901003,
+     "status_add_list": []
+    }
+   },
+   "point04": {
+    "10": {
+     "anchor": "Point04",
+     "max_level": 10,
+     "point_id": 9901004,
+     "status_add_list": []
+    }
+   },
+   "point05": {
+    "1": {
+     "anchor": "Point05",
+     "max_level": 1,
+     "point_id": 9901007,
+     "status_add_list": []
+    }
+   },
+   "point22": {
+    "10": {
+     "anchor": "Point22",
+     "max_level": 10,
+     "point_id": 9901420,
+     "status_add_list": []
+    }
+   },
+   "point06": {
+    "1": {
+     "anchor": "Point06",
+     "max_level": 1,
+     "point_id": 9901101,
+     "status_add_list": []
+    }
+   },
+   "point07": {
+    "1": {
+     "anchor": "Point07",
+     "max_level": 1,
+     "point_id": 9901102,
+     "status_add_list": []
+    }
+   },
+   "point08": {
+    "1": {
+     "anchor": "Point08",
+     "max_level": 1,
+     "point_id": 9901103,
+     "status_add_list": []
+    }
+   },
+   "point09": {
+    "1": {
+     "anchor": "Point09",
+     "max_level": 1,
+     "point_id": 9901201,
+     "status_add_list": [
+      {
+       "property_type": "CriticalDamageBase",
+       "value": 0.053,
+       "name": "CRIT DMG"
+      }
+     ]
+    }
+   },
+   "point10": {
+    "1": {
+     "anchor": "Point10",
+     "max_level": 1,
+     "point_id": 9901202,
+     "status_add_list": [
+      {
+       "property_type": "CriticalChanceBase",
+       "value": 0.027,
+       "name": "CRIT Rate"
+      }
+     ]
+    }
+   },
+   "point11": {
+    "1": {
+     "anchor": "Point11",
+     "max_level": 1,
+     "point_id": 9901203,
+     "status_add_list": [
+      {
+       "property_type": "CriticalDamageBase",
+       "value": 0.053,
+       "name": "CRIT DMG"
+      }
+     ]
+    }
+   },
+   "point12": {
+    "1": {
+     "anchor": "Point12",
+     "max_level": 1,
+     "point_id": 9901204,
+     "status_add_list": [
+      {
+       "property_type": "SpeedDelta",
+       "value": 2,
+       "name": "SPD"
+      }
+     ]
+    }
+   },
+   "point13": {
+    "1": {
+     "anchor": "Point13",
+     "max_level": 1,
+     "point_id": 9901205,
+     "status_add_list": [
+      {
+       "property_type": "CriticalDamageBase",
+       "value": 0.08,
+       "name": "CRIT DMG"
+      }
+     ]
+    }
+   },
+   "point14": {
+    "1": {
+     "anchor": "Point14",
+     "max_level": 1,
+     "point_id": 9901206,
+     "status_add_list": [
+      {
+       "property_type": "CriticalChanceBase",
+       "value": 0.04,
+       "name": "CRIT Rate"
+      }
+     ]
+    }
+   },
+   "point15": {
+    "1": {
+     "anchor": "Point15",
+     "max_level": 1,
+     "point_id": 9901207,
+     "status_add_list": [
+      {
+       "property_type": "CriticalDamageBase",
+       "value": 0.08,
+       "name": "CRIT DMG"
+      }
+     ]
+    }
+   },
+   "point16": {
+    "1": {
+     "anchor": "Point16",
+     "max_level": 1,
+     "point_id": 9901208,
+     "status_add_list": [
+      {
+       "property_type": "SpeedDelta",
+       "value": 3,
+       "name": "SPD"
+      }
+     ]
+    }
+   },
+   "point17": {
+    "1": {
+     "anchor": "Point17",
+     "max_level": 1,
+     "point_id": 9901209,
+     "status_add_list": [
+      {
+       "property_type": "CriticalChanceBase",
+       "value": 0.053,
+       "name": "CRIT Rate"
+      }
+     ]
+    }
+   },
+   "point18": {
+    "1": {
+     "anchor": "Point18",
+     "max_level": 1,
+     "point_id": 9901210,
+     "status_add_list": [
+      {
+       "property_type": "CriticalDamageBase",
+       "value": 0.107,
+       "name": "CRIT DMG"
+      }
+     ]
+    }
+   },
+   "point23": {
+    "1": {
+     "anchor": "Point23",
+     "max_level": 1,
+     "point_id": 9901601,
+     "status_add_list": []
+    }
+   }
+  }
+ },
+ "zzz": {
+  "name": "Beta Agent",
+  "rarity": 4,
+  "icon": "IconRole9901",
+  "weapon_type": {
+   "1": "Attack"
+  },
+  "element_type": {
+   "203": "Electric"
+  },
+  "stats": {
+   "attack": 101,
+   "attack_growth": 58479,
+   "break_stun": 93,
+   "crit": 500,
+   "crit_damage": 5000,
+   "defence": 35,
+   "defence_growth": 48155,
+   "element_abnormal_power": 78,
+   "element_mystery": 77,
+   "hp_growth": 625913,
+   "hp_max": 461,
+   "sp_recover": 0,
+   "ep_recover": 150
+  },
+  "level": {
+   "1": {
+    "hp_max": 0,
+    "attack": 0,
+    "defence": 0
+   },
+   "2": {
+    "hp_max": 317,
+    "attack": 36,
+    "defence": 24
+   },
+   "3": {
+    "hp_max": 633,
+    "attack": 72,
+    "defence": 49
+   },
+   "4": {
+    "hp_max": 950,
+    "attack": 108,
+    "defence": 73
+   },
+   "5": {
+    "hp_max": 1266,
+    "attack": 144,
+    "defence": 97
+   },
+   "6": {
+    "hp_max": 1583,
+    "attack": 180,
+    "defence": 122
+   }
+  },
+  "extra_level": {
+   "1": {
+    "extra": {
+     "20101": {
+      "value": 480
+     }
+    }
+   },
+   "2": {
+    "extra": {
+     "20101": {
+      "value": 960
+     }
+    }
+   },
+   "3": {
+    "extra": {
+     "20101": {
+      "value": 1440
+     }
+    }
+   },
+   "4": {
+    "extra": {
+     "20101": {
+      "value": 1920
+     }
+    }
+   },
+   "5": {
+    "extra": {
+     "20101": {
+      "value": 2400
+     }
+    }
+   },
+   "6": {
+    "extra": {
+     "20101": {
+      "value": 2880
+     }
+    }
+   }
+  }
+ },
+ "genshin": {
+  "name": "Beta Knight",
+  "rarity": "QUALITY_ORANGE",
+  "weapon": "WEAPON_CLAYMORE",
+  "element": "Electro",
+  "icon": "UI_AvatarIcon_Beta",
+  "base_hp": 1000.0,
+  "base_atk": 25.0,
+  "base_def": 60.0,
+  "crit_rate": 0.05,
+  "crit_dmg": 0.5,
+  "elemental_mastery": 0,
+  "stats_modifier": {
+   "hp": {
+    "90": 8.739
+   },
+   "atk": {
+    "90": 8.739
+   },
+   "def": {
+    "90": 8.739
+   },
+   "ascension": [
+    {
+     "fight_prop_base_hp": 4000.0,
+     "fight_prop_base_defense": 250.0,
+     "fight_prop_base_attack": 100.0,
+     "fight_prop_critical_hurt": 0.384
+    }
+   ]
+  },
+  "skills": [
+   {
+    "id": 99011
+   },
+   {
+    "id": 99012
+   },
+   {
+    "id": 99015
+   }
+  ],
+  "constellations": [
+   {
+    "icon": "UI_Talent_S_Beta_01"
+   },
+   {
+    "icon": "UI_Talent_S_Beta_02"
+   },
+   {
+    "icon": "UI_Talent_S_Beta_03"
+   },
+   {
+    "icon": "UI_Talent_S_Beta_04"
+   },
+   {
+    "icon": "UI_Talent_S_Beta_05"
+   },
+   {
+    "icon": "UI_Talent_S_Beta_06"
+   }
+  ]
+ }
+}

@@ -506,6 +506,21 @@ def gear_value(build: CharacterBuild, wanted: set[str] | None) -> tuple[str, str
     return label, f"{total:.1f}%" if pct else (f"{total:.1f}" if total % 1 else f"{total:.0f}")
 
 
+def foot_text(build: CharacterBuild, uid: str) -> str:
+    """The stamp in the card's corner: whose account, and whose gear when it's borrowed."""
+    server = server_name(build.game, uid)
+    foot = f"{server} · UID {uid}" if server else f"UID {uid}"
+    if build.source == "hoyolab":
+        foot = f"via HoYoLAB · {foot}"
+    if build.source == "beta":
+        foot = f"Unreleased, beta stats · {foot}"
+    if build.borrowed_from:
+        foot = f"With {build.borrowed_from}'s gear · {foot}"
+    if build.optimized:
+        foot = f"Best of their relics · {foot}"
+    return foot
+
+
 def server_name(game: str, uid: str) -> str | None:
     """The game server a UID belongs to, read from its leading digits (None if unknown)."""
     if game == "zzz":
@@ -657,10 +672,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
         draw.text((GEAR_X + 20, PAD + 20), f"No {labels['gear'].lower()} equipped.", font=f.stat, fill=DIM)
 
     if uid:
-        server = server_name(build.game, uid)
-        foot = f"{server} · UID {uid}" if server else f"UID {uid}"
-        if build.source == "hoyolab":
-            foot = f"via HoYoLAB · {foot}"
+        foot = foot_text(build, uid)
         # A small stamp in the image's own corner, outside the layout.
         ImageDraw.Draw(card).text((W - 8, H - 5), foot, font=f.stamp, fill=TEXT, anchor="rd")
 

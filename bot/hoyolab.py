@@ -170,6 +170,22 @@ def _sr_stat(name: str, value, gear: bool = False) -> Stat:
     return Stat(name, f"{_num(value):.1f}" if name == "SPD" and _num(value) % 1 else fmt_int(_num(value)))
 
 
+def _sr_promotion(level: int) -> int:
+    """The ascension a level needs at least (HoYoLAB doesn't send it)."""
+    return max(0, min(6, -(-(level - 20) // 10)))
+
+
+def _sr_bare(char) -> dict:
+    """The character as a showcase entry without relics: level, eidolons, light cone and traces, for bot/optimize.py."""
+    info = {"avatarId": char.id, "level": char.level, "promotion": _sr_promotion(char.level), "rank": char.rank,
+            "skillTreeList": [{"pointId": int(s.point_id), "level": max(int(s.level), 1)}
+                              for s in getattr(char, "skills", None) or [] if s.is_activated and str(s.point_id).isdigit()]}
+    if char.equip:
+        e = char.equip
+        info["equipment"] = {"tid": e.id, "level": e.level, "rank": e.rank, "promotion": _sr_promotion(e.level)}
+    return info
+
+
 def starrail_build(assets: Assets, char) -> CharacterBuild:
     """One genshin.py Star Rail character (detailed, or simple when HoYoLAB hides the details) as a build card."""
     skeleton = sr.parse_character(assets, {"avatarId": char.id, "level": char.level, "rank": char.rank})
@@ -212,7 +228,7 @@ def starrail_build(assets: Assets, char) -> CharacterBuild:
         notes.append("HoYoLAB doesn't share this player's stats or relic stats, only levels and gear.")
     outfit = getattr(char, "is_wearing_outfit", False)  # HoYoLAB's pictures then show the outfit
     return dataclasses.replace(
-        skeleton, level=char.level, constellation=char.rank, stats=stats, talents=talents or skeleton.talents,
+        skeleton, bare=_sr_bare(char), level=char.level, constellation=char.rank, stats=stats, talents=talents or skeleton.talents,
         weapon=weapon, gear=gear, set_bonuses=_sets(gear), notes=notes, source="hoyolab",
         art_url=char.image if outfit and getattr(char, "image", None) else skeleton.art_url,
         outfit_icon=char.icon if outfit and getattr(char, "icon", None) else None,

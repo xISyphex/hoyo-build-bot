@@ -13,7 +13,7 @@ from collections import defaultdict
 
 from ..assets import Assets
 from ..models import CharacterBuild, Gear, PlayerProfile, Stat, Weapon
-from . import fmt_int, fmt_pct
+from . import _with_raw, fmt_int, fmt_pct
 
 ELEMENTS = {
     "Thunder": "Lightning",
@@ -236,12 +236,54 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
         elif count >= 2:
             set_bonuses.append(f"2pc {set_names[set_id]}")
 
-    hp = base_hp * (1 + bonus["HPAddedRatio"]) + bonus["HPDelta"]
-    atk = base_atk * (1 + bonus["AttackAddedRatio"]) + bonus["AttackDelta"]
-    df = base_def * (1 + bonus["DefenceAddedRatio"]) + bonus["DefenceDelta"]
-    spd = (base_spd + bonus["BaseSpeed"]) * (1 + bonus["SpeedAddedRatio"]) + bonus["SpeedDelta"]
-    elem_dmg = bonus[f"{element}AddedRatio"] + bonus["AllDamageTypeAddedRatio"]
+    calc = {"hp": base_hp, "atk": base_atk, "def": base_def, "spd": base_spd, "element": element, "bonus": dict(bonus)}
+    stats = stat_lines(calc)
 
+    icon_path = char.get("AvatarSideIconPath")
+    notes = ["Stats exclude conditional buffs, like the in-game character screen."]
+    if not char or not base:
+        notes.insert(0, "This character is newer than the game data, so base stats are missing and totals are too low.")
+    return CharacterBuild(
+        game="hsr",
+        character_id=avatar_id,
+        name=name,
+        level=level,
+        rarity=int(char.get("Rarity", 0)),
+        element=ELEMENTS.get(element, element),
+        constellation=rank,
+        icon_url=char.get("Icon") or (f"https://enka.network/ui/hsr/{icon_path}" if icon_path else None),
+        stats=stats,
+        talents=talents,
+        weapon=weapon,
+        gear=gear,
+        set_bonuses=set_bonuses,
+        notes=notes,
+        art_url=char.get("Art") or f"{SRR_IMAGES}character_portrait/{avatar_id}.png",  # "Art": bot/unreleased.py
+        path_icon=f"{SRR_PATH_ICONS}{PATH_ICONS[path]}.png" if (path := char.get("AvatarBaseType")) in PATH_ICONS else None,
+        element_icon=f"{SRR_ELEMENT_ICONS}{element}.png" if element in ELEMENTS else None,
+        cons_icons=char.get("RankIcons") or _eidolon_icons(assets, avatar_id),
+        calc=calc,
+    )
+
+
+def totals(calc: dict, bonus: dict | None = None) -> dict[str, float]:
+    """HP, ATK, DEF and SPD from the base values and the collected bonuses (calc's own, or another set of them)."""
+    b = defaultdict(float, calc["bonus"] if bonus is None else bonus)
+    return {
+        "hp": calc["hp"] * (1 + b["HPAddedRatio"]) + b["HPDelta"],
+        "atk": calc["atk"] * (1 + b["AttackAddedRatio"]) + b["AttackDelta"],
+        "def": calc["def"] * (1 + b["DefenceAddedRatio"]) + b["DefenceDelta"],
+        "spd": (calc["spd"] + b["BaseSpeed"]) * (1 + b["SpeedAddedRatio"]) + b["SpeedDelta"],
+    }
+
+
+def stat_lines(calc: dict, bonus: dict | None = None) -> list[Stat]:
+    """The stat list of the character screen."""
+    element = calc["element"]
+    bonus = defaultdict(float, calc["bonus"] if bonus is None else bonus)
+    t = totals(calc, bonus)
+    hp, atk, df, spd = t["hp"], t["atk"], t["def"], t["spd"]
+    elem_dmg = bonus[f"{element}AddedRatio"] + bonus["AllDamageTypeAddedRatio"]
     stats = [
         Stat("HP", fmt_int(hp)),
         Stat("ATK", fmt_int(atk)),
@@ -260,31 +302,7 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
         stats.append(Stat(f"{ELEMENTS.get(element, element)} DMG Boost", fmt_pct(elem_dmg)))
     if bonus["ElationDamageAddedRatioBase"]:  # Elation path (3.x) traces
         stats.append(Stat("Elation DMG Boost", fmt_pct(bonus["ElationDamageAddedRatioBase"])))
-
-    icon_path = char.get("AvatarSideIconPath")
-    notes = ["Stats exclude conditional buffs, like the in-game character screen."]
-    if not char or not base:
-        notes.insert(0, "This character is newer than the game data, so base stats are missing and totals are too low.")
-    return CharacterBuild(
-        game="hsr",
-        character_id=avatar_id,
-        name=name,
-        level=level,
-        rarity=int(char.get("Rarity", 0)),
-        element=ELEMENTS.get(element, element),
-        constellation=rank,
-        icon_url=f"https://enka.network/ui/hsr/{icon_path}" if icon_path else None,
-        stats=stats,
-        talents=talents,
-        weapon=weapon,
-        gear=gear,
-        set_bonuses=set_bonuses,
-        notes=notes,
-        art_url=f"{SRR_IMAGES}character_portrait/{avatar_id}.png",
-        path_icon=f"{SRR_PATH_ICONS}{PATH_ICONS[path]}.png" if (path := char.get("AvatarBaseType")) in PATH_ICONS else None,
-        element_icon=f"{SRR_ELEMENT_ICONS}{element}.png" if element in ELEMENTS else None,
-        cons_icons=_eidolon_icons(assets, avatar_id),
-    )
+    return stats
 
 
 def _eidolon_icons(assets: Assets, avatar_id: str) -> list[str]:
@@ -307,7 +325,7 @@ def parse_profile(assets: Assets, uid: str, data: dict) -> PlayerProfile:
         if info.get("avatarId") in seen:
             continue
         seen.add(info.get("avatarId"))
-        characters.append(parse_character(assets, info))
+        characters.append(_with_raw(parse_character(assets, info), info))
     return PlayerProfile(
         game="hsr",
         uid=uid,

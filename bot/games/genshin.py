@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from ..assets import Assets
 from ..models import CharacterBuild, Gear, PlayerProfile, Stat, Weapon
-from . import fmt_int, fmt_pct
+from . import _with_raw, fmt_int, fmt_pct
 
 # fightPropMap keys
 HP, ATK, DEF = "2000", "2001", "2002"
@@ -257,7 +257,7 @@ def parse_profile(assets: Assets, uid: str, data: dict) -> PlayerProfile:
         uid=uid,
         nickname=player.get("nickname", "Unknown"),
         level=int(player.get("level", 0)),
-        characters=[parse_character(assets, c) for c in data.get("avatarInfoList", [])],
+        characters=[_with_raw(parse_character(assets, c), c) for c in data.get("avatarInfoList", [])],
         ttl=int(data.get("ttl", 60)),
         profile_url=f"https://enka.network/u/{uid}/",
         showcase_names=showcase,

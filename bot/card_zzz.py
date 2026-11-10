@@ -579,10 +579,7 @@ def draw_card(build: CharacterBuild, images: dict[str, Image.Image], uid: str | 
         _text(card, (sx0 + 16, sy0 + 34), "NO DISCS EQUIPPED", f.mid, SILK, "lm")
 
     if uid:
-        server = base.server_name(build.game, uid)
-        foot = f"{server} · UID {uid}" if server else f"UID {uid}"
-        if build.source == "hoyolab":
-            foot = f"via HoYoLAB · {foot}"
+        foot = base.foot_text(build, uid)
         ImageDraw.Draw(card).text((W - 8, H - 3), foot, font=f.tiny, fill=SILK, anchor="rd")
 
     out = io.BytesIO()

@@ -253,3 +253,21 @@ class PatTest(unittest.TestCase):
         self.assertEqual(len(sent), 1)
         self.assertIn("Proxy", sent[0][0])
         self.assertEqual(sent[0][1], "fairy-happy.png")
+
+
+class PingTest(unittest.TestCase):
+    def test_mentions_everyone_then_the_text(self):
+        from bot.main import ping_messages
+
+        self.assertEqual(ping_messages([1, 2], "New command!"), ["<@1> <@2>\nNew command!"])
+        self.assertEqual(ping_messages([1], ""), ["<@1>"])
+
+    def test_splits_at_discords_limit(self):
+        from bot.main import AccessGroup, ping_messages
+
+        chunks = ping_messages(list(range(10**17, 10**17 + 300)), "x" * 500)
+        self.assertGreater(len(chunks), 1)
+        self.assertTrue(all(len(c) <= 2000 for c in chunks))
+        self.assertEqual(sum(c.count("<@") for c in chunks), 300)
+        self.assertTrue(chunks[-1].endswith("x" * 500))
+        self.assertIn("ping", [c.name for c in AccessGroup().commands])

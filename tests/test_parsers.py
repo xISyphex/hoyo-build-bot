@@ -375,13 +375,16 @@ class EmbedTest(unittest.TestCase):
         tree.add_command(make_claim_command("genshin"))
         payload = tree.get_command("genshin").to_dict(tree)
         # Character first so the UID can be left out when the caller has claimed one.
-        self.assertEqual([o["name"] for o in payload["options"]], ["character", "uid", "server"])
-        self.assertEqual([c["value"] for c in payload["options"][2]["choices"]], ["America", "Europe", "Asia", "TW/HK/MO"])
-        self.assertLessEqual(len(payload["options"][2]["description"]), 100)
+        self.assertEqual([o["name"] for o in payload["options"]], ["character", "gear_from", "uid", "server"])
+        self.assertEqual([c["value"] for c in payload["options"][3]["choices"]], ["America", "Europe", "Asia", "TW/HK/MO"])
         self.assertTrue(payload["options"][0]["autocomplete"])
         self.assertTrue(payload["options"][0]["required"])
-        self.assertFalse(payload["options"][1].get("required", False))
-        self.assertLessEqual(len(payload["options"][1]["description"]), 100)
+        self.assertTrue(payload["options"][1]["autocomplete"])
+        for option in payload["options"][1:]:
+            self.assertFalse(option.get("required", False))
+        for game in ("genshin", "hsr", "zzz"):
+            for option in make_command(game).to_dict(tree)["options"]:
+                self.assertLessEqual(len(option["description"]), 100)
         claim = tree.get_command("genshin-claim").to_dict(tree)
         self.assertEqual([o["name"] for o in claim["options"]], ["uid"])
 

@@ -19,7 +19,7 @@ import genshin
 from discord import app_commands
 from discord.ext import tasks
 
-from . import matching, news, patch, records, timezones
+from . import borrow, matching, news, patch, optimize, records, timezones
 from .access import PRIVATE, AccessList
 from .assets import Assets
 from .claims import ClaimStore
@@ -33,6 +33,7 @@ from .hoyolab_links import LinkStore, cookie_string, games_of, load_key
 from .models import CharacterBuild, PlayerProfile
 from .ratelimit import LookupLimit
 from .set_emojis import SetEmojis
+from .unreleased import Unreleased
 from .hsr_bosses import HsrBosses
 from .shiyu_bosses import ShiyuBosses
 from .stats import add_enka
@@ -86,6 +87,8 @@ class HoyoBot(discord.Client):
         cookies = os.environ.get("HOYOLAB_COOKIES", "").strip()
         # Which substats each character wants, for the effective substat count on the card.
         self.effective = EffectiveStats(cache_dir)
+        self.unreleased = Unreleased(cache_dir)  # the beta's new characters, for trying gear on them
+        self.assets.extras.append(self.unreleased.apply)
         self.shiyu_bosses = ShiyuBosses(cache_dir)  # Shiyu Defense boss names for /zzz-records
         self.hsr_bosses = HsrBosses(cache_dir)  # Memory of Chaos / Pure Fiction boss pictures for /hsr-records
         self.hoyolab = HoyolabClient(cookies or None, self.assets, self.links, self.effective)
@@ -123,6 +126,7 @@ class HoyoBot(discord.Client):
             self.tree.add_command(make_stats_command(game))
             self.tree.add_command(make_patch_command(game))
             self.tree.add_command(make_news_command(game))
+        self.tree.add_command(make_optimize_command())
         self.tree.add_command(AccessGroup())
         self.tree.add_command(HoyolabGroup())
         self.tree.add_command(help_command)
@@ -142,6 +146,7 @@ class HoyoBot(discord.Client):
     async def refresh_assets(self) -> None:
         if self.assets.is_stale():
             await self.assets.refresh(self.session)
+        await self.unreleased.refresh(self.session, self.assets)
         if self.effective.is_stale():
             await self.effective.refresh(self.session)
             await self.hoyolab.learn_own()
@@ -198,20 +203,40 @@ class HoyoBot(discord.Client):
         await super().close()
 
 
-async def render(bot: HoyoBot, profile: PlayerProfile, build: CharacterBuild) -> dict:
+async def render(bot: HoyoBot, profile: PlayerProfile, build: CharacterBuild, donor: CharacterBuild | None = None) -> dict:
     """The build card image and its dropdown for one character, ready to send.
 
-    If the card can't be drawn, the reply falls back to the all-text embed.
+    With a donor, the character wears the donor's weapon and gear (a what-if), and so does every character picked
+    from the dropdown. If the card can't be drawn, the reply falls back to the all-text embed.
     """
-    view = CharacterView(profile, build)
+    view = CharacterView(profile, build, donor)
+    shown = build
+    if donor and donor.name != build.name:
+        shown = borrow.borrow(bot.assets, build, donor)
+    content = borrowed_line(shown)
     try:
-        png = await bot.cards.render(profile, build)
+        png = await bot.cards.render(profile, shown)
     except Exception:
-        log.exception("Could not draw the build card for %s", build.name)
+        log.exception("Could not draw the build card for %s", shown.name)
     else:
-        return {"embed": None, "view": view, "file": discord.File(io.BytesIO(png), filename="build.png")}
-    pieces = await bot.set_emojis.for_pieces(build)
-    return {"embed": build_embed(profile, build, piece_emojis=pieces), "view": view}
+        return {"content": content, "embed": None, "view": view, "file": discord.File(io.BytesIO(png), filename="build.png")}
+    pieces = await bot.set_emojis.for_pieces(shown)
+    return {"content": content, "embed": build_embed(profile, shown, piece_emojis=pieces), "view": view}
+
+
+def borrowed_line(build: CharacterBuild) -> str | None:
+    """The line above a what-if card, saying whose gear it is."""
+    if not build.borrowed_from:
+        if build.source == "beta":
+            return (f"**{build.name}** isn't released yet. These are beta stats at max level with all traces and no gear.\n"
+                    "-# Add `gear_from` to see them in another character's gear.")
+        return None
+    line = f"**{build.name}** wearing **{build.borrowed_from}**'s {borrow.GEAR_WORDS[build.game]}"
+    if build.game == "genshin":  # the store has no numbers for weapon passives, so those can't be moved
+        line += "\n-# Weapon passive stats (like Mistsplitter's DMG Bonus) aren't moved, only the weapon's own stats."
+    if build.source == "beta":
+        line += f"\n-# {build.name} isn't released yet: beta stats at max level with all traces, which can still change."
+    return line
 
 
 def as_edit(reply: dict) -> dict:
@@ -225,7 +250,7 @@ def as_edit(reply: dict) -> dict:
 class CharacterSelect(discord.ui.Select):
     """Dropdown to flip between the other characters in the same showcase."""
 
-    def __init__(self, profile: PlayerProfile, current: str):
+    def __init__(self, profile: PlayerProfile, current: str, donor: CharacterBuild | None = None):
         shown = profile.characters[:25]
         if all(c.name != current for c in shown):  # Discord allows 25 options; keep the one on screen
             shown = [*shown[:24], *(c for c in profile.characters if c.name == current)]
@@ -237,21 +262,23 @@ class CharacterSelect(discord.ui.Select):
             )
             for c in shown
         ]
-        super().__init__(placeholder="Show another character", options=options)
+        placeholder = f"Try {donor.name}'s gear on another character" if donor else "Show another character"
+        super().__init__(placeholder=placeholder[:150], options=options)
         self.profile = profile
+        self.donor = donor
 
     async def callback(self, interaction: discord.Interaction) -> None:
         build = next(c for c in self.profile.characters if c.name == self.values[0])
         # Drawing a new card can take longer than Discord's 3-second reply window.
         await interaction.response.defer()
-        await interaction.edit_original_response(**as_edit(await render(interaction.client, self.profile, build)))
+        await interaction.edit_original_response(**as_edit(await render(interaction.client, self.profile, build, self.donor)))
 
 
 class CharacterView(discord.ui.View):
-    def __init__(self, profile: PlayerProfile, build: CharacterBuild):
+    def __init__(self, profile: PlayerProfile, build: CharacterBuild, donor: CharacterBuild | None = None):
         super().__init__(timeout=600)
         if len(profile.characters) > 1:
-            self.add_item(CharacterSelect(profile, build.name))
+            self.add_item(CharacterSelect(profile, build.name, donor))
         self.add_item(discord.ui.Button(label="Open on Enka.Network", url=profile.profile_url))
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -265,12 +292,13 @@ def make_command(game: str) -> app_commands.Command:
     @app_commands.command(name=game, description=f"Show a {GAME_NAMES[game]} character's stats and build")
     @app_commands.describe(
         character="Character name (from the player's showcase)",
+        gear_from=f"Another character whose {borrow.GEAR_WORDS[game]} the first one should wear, to see their stats",
         uid="In-game UID. Leave empty to use the one you claimed with /" + game + "-claim",
         server=SERVER_HELP,
     )
     @app_commands.choices(server=SERVER_CHOICES)
-    async def command(interaction: discord.Interaction, character: str, uid: str | None = None,
-                      server: str | None = None) -> None:
+    async def command(interaction: discord.Interaction, character: str, gear_from: str | None = None,
+                      uid: str | None = None, server: str | None = None) -> None:
         bot: HoyoBot = interaction.client  # type: ignore[assignment]
         uid = resolve_uid(bot.claims, interaction.user.id, game, uid, bot.links, server)
         if uid is None:
@@ -311,14 +339,17 @@ def make_command(game: str) -> app_commands.Command:
             profile = with_hoyolab(profile, known)
 
         match, hoyolab_problem = pick(bot, game, profile, character), None
-        if not match and hoyolab and bot.hoyolab.cached(game, uid) is None:
+        beta = None
+        if not match:  # a character from the next version's beta: shown bare, or in gear_from's gear
+            beta = bot.unreleased.build(bot.assets, game, matching.find(character, bot.assets.character_names(game)) or "")
+        if not match and not beta and hoyolab and bot.hoyolab.cached(game, uid) is None:
             # Not on the showcase: HoYoLAB has every character, if the player's Battle Chronicle is public.
             try:
                 profile = with_hoyolab(profile, await bot.hoyolab.fetch(game, uid))
             except HoyolabError as exc:
                 hoyolab_problem = str(exc)
             match = pick(bot, game, profile, character)
-        if not match:
+        if not match and not beta:
             extra = f"\n{hoyolab_problem}" if hoyolab_problem else ""
             if problem:
                 await interaction.followup.send(problem + extra)
@@ -338,10 +369,19 @@ def make_command(game: str) -> app_commands.Command:
                     + extra
                 )
             return
-        build = next(c for c in profile.characters if c.name == match)
-        await interaction.followup.send(**await render(bot, profile, build))
+        build = beta or next(c for c in profile.characters if c.name == match)
+        donor = None
+        if gear_from:
+            donor_name = pick(bot, game, profile, gear_from)
+            donor = next((c for c in profile.characters if c.name == donor_name), None)
+            problem = borrow_problem(game, profile, build, donor, gear_from)
+            if problem:
+                await interaction.followup.send(problem)
+                return
+        await interaction.followup.send(**await render(bot, profile, build, donor))
 
     @command.autocomplete("character")
+    @command.autocomplete("gear_from")
     async def character_autocomplete(interaction: discord.Interaction, current: str):
         bot: HoyoBot = interaction.client  # type: ignore[assignment]
         uid = resolve_uid(bot.claims, interaction.user.id, game, getattr(interaction.namespace, "uid", None), bot.links,
@@ -362,6 +402,148 @@ def make_command(game: str) -> app_commands.Command:
         names = list(dict.fromkeys(names + bot.assets.character_names(game)))
         return [app_commands.Choice(name=n, value=n) for n in matching.suggest(current, names)]
 
+    return command
+
+
+def optimize_text(result: optimize.Result, target: CharacterBuild, relic_set: str, planar_set: str) -> str:
+    """The lines above an optimized card: what was scored, the gain and whose relic each piece is."""
+    name = result.build.name
+    lines = [f"**{name}** in the best **{relic_set}** and **{planar_set}** pieces this account's characters wear"]
+    if result.current:
+        gain = (result.index / result.current - 1) * 100
+        verdict = (f"{gain:+.1f}% against what {name} wears now" if abs(gain) >= 0.05
+                   else f"the same as what {name} wears now")
+        lines.append(f"Damage index: **{verdict}**")
+    if result.build.weapon and result.cones > 1:
+        whose = "their own" if result.cone_owner == name else f"from {result.cone_owner}"
+        lines.append(f"Light cone: **{result.build.weapon.name}** ({whose}), the best of the {result.cones} of their "
+                     "Path worn on this account")
+    owners: dict[str, list[str]] = {}
+    for piece in result.pieces:
+        owners.setdefault(piece.owner, []).append(piece.gear.slot)
+    lines.append(" · ".join(f"{', '.join(slots)} from {'their own' if owner == name else owner}"
+                            for owner, slots in owners.items()))
+    lines.append(f"-# Scored on {', '.join(result.counted)}. {result.tried:,} combinations tried. Set effects count at full "
+                 "stacks; light cone effects that need a trigger, team buffs and enemy debuffs don't.")
+    if target.source == "beta":
+        lines.append(f"-# {name} isn't released yet: beta stats at max level with all traces, which can still change.")
+    return "\n".join(lines)
+
+
+def make_optimize_command() -> app_commands.Command:
+    game = "hsr"
+
+    @app_commands.command(name="hsr-optimize",
+                          description="Find a character's best relics of two sets among the ones your characters wear")
+    @app_commands.describe(
+        character="The character to gear up",
+        relic_set="The 4-piece relic set to use",
+        planar_set="The 2-piece planar ornament set to use",
+        uid="In-game UID. Leave empty to use the one you claimed with /hsr-claim",
+        server=SERVER_HELP,
+    )
+    @app_commands.choices(server=SERVER_CHOICES)
+    async def command(interaction: discord.Interaction, character: str, relic_set: str, planar_set: str,
+                      uid: str | None = None, server: str | None = None) -> None:
+        bot: HoyoBot = interaction.client  # type: ignore[assignment]
+        uid = resolve_uid(bot.claims, interaction.user.id, game, uid, bot.links, server)
+        if uid is None:
+            await interaction.response.send_message(no_uid_message(bot, interaction.user.id, game, server), ephemeral=True)
+            return
+        if not UID_RE.match(uid):
+            await interaction.response.send_message("A UID is 8 to 10 digits, like `618285856`.", ephemeral=True)
+            return
+        sets = {False: matching.find(relic_set, optimize.set_names(bot.assets, planar=False)),
+                True: matching.find(planar_set, optimize.set_names(bot.assets, planar=True))}
+        for planar, typed in ((False, relic_set), (True, planar_set)):
+            if not sets[planar]:
+                await interaction.response.send_message(
+                    f"I don't know a {'planar' if planar else 'relic'} set called **{typed}**. Pick one from the list.",
+                    ephemeral=True)
+                return
+        if not bot.access.is_owner(interaction.user.id):
+            next_free = bot.lookups.take(interaction.user.id)
+            if next_free is not None:
+                await interaction.response.send_message(
+                    f"You've used your {bot.lookups.per_hour} lookups for this hour. "
+                    f"You can look up again <t:{math.ceil(next_free)}:R>.",
+                    ephemeral=True,
+                )
+                return
+        await interaction.response.defer(thinking=True)
+
+        async def enka_profile():
+            try:
+                return await bot.enka.fetch(game, uid)
+            except Exception as exc:
+                log.info("No Enka profile for %s %s: %s", game, uid, exc)
+                return None
+
+        async def hoyolab_builds():
+            if not bot.hoyolab.available(game, uid):
+                return []
+            try:
+                return await bot.hoyolab.fetch(game, uid)
+            except HoyolabError as exc:
+                log.info("No HoYoLAB characters for %s %s: %s", game, uid, exc)
+                return []
+
+        profile, extra = await asyncio.gather(enka_profile(), hoyolab_builds())
+        if profile is None:
+            profile = PlayerProfile(game, uid, f"UID {uid}", 0, [], 60, PROFILE_URLS[game].format(uid=uid))
+        profile = with_hoyolab(profile, extra)
+        if not profile.characters:
+            await interaction.followup.send(
+                "I can't see any of this account's characters. Link it with `/hoyolab link` so every character's relics "
+                "can be used, or put characters on the in-game showcase with **Show Character Details** on.")
+            return
+        match = pick(bot, game, profile, character)
+        target = next((c for c in profile.characters if c.name == match), None)
+        if target is None:
+            target = bot.unreleased.build(bot.assets, game, matching.find(character, bot.assets.character_names(game)) or "")
+        if target is None:
+            await interaction.followup.send(f"**{character}** isn't among {profile.nickname}'s characters.")
+            return
+        try:
+            result = await asyncio.to_thread(optimize.optimize, bot.assets, target, profile.characters, sets[False],
+                                             sets[True], bot.effective.wanted(target))
+        except optimize.OptimizeError as exc:
+            hint = "" if extra else ("\nOnly the showcase characters' relics are visible. With `/hoyolab link`, every "
+                                    "character's relics can be used.")
+            await interaction.followup.send(str(exc) + hint)
+            return
+        view = discord.ui.View(timeout=None)
+        view.add_item(discord.ui.Button(label="Open on Enka.Network", url=profile.profile_url))
+        content = optimize_text(result, target, sets[False], sets[True])
+        try:
+            png = await bot.cards.render(profile, result.build)
+        except Exception:
+            log.exception("Could not draw the optimized card for %s", result.build.name)
+            pieces = await bot.set_emojis.for_pieces(result.build)
+            await interaction.followup.send(content=content, embed=build_embed(profile, result.build, piece_emojis=pieces), view=view)
+            return
+        await interaction.followup.send(content=content, view=view, file=discord.File(io.BytesIO(png), filename="build.png"))
+
+    @command.autocomplete("character")
+    async def character_autocomplete(interaction: discord.Interaction, current: str):
+        bot: HoyoBot = interaction.client  # type: ignore[assignment]
+        uid = resolve_uid(bot.claims, interaction.user.id, game, getattr(interaction.namespace, "uid", None), bot.links,
+                          getattr(interaction.namespace, "server", None)) or ""
+        names: list[str] = []
+        if UID_RE.match(uid):
+            names = [c.name for c in getattr(bot.enka.cached(game, uid), "characters", [])]
+            names += [b.name for b in (bot.hoyolab.cached(game, uid) if bot.hoyolab.available(game, uid) else None) or []]
+        names = list(dict.fromkeys(names + bot.assets.character_names(game)))
+        return [app_commands.Choice(name=n, value=n) for n in matching.suggest(current, names)]
+
+    def set_autocomplete(planar: bool):
+        async def suggest(interaction: discord.Interaction, current: str):
+            names = optimize.set_names(interaction.client.assets, planar)
+            return [app_commands.Choice(name=n[:100], value=n[:100]) for n in matching.suggest(current, names)]
+        return suggest
+
+    command.autocomplete("relic_set")(set_autocomplete(False))
+    command.autocomplete("planar_set")(set_autocomplete(True))
     return command
 
 
@@ -546,6 +728,21 @@ def pick(bot: HoyoBot, game: str, profile: PlayerProfile, query: str) -> str | N
     if wanted in names:
         return wanted
     return None if wanted else matching.find(query, names)
+
+
+def borrow_problem(game: str, profile: PlayerProfile, build: CharacterBuild, donor: CharacterBuild | None,
+                   asked: str) -> str | None:
+    """Why the first character can't wear the second one's gear, if they can't."""
+    showcase = [c.name for c in profile.characters if borrow.can_borrow(c)]
+    if donor is None:
+        return f"**{asked}** isn't in {profile.nickname}'s showcase, so there's no gear to borrow."
+    if donor.name == build.name:
+        return f"Pick two different characters: **{build.name}** already wears their own {borrow.GEAR_WORDS[game]}."
+    missing = [c.name for c in (build, donor) if not borrow.can_borrow(c)]
+    if missing:
+        return (f"**{' and '.join(missing)}** {'is' if len(missing) == 1 else 'are'} only known from HoYoLAB, so their "
+                f"gear can't be swapped. Characters on the in-game showcase can: {', '.join(showcase) or 'none'}.")
+    return None
 
 
 def with_hoyolab(profile: PlayerProfile, builds: list[CharacterBuild]) -> PlayerProfile:
@@ -853,8 +1050,26 @@ class HoyolabGroup(app_commands.Group):
         await interaction.response.send_message(msg, ephemeral=True)
 
 
+def ping_messages(user_ids: list[int], text: str = "", limit: int = 2000) -> list[str]:
+    """The mentions of everyone on the access list, then the text, split so each message fits Discord's limit."""
+    chunks, line = [], ""
+    for mention in (f"<@{uid}>" for uid in user_ids):
+        if len(line) + len(mention) + 1 > limit:
+            chunks.append(line)
+            line = ""
+        line += (" " if line else "") + mention
+    text = text[:limit]
+    if text and len(line) + len(text) + 1 > limit:
+        chunks.append(line)
+        line = text
+    elif text:
+        line += "\n" + text
+    chunks.append(line)
+    return chunks
+
+
 class AccessGroup(app_commands.Group):
-    """/access add, remove and list: who besides the owner may use the bot."""
+    """/access add, remove, list and ping: who besides the owner may use the bot."""
 
     def __init__(self) -> None:
         super().__init__(name="access", description="Choose who can use this bot (owner only)")
@@ -908,6 +1123,39 @@ class AccessGroup(app_commands.Group):
         else:
             msg = f"{user.mention} wasn't on the list."
         await interaction.response.send_message(msg, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+    @app_commands.command(name="ping", description="Ping everyone who can use the bot")
+    @app_commands.describe(message="What to tell them, e.g. about a new command",
+                           where="Here in this channel (default), or as a DM to each of them")
+    @app_commands.choices(where=[app_commands.Choice(name="Here", value="here"),
+                                 app_commands.Choice(name="DM each of them", value="dm")])
+    async def ping(self, interaction: discord.Interaction, message: str | None = None, where: str = "here") -> None:
+        bot: HoyoBot = interaction.client  # type: ignore[assignment]
+        ids = list(bot.access.users)
+        if not ids:
+            await interaction.response.send_message("Nobody else has access yet. Add people with `/access add`.", ephemeral=True)
+            return
+        text = (message or "").strip()
+        if where == "dm":
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            body = (text or f"{interaction.user.display_name} pinged everyone who can use this bot.")[:1900]
+            failed = []
+            for uid in ids:
+                try:
+                    user = bot.get_user(uid) or await bot.fetch_user(uid)
+                    await user.send(body)
+                except discord.HTTPException:
+                    failed.append(uid)
+            msg = f"Sent a DM to {len(ids) - len(failed)} of {len(ids)} people."
+            if failed:
+                msg += " I couldn't reach (DMs closed?): " + " ".join(f"<@{u}>" for u in failed)
+            await interaction.followup.send(msg[:2000], ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+            return
+        chunks = ping_messages(ids, text)
+        allowed = discord.AllowedMentions(users=True, everyone=False, roles=False)
+        await interaction.response.send_message(chunks[0], allowed_mentions=allowed)
+        for chunk in chunks[1:]:
+            await interaction.followup.send(chunk, allowed_mentions=allowed)
 
     @app_commands.command(name="list", description="Show who can use the bot")
     async def list_(self, interaction: discord.Interaction) -> None:
