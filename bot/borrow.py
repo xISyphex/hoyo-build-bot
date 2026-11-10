@@ -37,8 +37,9 @@ GI_FLAT = {"1", "2", "4", "5", "7", "8", "28"}
 
 
 def can_borrow(build: CharacterBuild) -> bool:
-    """Characters read from the in-game showcase carry the raw entry needed. Star Rail characters from HoYoLAB work
-    too, as long as HoYoLAB shares their relic stats (it does for the player's own linked account)."""
+    """Characters read from the in-game showcase carry the raw entry needed, and so do ZZZ agents from HoYoLAB (it is
+    rebuilt for them). Star Rail characters from HoYoLAB work too, as long as HoYoLAB shares their relic stats (it
+    does for the player's own linked account)."""
     if build.raw:
         return True
     return build.game == "hsr" and bool(build.bare) and (not build.gear or any(g.subs for g in build.gear))

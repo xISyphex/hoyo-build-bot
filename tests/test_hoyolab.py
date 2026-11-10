@@ -226,6 +226,25 @@ class HoyolabBuildTest(unittest.TestCase):
         self.assertEqual([(s.name, s.value) for s in build.weapon.stats], [("ATK", "713"), ("CRIT Rate", "24.0%")])
         self.assertEqual([(t.name, t.value) for t in build.talents], [("Basic", "12"), ("Core", "F")])
 
+    def test_zzz_agents_can_swap_gear(self):
+        """HoYoLAB's agents are rebuilt as showcase entries, so gear_from works with them in both directions."""
+        from bot import borrow
+        from bot.games import zenless
+        from tests.test_parsers import fixture
+        ellen = zzz_build(self.assets, genshin.models.ZZZFullAgent(**ZZZ))
+        self.assertTrue(borrow.can_borrow(ellen))
+        again = zenless.parse_character(self.assets, ellen.raw)  # the entry reads back as the same gear
+        self.assertEqual([(s.name, s.value, s.rolls) for s in again.gear[0].subs],
+                         [(s.name, s.value, s.rolls) for s in ellen.gear[0].subs])
+        self.assertEqual(again.gear[0].main.value, "2,200")
+        self.assertEqual([(s.name, s.value) for s in again.weapon.stats], [("ATK", "713"), ("CRIT Rate", "24.0%")])
+        showcase = zenless.parse_profile(self.assets, "1", fixture("zzz_live.json")).characters[0]
+        worn = borrow.borrow(self.assets, ellen, showcase)
+        self.assertEqual((worn.name, worn.level, worn.weapon.name, len(worn.gear)),
+                         ("Ellen", 60, showcase.weapon.name, len(showcase.gear)))
+        lent = borrow.borrow(self.assets, showcase, ellen)
+        self.assertEqual((lent.name, lent.weapon.name, lent.gear[0].main.value), (showcase.name, "Deep Sea Visitor", "2,200"))
+
     def _all(self):
         return [
             genshin_build(self.assets, genshin.models.GenshinDetailCharacters(**GENSHIN).characters[0]),
