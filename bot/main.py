@@ -422,6 +422,21 @@ def make_command(game: str) -> app_commands.Command:
     return command
 
 
+def excluded_names(text: str | None, names: list[str]) -> tuple[list[str], list[str]]:
+    """The characters named in an `exclude` option ("Acheron, kafka"), and the parts that match nobody."""
+    found, unknown = [], []
+    for part in (text or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        match = matching.find(part, names)
+        if not match:
+            unknown.append(part)
+        elif match not in found:
+            found.append(match)
+    return found, unknown
+
+
 CONE_WORDS = {"DMG": "DMG", "CriticalDamageBase": "CRIT DMG", "CriticalChanceBase": "CRIT Rate", "AttackAddedRatio": "ATK",
               "HPAddedRatio": "HP", "DefenceAddedRatio": "DEF", "SpeedAddedRatio": "SPD", "DefIgnore": "DEF ignored",
               "BreakDamageAddedRatioBase": "Break Effect", "ElationDamageAddedRatioBase": "Elation",
@@ -475,11 +490,13 @@ def make_optimize_command() -> app_commands.Command:
         speed="Count Speed in the score? Leave empty to count it only for characters who build Speed",
         uid="In-game UID. Leave empty to use the one you claimed with /hsr-claim",
         server=SERVER_HELP,
+        exclude="Characters whose relics must stay on them, separated by commas (e.g. Acheron, Kafka)",
     )
     @app_commands.choices(server=SERVER_CHOICES, speed=[app_commands.Choice(name="On", value="on"),
                                                         app_commands.Choice(name="Off", value="off")])
     async def command(interaction: discord.Interaction, character: str, relic_set: str, planar_set: str,
-                      speed: str | None = None, uid: str | None = None, server: str | None = None) -> None:
+                      speed: str | None = None, uid: str | None = None, server: str | None = None,
+                      exclude: str | None = None) -> None:
         bot: HoyoBot = interaction.client  # type: ignore[assignment]
         uid = resolve_uid(bot.claims, interaction.user.id, game, uid, bot.links, server)
         if uid is None:
@@ -542,11 +559,17 @@ def make_optimize_command() -> app_commands.Command:
         if target is None:
             await interaction.followup.send(f"**{character}** isn't among {profile.nickname}'s characters.")
             return
+        excluded, unknown = excluded_names(exclude, [c.name for c in profile.characters])
+        if unknown:
+            await interaction.followup.send(f"I can't exclude **{', '.join(unknown)}**: not among {profile.nickname}'s "
+                                            "characters. Separate several names with commas.")
+            return
         try:
             result = await asyncio.to_thread(optimize.optimize, bot.assets, target, profile.characters, sets[False],
                                              sets[True],
                                              optimize.with_speed(bot.effective.wanted(target),
-                                                                 {"on": True, "off": False}.get(speed or "")))
+                                                                 {"on": True, "off": False}.get(speed or "")),
+                                             set(excluded))
         except optimize.OptimizeError as exc:
             hint = "" if extra else ("\nOnly the showcase characters' relics are visible. With `/hoyolab link`, every "
                                     "character's relics can be used.")
@@ -555,6 +578,8 @@ def make_optimize_command() -> app_commands.Command:
         view = discord.ui.View(timeout=None)
         view.add_item(discord.ui.Button(label="Open on Enka.Network", url=profile.profile_url))
         content = optimize_text(result, target, sets[False], sets[True])
+        if excluded:
+            content += f"\n-# Left alone: the relics of {', '.join(excluded)}."
         try:
             png = await bot.cards.render(profile, result.build)
         except Exception:
@@ -581,6 +606,26 @@ def make_optimize_command() -> app_commands.Command:
             names = optimize.set_names(interaction.client.assets, planar)
             return [app_commands.Choice(name=n[:100], value=n[:100]) for n in matching.suggest(current, names)]
         return suggest
+
+    @command.autocomplete("exclude")
+    async def exclude_autocomplete(interaction: discord.Interaction, current: str):
+        """Completes the name after the last comma, keeping the ones before it."""
+        bot: HoyoBot = interaction.client  # type: ignore[assignment]
+        uid = resolve_uid(bot.claims, interaction.user.id, game, getattr(interaction.namespace, "uid", None), bot.links,
+                          getattr(interaction.namespace, "server", None)) or ""
+        names: list[str] = []
+        if UID_RE.match(uid):
+            names = [c.name for c in getattr(bot.enka.cached(game, uid), "characters", [])]
+            names += [b.name for b in (bot.hoyolab.cached(game, uid) if bot.hoyolab.available(game, uid) else None) or []]
+        names = list(dict.fromkeys(names)) or bot.assets.character_names(game)
+        *done, last = [part.strip() for part in current.split(",")]
+        done = [d for d in done if d]
+        options = []
+        for name in matching.suggest(last, [n for n in names if n not in done]):
+            value = ", ".join([*done, name])
+            if len(value) <= 100:
+                options.append(app_commands.Choice(name=value, value=value))
+        return options[:25]
 
     command.autocomplete("relic_set")(set_autocomplete(False))
     command.autocomplete("planar_set")(set_autocomplete(True))

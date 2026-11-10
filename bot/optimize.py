@@ -285,8 +285,9 @@ def _undominated(pieces: list[Piece], keys: set[str]) -> list[Piece]:
 
 
 def optimize(assets: Assets, target: CharacterBuild, builds: list[CharacterBuild], relic_set: str, planar_set: str,
-             wanted: set[str] | None) -> Result:
-    """The target in the best pieces of the two sets that the player's characters wear."""
+             wanted: set[str] | None, exclude: set[str] | None = None) -> Result:
+    """The target in the best pieces of the two sets that the player's characters wear. The relics of the characters
+    named in exclude stay where they are (their light cones can still be tried)."""
     ids = set_ids(assets)
     for name, planar in ((relic_set, False), (planar_set, True)):
         if name not in ids or (int(ids[name]) >= 300) != planar:
@@ -314,7 +315,7 @@ def optimize(assets: Assets, target: CharacterBuild, builds: list[CharacterBuild
             cones.append((other.name, eq))
     bare, scorer = with_cone(info.get("equipment"))
 
-    everything = pool(builds)
+    everything = pool([b for b in builds if b.name not in (exclude or ())])
     by_slot: dict[str, list[Piece]] = {}
     missing = []
     for slot in sr.SLOT_ORDER:
@@ -324,7 +325,8 @@ def optimize(assets: Assets, target: CharacterBuild, builds: list[CharacterBuild
             missing.append(f"{slot} ({wanted_set})")
     if missing:
         raise OptimizeError("None of this player's characters wears these pieces with readable stats: "
-                            + ", ".join(missing) + ". Only relics worn by a character can be used.")
+                            + ", ".join(missing) + ". Only relics worn by a character can be used."
+                            + (" Excluded: " + ", ".join(sorted(exclude)) + "." if exclude else ""))
 
     # Stats nothing in the index or the set effects reads can't change the result, so pieces are compared without them.
     keys = {k for p in everything for k in p.props} - {"HealRatioBase", "SPRatioBase"}

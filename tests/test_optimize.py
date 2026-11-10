@@ -7,7 +7,7 @@ import unittest
 from bot import cone_effects, optimize
 from bot.games import starrail
 from bot.hoyolab import _sr_promotion
-from bot.main import optimize_text
+from bot.main import excluded_names, optimize_text
 from bot.models import Gear, Stat
 from tests.test_parsers import fixture, load_assets
 
@@ -102,6 +102,21 @@ class OptimizeTest(unittest.TestCase):
         self.assertEqual(optimize.turns(135), optimize.turns(142))
         self.assertGreater(optimize.turns(160), optimize.turns(159))
         self.assertAlmostEqual(optimize.turns(200), 2.0)
+
+    def test_excluded_characters_keep_their_relics(self):
+        builds = self.account()
+        target, other = builds[0], builds[1]
+        stats = {"CRIT Rate", "CRIT DMG", "HP%"}
+        result = optimize.optimize(self.assets, target, builds, RELICS, PLANAR, stats, {other.name})
+        self.assertNotIn(other.name, {p.owner for p in result.pieces})
+        self.assertEqual(result.tried, 3 ** 6 * result.cones)
+        self.assertLessEqual(result.index, optimize.optimize(self.assets, target, builds, RELICS, PLANAR, stats).index)
+        with self.assertRaises(optimize.OptimizeError):
+            optimize.optimize(self.assets, target, builds, RELICS, PLANAR, stats, {b.name for b in builds})
+        names = [b.name for b in builds]
+        self.assertEqual(excluded_names(f" {other.name.lower()},, {target.name} ,Nobody Here", names),
+                         ([other.name, target.name], ["Nobody Here"]))
+        self.assertEqual(excluded_names(None, names), ([], []))
 
     def test_speed_can_be_switched(self):
         self.assertEqual(optimize.with_speed({"CRIT Rate", "SPD"}, None), {"CRIT Rate", "SPD"})
