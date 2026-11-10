@@ -516,6 +516,8 @@ def foot_text(build: CharacterBuild, uid: str) -> str:
         foot = f"Unreleased, beta stats · {foot}"
     if build.borrowed_from:
         foot = f"With {build.borrowed_from}'s gear · {foot}"
+    if build.optimized:
+        foot = f"Best of their relics · {foot}"
     return foot
 
 

@@ -236,30 +236,8 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
         elif count >= 2:
             set_bonuses.append(f"2pc {set_names[set_id]}")
 
-    hp = base_hp * (1 + bonus["HPAddedRatio"]) + bonus["HPDelta"]
-    atk = base_atk * (1 + bonus["AttackAddedRatio"]) + bonus["AttackDelta"]
-    df = base_def * (1 + bonus["DefenceAddedRatio"]) + bonus["DefenceDelta"]
-    spd = (base_spd + bonus["BaseSpeed"]) * (1 + bonus["SpeedAddedRatio"]) + bonus["SpeedDelta"]
-    elem_dmg = bonus[f"{element}AddedRatio"] + bonus["AllDamageTypeAddedRatio"]
-
-    stats = [
-        Stat("HP", fmt_int(hp)),
-        Stat("ATK", fmt_int(atk)),
-        Stat("DEF", fmt_int(df)),
-        Stat("SPD", f"{spd:.1f}"),
-        Stat("CRIT Rate", fmt_pct(bonus["CriticalChanceBase"])),
-        Stat("CRIT DMG", fmt_pct(bonus["CriticalDamageBase"])),
-        Stat("Break Effect", fmt_pct(bonus["BreakDamageAddedRatioBase"])),
-        Stat("Energy Regen Rate", fmt_pct(1 + bonus["SPRatioBase"])),
-        Stat("Effect Hit Rate", fmt_pct(bonus["StatusProbabilityBase"])),
-        Stat("Effect RES", fmt_pct(bonus["StatusResistanceBase"])),
-    ]
-    if bonus["HealRatioBase"]:
-        stats.append(Stat("Outgoing Healing", fmt_pct(bonus["HealRatioBase"])))
-    if elem_dmg:
-        stats.append(Stat(f"{ELEMENTS.get(element, element)} DMG Boost", fmt_pct(elem_dmg)))
-    if bonus["ElationDamageAddedRatioBase"]:  # Elation path (3.x) traces
-        stats.append(Stat("Elation DMG Boost", fmt_pct(bonus["ElationDamageAddedRatioBase"])))
+    calc = {"hp": base_hp, "atk": base_atk, "def": base_def, "spd": base_spd, "element": element, "bonus": dict(bonus)}
+    stats = stat_lines(calc)
 
     icon_path = char.get("AvatarSideIconPath")
     notes = ["Stats exclude conditional buffs, like the in-game character screen."]
@@ -284,7 +262,47 @@ def parse_character(assets: Assets, info: dict) -> CharacterBuild:
         path_icon=f"{SRR_PATH_ICONS}{PATH_ICONS[path]}.png" if (path := char.get("AvatarBaseType")) in PATH_ICONS else None,
         element_icon=f"{SRR_ELEMENT_ICONS}{element}.png" if element in ELEMENTS else None,
         cons_icons=char.get("RankIcons") or _eidolon_icons(assets, avatar_id),
+        calc=calc,
     )
+
+
+def totals(calc: dict, bonus: dict | None = None) -> dict[str, float]:
+    """HP, ATK, DEF and SPD from the base values and the collected bonuses (calc's own, or another set of them)."""
+    b = defaultdict(float, calc["bonus"] if bonus is None else bonus)
+    return {
+        "hp": calc["hp"] * (1 + b["HPAddedRatio"]) + b["HPDelta"],
+        "atk": calc["atk"] * (1 + b["AttackAddedRatio"]) + b["AttackDelta"],
+        "def": calc["def"] * (1 + b["DefenceAddedRatio"]) + b["DefenceDelta"],
+        "spd": (calc["spd"] + b["BaseSpeed"]) * (1 + b["SpeedAddedRatio"]) + b["SpeedDelta"],
+    }
+
+
+def stat_lines(calc: dict, bonus: dict | None = None) -> list[Stat]:
+    """The stat list of the character screen."""
+    element = calc["element"]
+    bonus = defaultdict(float, calc["bonus"] if bonus is None else bonus)
+    t = totals(calc, bonus)
+    hp, atk, df, spd = t["hp"], t["atk"], t["def"], t["spd"]
+    elem_dmg = bonus[f"{element}AddedRatio"] + bonus["AllDamageTypeAddedRatio"]
+    stats = [
+        Stat("HP", fmt_int(hp)),
+        Stat("ATK", fmt_int(atk)),
+        Stat("DEF", fmt_int(df)),
+        Stat("SPD", f"{spd:.1f}"),
+        Stat("CRIT Rate", fmt_pct(bonus["CriticalChanceBase"])),
+        Stat("CRIT DMG", fmt_pct(bonus["CriticalDamageBase"])),
+        Stat("Break Effect", fmt_pct(bonus["BreakDamageAddedRatioBase"])),
+        Stat("Energy Regen Rate", fmt_pct(1 + bonus["SPRatioBase"])),
+        Stat("Effect Hit Rate", fmt_pct(bonus["StatusProbabilityBase"])),
+        Stat("Effect RES", fmt_pct(bonus["StatusResistanceBase"])),
+    ]
+    if bonus["HealRatioBase"]:
+        stats.append(Stat("Outgoing Healing", fmt_pct(bonus["HealRatioBase"])))
+    if elem_dmg:
+        stats.append(Stat(f"{ELEMENTS.get(element, element)} DMG Boost", fmt_pct(elem_dmg)))
+    if bonus["ElationDamageAddedRatioBase"]:  # Elation path (3.x) traces
+        stats.append(Stat("Elation DMG Boost", fmt_pct(bonus["ElationDamageAddedRatioBase"])))
+    return stats
 
 
 def _eidolon_icons(assets: Assets, avatar_id: str) -> list[str]:

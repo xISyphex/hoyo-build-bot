@@ -19,7 +19,7 @@ import genshin
 from discord import app_commands
 from discord.ext import tasks
 
-from . import borrow, matching, news, patch, records, timezones
+from . import borrow, matching, news, patch, optimize, records, timezones
 from .access import PRIVATE, AccessList
 from .assets import Assets
 from .claims import ClaimStore
@@ -126,6 +126,7 @@ class HoyoBot(discord.Client):
             self.tree.add_command(make_stats_command(game))
             self.tree.add_command(make_patch_command(game))
             self.tree.add_command(make_news_command(game))
+        self.tree.add_command(make_optimize_command())
         self.tree.add_command(AccessGroup())
         self.tree.add_command(HoyolabGroup())
         self.tree.add_command(help_command)
@@ -401,6 +402,144 @@ def make_command(game: str) -> app_commands.Command:
         names = list(dict.fromkeys(names + bot.assets.character_names(game)))
         return [app_commands.Choice(name=n, value=n) for n in matching.suggest(current, names)]
 
+    return command
+
+
+def optimize_text(result: optimize.Result, target: CharacterBuild, relic_set: str, planar_set: str) -> str:
+    """The lines above an optimized card: what was scored, the gain and whose relic each piece is."""
+    name = result.build.name
+    lines = [f"**{name}** in the best **{relic_set}** and **{planar_set}** pieces this account's characters wear"]
+    if result.current:
+        gain = (result.index / result.current - 1) * 100
+        verdict = (f"{gain:+.1f}% against what {name} wears now" if abs(gain) >= 0.05
+                   else f"the same as what {name} wears now")
+        lines.append(f"Damage index: **{verdict}**")
+    owners: dict[str, list[str]] = {}
+    for piece in result.pieces:
+        owners.setdefault(piece.owner, []).append(piece.gear.slot)
+    lines.append(" · ".join(f"{', '.join(slots)} from {'their own' if owner == name else owner}"
+                            for owner, slots in owners.items()))
+    lines.append(f"-# Scored on {', '.join(result.counted)}. {result.tried:,} combinations tried. Set effects count at full "
+                 "stacks; team buffs and enemy stats don't.")
+    if target.source == "beta":
+        lines.append(f"-# {name} isn't released yet: beta stats at max level with all traces, which can still change.")
+    return "\n".join(lines)
+
+
+def make_optimize_command() -> app_commands.Command:
+    game = "hsr"
+
+    @app_commands.command(name="hsr-optimize",
+                          description="Find a character's best relics of two sets among the ones your characters wear")
+    @app_commands.describe(
+        character="The character to gear up",
+        relic_set="The 4-piece relic set to use",
+        planar_set="The 2-piece planar ornament set to use",
+        uid="In-game UID. Leave empty to use the one you claimed with /hsr-claim",
+        server=SERVER_HELP,
+    )
+    @app_commands.choices(server=SERVER_CHOICES)
+    async def command(interaction: discord.Interaction, character: str, relic_set: str, planar_set: str,
+                      uid: str | None = None, server: str | None = None) -> None:
+        bot: HoyoBot = interaction.client  # type: ignore[assignment]
+        uid = resolve_uid(bot.claims, interaction.user.id, game, uid, bot.links, server)
+        if uid is None:
+            await interaction.response.send_message(no_uid_message(bot, interaction.user.id, game, server), ephemeral=True)
+            return
+        if not UID_RE.match(uid):
+            await interaction.response.send_message("A UID is 8 to 10 digits, like `618285856`.", ephemeral=True)
+            return
+        sets = {False: matching.find(relic_set, optimize.set_names(bot.assets, planar=False)),
+                True: matching.find(planar_set, optimize.set_names(bot.assets, planar=True))}
+        for planar, typed in ((False, relic_set), (True, planar_set)):
+            if not sets[planar]:
+                await interaction.response.send_message(
+                    f"I don't know a {'planar' if planar else 'relic'} set called **{typed}**. Pick one from the list.",
+                    ephemeral=True)
+                return
+        if not bot.access.is_owner(interaction.user.id):
+            next_free = bot.lookups.take(interaction.user.id)
+            if next_free is not None:
+                await interaction.response.send_message(
+                    f"You've used your {bot.lookups.per_hour} lookups for this hour. "
+                    f"You can look up again <t:{math.ceil(next_free)}:R>.",
+                    ephemeral=True,
+                )
+                return
+        await interaction.response.defer(thinking=True)
+
+        async def enka_profile():
+            try:
+                return await bot.enka.fetch(game, uid)
+            except Exception as exc:
+                log.info("No Enka profile for %s %s: %s", game, uid, exc)
+                return None
+
+        async def hoyolab_builds():
+            if not bot.hoyolab.available(game, uid):
+                return []
+            try:
+                return await bot.hoyolab.fetch(game, uid)
+            except HoyolabError as exc:
+                log.info("No HoYoLAB characters for %s %s: %s", game, uid, exc)
+                return []
+
+        profile, extra = await asyncio.gather(enka_profile(), hoyolab_builds())
+        if profile is None:
+            profile = PlayerProfile(game, uid, f"UID {uid}", 0, [], 60, PROFILE_URLS[game].format(uid=uid))
+        profile = with_hoyolab(profile, extra)
+        if not profile.characters:
+            await interaction.followup.send(
+                "I can't see any of this account's characters. Link it with `/hoyolab link` so every character's relics "
+                "can be used, or put characters on the in-game showcase with **Show Character Details** on.")
+            return
+        match = pick(bot, game, profile, character)
+        target = next((c for c in profile.characters if c.name == match), None)
+        if target is None:
+            target = bot.unreleased.build(bot.assets, game, matching.find(character, bot.assets.character_names(game)) or "")
+        if target is None:
+            await interaction.followup.send(f"**{character}** isn't among {profile.nickname}'s characters.")
+            return
+        try:
+            result = await asyncio.to_thread(optimize.optimize, bot.assets, target, profile.characters, sets[False],
+                                             sets[True], bot.effective.wanted(target))
+        except optimize.OptimizeError as exc:
+            hint = "" if extra else ("\nOnly the showcase characters' relics are visible. With `/hoyolab link`, every "
+                                    "character's relics can be used.")
+            await interaction.followup.send(str(exc) + hint)
+            return
+        view = discord.ui.View(timeout=None)
+        view.add_item(discord.ui.Button(label="Open on Enka.Network", url=profile.profile_url))
+        content = optimize_text(result, target, sets[False], sets[True])
+        try:
+            png = await bot.cards.render(profile, result.build)
+        except Exception:
+            log.exception("Could not draw the optimized card for %s", result.build.name)
+            pieces = await bot.set_emojis.for_pieces(result.build)
+            await interaction.followup.send(content=content, embed=build_embed(profile, result.build, piece_emojis=pieces), view=view)
+            return
+        await interaction.followup.send(content=content, view=view, file=discord.File(io.BytesIO(png), filename="build.png"))
+
+    @command.autocomplete("character")
+    async def character_autocomplete(interaction: discord.Interaction, current: str):
+        bot: HoyoBot = interaction.client  # type: ignore[assignment]
+        uid = resolve_uid(bot.claims, interaction.user.id, game, getattr(interaction.namespace, "uid", None), bot.links,
+                          getattr(interaction.namespace, "server", None)) or ""
+        names: list[str] = []
+        if UID_RE.match(uid):
+            names = [c.name for c in getattr(bot.enka.cached(game, uid), "characters", [])]
+            names += [b.name for b in (bot.hoyolab.cached(game, uid) if bot.hoyolab.available(game, uid) else None) or []]
+        names = list(dict.fromkeys(names + bot.assets.character_names(game)))
+        return [app_commands.Choice(name=n, value=n) for n in matching.suggest(current, names)]
+
+    def set_autocomplete(planar: bool):
+        async def suggest(interaction: discord.Interaction, current: str):
+            names = optimize.set_names(interaction.client.assets, planar)
+            return [app_commands.Choice(name=n[:100], value=n[:100]) for n in matching.suggest(current, names)]
+        return suggest
+
+    command.autocomplete("relic_set")(set_autocomplete(False))
+    command.autocomplete("planar_set")(set_autocomplete(True))
     return command
 
 
