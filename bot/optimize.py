@@ -12,19 +12,25 @@ The damage index follows the game's damage formula
 changes:
 
     scaling stat (ATK, HP or DEF) x (1 + DMG Boost) x (1 + CRIT Rate x CRIT DMG) x DEF multiplier
-    x (1 + Break Effect) x SPD
+    x (1 + Break Effect) x turns
 
 Elation characters deal Elation DMG, which uses a fixed base instead of ATK and Elation instead of DMG Boost:
 
-    7535.107 (at Lv. 80) x (1 + Elation) x (1 + CRIT Rate x CRIT DMG) x DEF multiplier x SPD
+    7535.107 (at Lv. 80) x (1 + Elation) x (1 + CRIT Rate x CRIT DMG) x DEF multiplier x turns
 
 Only the parts the character builds for count: the stats the game itself recommends for them (the same list the
 build card's effective substats use). So Firefly is scored on ATK, Break Effect and SPD, and Castorice on HP and crit.
 Set effects that depend on the build (Space Sealing Station's SPD 120, Rutilant Arena's 70% CRIT Rate) and the ones a
 set gives its wearer in combat are counted, at full stacks. The DEF multiplier is for an enemy of ENEMY_LEVEL with the
 sets' DEF ignore. RES, DMG Taken, DMG Reduction, Weaken, Merrymaking and Punchline come from the enemy and the team,
-not the gear, so they multiply every candidate alike and are left at 1. A light cone counts with its base stats and
-the stats its passive always gives; passive effects that need a trigger aren't in the game data as numbers.
+not the gear, so they multiply every candidate alike and are left at 1.
+
+"turns" is how often the character acts in Memory of Chaos, so Speed only pays at its breakpoints: the first cycle is
+150 action value long and every later one 100, a turn costs 10000 / SPD, and the turns taken within the first 1, 2,
+... CYCLES cycles are averaged (as turns per 100 action value, so 100 SPD is about 1).
+
+A light cone counts with its base stats and its whole passive, read from the passive's text (bot/cone_effects.py):
+like the sets, as active and at full stacks.
 """
 
 from __future__ import annotations
@@ -33,6 +39,7 @@ import itertools
 from collections import defaultdict
 from dataclasses import dataclass, replace
 
+from . import cone_effects
 from .assets import Assets
 from .games import starrail as sr
 from .models import CharacterBuild, Gear
@@ -44,6 +51,7 @@ DEFAULT_WANTED = ("CRIT Rate", "CRIT DMG", "ATK%", "SPD")  # for characters the 
 MAX_TRIES = 400_000
 ENEMY_LEVEL = 95  # Memory of Chaos, last floors
 ELATION_BASE = 7535.107  # what Elation DMG uses in place of ATK at Lv. 80
+CYCLES = 5  # Memory of Chaos clears of 1 to 5 cycles
 SCALING = {"ATK%": "atk", "HP%": "hp", "DEF%": "def"}
 
 
@@ -64,6 +72,7 @@ class Result:
     tried: int
     cone_owner: str | None = None  # whose light cone was picked (None: no light cone to pick)
     cones: int = 0  # how many light cones were tried
+    cone_effect: dict[str, float] | None = None  # what the picked light cone's passive was counted as
 
 
 class OptimizeError(Exception):
@@ -172,11 +181,22 @@ SET_EFFECTS = {
 }
 
 
+def turns(spd: float) -> float:
+    """Turns per 100 action value in Memory of Chaos, averaged over clears of 1 to CYCLES cycles."""
+    total = 0.0
+    for cycles in range(1, CYCLES + 1):
+        length = 50 + 100 * cycles  # the first cycle is 150 long
+        total += int(length * spd / 10000 + 1e-9) / (length / 100)
+    return total / CYCLES
+
+
 class Scorer:
     """The damage index of one character for any set of relic stats."""
 
-    def __init__(self, assets: Assets, calc: dict, wanted: set[str] | None, level: int = 80, elation: bool = False):
+    def __init__(self, assets: Assets, calc: dict, wanted: set[str] | None, level: int = 80, elation: bool = False,
+                 cone: dict[str, float] | None = None):
         self.calc = calc
+        self.cone = cone or {}  # what the light cone's passive adds in combat
         self.level = level
         self.elation = elation  # an Elation character: Elation DMG's formula
         self.wanted = set(wanted or DEFAULT_WANTED)
@@ -211,6 +231,8 @@ class Scorer:
 
     def index(self, props: list[dict[str, float]], sets: dict[str, int]) -> float:
         bonus = self.bonus(props, sets)
+        for key, value in self.cone.items():
+            bonus[key] += value
         totals = sr.totals(self.calc, bonus)
         for set_id, count in sets.items():
             effect = SET_EFFECTS.get(set_id)
@@ -237,10 +259,10 @@ class Scorer:
         elif self.crit_dmg:  # supports whose buff grows with their own CRIT DMG
             score *= 1 + bonus["CriticalDamageBase"]
         if self.break_effect:
-            score *= 1 + bonus["BreakDamageAddedRatioBase"]
+            score *= (1 + bonus["BreakDamageAddedRatioBase"]) * (1 + bonus["BreakDMG"])
         if self.speed:
-            score *= totals["spd"] / 100
-        return score
+            score *= turns(totals["spd"])
+        return score * (1 + bonus["Vulnerability"])
 
 
 def _undominated(pieces: list[Piece], keys: set[str]) -> list[Piece]:
@@ -270,7 +292,7 @@ def optimize(assets: Assets, target: CharacterBuild, builds: list[CharacterBuild
     def with_cone(equipment: dict | None) -> tuple[CharacterBuild, Scorer]:
         bare = sr.parse_character(assets, {**{k: v for k, v in info.items() if k != "equipment"},
                                            **({"equipment": equipment} if equipment else {})})
-        return bare, Scorer(assets, bare.calc, wanted, bare.level, elation)
+        return bare, Scorer(assets, bare.calc, wanted, bare.level, elation, cone_effects.effect(assets, equipment))
 
     # The light cones to try: their own first, then every one of their Path that another character wears.
     cones: list[tuple[str, dict | None]] = [(target.name, info.get("equipment"))]
@@ -333,7 +355,7 @@ def optimize(assets: Assets, target: CharacterBuild, builds: list[CharacterBuild
                     talents=target.talents or bare.talents, weapon=weapon, borrowed_from=None, optimized=True, score=best_index,
                     score_gain=(best_index / current - 1) * 100 if current else None)
     return Result(build, list(best), best_index, current, scorer.counted(), tried,
-                  cones[best_cone][0] if weapon else None, len(cones))
+                  cones[best_cone][0] if weapon else None, len(cones), dict(best_scorer.cone))
 
 
 def _cone_key(equipment: dict | None) -> tuple:
