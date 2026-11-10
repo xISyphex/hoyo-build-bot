@@ -373,10 +373,17 @@ def make_command(game: str) -> app_commands.Command:
         donor = None
         if gear_from:
             donor_name = pick(bot, game, profile, gear_from)
+            if not donor_name and hoyolab and bot.hoyolab.cached(game, uid) is None:
+                # Not on the showcase: HoYoLAB has every character of a linked account.
+                try:
+                    profile = with_hoyolab(profile, await bot.hoyolab.fetch(game, uid))
+                except HoyolabError as exc:
+                    hoyolab_problem = str(exc)
+                donor_name = pick(bot, game, profile, gear_from)
             donor = next((c for c in profile.characters if c.name == donor_name), None)
             problem = borrow_problem(game, profile, build, donor, gear_from)
             if problem:
-                await interaction.followup.send(problem)
+                await interaction.followup.send(problem + (f"\n{hoyolab_problem}" if hoyolab_problem and donor is None else ""))
                 return
         await interaction.followup.send(**await render(bot, profile, build, donor))
 
@@ -735,13 +742,15 @@ def borrow_problem(game: str, profile: PlayerProfile, build: CharacterBuild, don
     """Why the first character can't wear the second one's gear, if they can't."""
     showcase = [c.name for c in profile.characters if borrow.can_borrow(c)]
     if donor is None:
-        return f"**{asked}** isn't in {profile.nickname}'s showcase, so there's no gear to borrow."
+        return f"**{asked}** isn't among {profile.nickname}'s characters, so there's no gear to borrow."
     if donor.name == build.name:
         return f"Pick two different characters: **{build.name}** already wears their own {borrow.GEAR_WORDS[game]}."
     missing = [c.name for c in (build, donor) if not borrow.can_borrow(c)]
     if missing:
-        return (f"**{' and '.join(missing)}** {'is' if len(missing) == 1 else 'are'} only known from HoYoLAB, so their "
-                f"gear can't be swapped. Characters on the in-game showcase can: {', '.join(showcase) or 'none'}.")
+        why = ("HoYoLAB doesn't share their relic stats" if game == "hsr" else
+               f"only known from HoYoLAB, where {GAME_NAMES[game]} gear can't be swapped yet")
+        return (f"**{' and '.join(missing)}** {'is' if len(missing) == 1 else 'are'} {why}. "
+                f"These characters can: {', '.join(showcase[:40]) or 'none'}.")
     return None
 
 

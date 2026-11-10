@@ -7,6 +7,8 @@ wearer's own weapon, artifacts and 2-piece set stats are taken off them and the 
 
 from __future__ import annotations
 
+import dataclasses
+
 from .assets import Assets
 from .games import genshin, starrail, zenless
 from .models import CharacterBuild
@@ -31,12 +33,45 @@ GI_FLAT = {"1", "2", "4", "5", "7", "8", "28"}
 
 
 def can_borrow(build: CharacterBuild) -> bool:
-    """Only characters read from the in-game showcase carry the raw entry needed."""
-    return bool(build.raw)
+    """Characters read from the in-game showcase carry the raw entry needed. Star Rail characters from HoYoLAB work
+    too, as long as HoYoLAB shares their relic stats (it does for the player's own linked account)."""
+    if build.raw:
+        return True
+    return build.game == "hsr" and bool(build.bare) and (not build.gear or any(g.subs for g in build.gear))
+
+
+def _hsr_from_cards(assets: Assets, wearer: CharacterBuild, donor: CharacterBuild) -> CharacterBuild:
+    """Star Rail when one of the two comes from HoYoLAB, which has no showcase entry to re-read: the wearer's own
+    numbers (level, traces, eidolons) with the donor's light cone, and the donor's relics added from their card lines."""
+    from . import optimize
+
+    own = wearer.raw or wearer.bare
+    info = {k: v for k, v in own.items() if k not in GEAR_KEYS["hsr"]}
+    cone = (donor.raw or donor.bare).get("equipment")
+    if cone:
+        info["equipment"] = cone
+    bare = starrail.parse_character(assets, info)
+    id_of = optimize._id_of(optimize.set_ids(assets))
+    sets: dict[str, int] = {}
+    for piece in donor.gear:
+        if set_id := id_of(piece.set_name):
+            sets[set_id] = sets.get(set_id, 0) + 1
+    bonus = optimize.Scorer(assets, bare.calc, None).bonus([optimize.gear_props(g) for g in donor.gear], sets)
+    build = dataclasses.replace(
+        bare, gear=list(donor.gear), stats=starrail.stat_lines(bare.calc, bonus), set_bonuses=list(donor.set_bonuses),
+        weapon=donor.weapon if cone else None, art_url=wearer.art_url, icon_url=wearer.icon_url,
+        outfit_icon=wearer.outfit_icon, talents=wearer.talents or bare.talents)
+    build.bare = info
+    return build
 
 
 def borrow(assets: Assets, wearer: CharacterBuild, donor: CharacterBuild) -> CharacterBuild:
     """The wearer as they'd be with the donor's weapon and gear."""
+    if wearer.game == "hsr" and not (wearer.raw and donor.raw):
+        build = _hsr_from_cards(assets, wearer, donor)
+        build.source = wearer.source
+        build.borrowed_from = donor.name
+        return build
     if wearer.game == "genshin":
         info = _genshin_info(assets, wearer.raw, donor.raw)
         build = genshin.parse_character(assets, info)

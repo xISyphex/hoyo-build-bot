@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import unittest
 
 from bot import borrow
@@ -69,3 +70,51 @@ class BorrowTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HoyolabBorrowTest(unittest.TestCase):
+    """Star Rail characters that only HoYoLAB lists have no showcase entry: their gear is read from the card lines."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.assets = load_assets()
+
+    def setUp(self):
+        self.wearer, self.donor = starrail.parse_profile(self.assets, "1", fixture("hsr_live.json")).characters[3:5]
+
+    @staticmethod
+    def as_hoyolab(build):
+        """The same character as HoYoLAB hands it over: no showcase entry, a relic-less one to compute from."""
+        build.bare = {k: v for k, v in build.raw.items() if k != "relicList"}
+        build.raw = {}
+        build.source = "hoyolab"
+        return build
+
+    def numbers(self, build):
+        return {s.name: float(s.value.replace(",", "").rstrip("%")) for s in build.stats}
+
+    def test_matches_the_showcase_swap(self):
+        exact = self.numbers(borrow.borrow(self.assets, self.wearer, self.donor))
+        for who in ("donor", "wearer", "both"):
+            with self.subTest(hoyolab=who):
+                w, d = self.wearer, self.donor
+                if who in ("donor", "both"):
+                    d = self.as_hoyolab(dataclasses.replace(d))
+                if who in ("wearer", "both"):
+                    w = self.as_hoyolab(dataclasses.replace(w))
+                self.assertTrue(borrow.can_borrow(w) and borrow.can_borrow(d))
+                got = borrow.borrow(self.assets, w, d)
+                self.assertEqual((got.name, got.borrowed_from, got.source), (w.name, d.name, w.source))
+                self.assertEqual(got.weapon.name if got.weapon else None, d.weapon.name if d.weapon else None)
+                self.assertEqual(got.set_bonuses, d.set_bonuses)
+                close = self.numbers(got)
+                self.assertEqual(close.keys(), exact.keys())
+                for name, value in exact.items():  # card lines are rounded to a decimal
+                    self.assertAlmostEqual(close[name], value, delta=max(2.0, value * 0.002), msg=name)
+                self.assertTrue(borrow.can_borrow(got))  # the dropdown can lend the same gear on
+
+    def test_hidden_relic_stats_cannot_be_lent(self):
+        d = self.as_hoyolab(self.donor)
+        for g in d.gear:
+            g.subs = []
+        self.assertFalse(borrow.can_borrow(d))
