@@ -64,11 +64,14 @@ class EffectiveStats:
     def __init__(self, cache_dir: str | Path):
         self.path = Path(cache_dir) / "effective_stats.json"
         self.table: dict[str, dict[str, list[str]]] = {"genshin": {}, "hsr": {}, "zzz": {}}
+        # Star Rail: the sets the game recommends per character, best first ({"relic": [ids], "planar": [ids]}).
+        self.sets: dict[str, dict[str, list[int]]] = {}
         self.updated = 0.0
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
             for game in self.table:
                 self.table[game].update(data.get(game, {}))
+            self.sets.update(data.get("hsr_sets", {}))
             self.updated = float(data.get("updated", 0))
         except FileNotFoundError:
             pass
@@ -79,18 +82,22 @@ class EffectiveStats:
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_name(self.path.name + ".tmp")
-            tmp.write_text(json.dumps({**self.table, "updated": self.updated}, indent=1, sort_keys=True), encoding="utf-8")
+            tmp.write_text(json.dumps({**self.table, "hsr_sets": self.sets, "updated": self.updated}, indent=1, sort_keys=True), encoding="utf-8")
             tmp.replace(self.path)
         except OSError:
             log.exception("Could not save %s", self.path)
 
     def is_stale(self) -> bool:
-        return time.time() - self.updated > MAX_AGE
+        return time.time() - self.updated > MAX_AGE or not self.sets
 
     def wanted(self, build: CharacterBuild) -> set[str] | None:
         """The substats this character wants, or None if nobody has said yet."""
         names = self.table.get(build.game, {}).get(_key(build.character_id))
         return set(names) if names else None
+
+    def recommended_sets(self, character_id, planar: bool) -> list[int]:
+        """The ids of the relic (or planar) sets Star Rail itself recommends for a character, best first."""
+        return list(self.sets.get(_key(character_id), {}).get("planar" if planar else "relic", []))
 
     def learn(self, game: str, character_id, names: list[str]) -> None:
         if names and self.table[game].get(_key(character_id)) != names:
@@ -140,6 +147,10 @@ class EffectiveStats:
                 props = pick(detail) if isinstance(detail, dict) else None
                 if props:
                     self.table[game][_key(cid)] = names(props)
+                relics = detail.get("relics") if game == "hsr" and isinstance(detail, dict) else None
+                if relics and (relics.get("set4_id_list") or relics.get("set2_id_list")):
+                    self.sets[_key(cid)] = {"relic": [int(i) for i in relics.get("set4_id_list") or []],
+                                            "planar": [int(i) for i in relics.get("set2_id_list") or []]}
         self.updated = time.time()
         self._save()
         log.info("Effective stats: %s", {g: len(t) for g, t in self.table.items()})

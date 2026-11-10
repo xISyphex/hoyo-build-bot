@@ -485,8 +485,8 @@ def make_optimize_command() -> app_commands.Command:
                           description="Find a character's best relics of two sets among the ones your characters wear")
     @app_commands.describe(
         character="The character to gear up",
-        relic_set="The 4-piece relic set to use",
-        planar_set="The 2-piece planar ornament set to use",
+        relic_set="The 4-piece relic set to use. Leave empty for the one the game recommends first",
+        planar_set="The 2-piece planar ornament set to use. Leave empty for the one the game recommends first",
         speed="Count Speed in the score? Leave empty to count it only for characters who build Speed",
         uid="In-game UID. Leave empty to use the one you claimed with /hsr-claim",
         server=SERVER_HELP,
@@ -494,8 +494,8 @@ def make_optimize_command() -> app_commands.Command:
     )
     @app_commands.choices(server=SERVER_CHOICES, speed=[app_commands.Choice(name="On", value="on"),
                                                         app_commands.Choice(name="Off", value="off")])
-    async def command(interaction: discord.Interaction, character: str, relic_set: str, planar_set: str,
-                      speed: str | None = None, uid: str | None = None, server: str | None = None,
+    async def command(interaction: discord.Interaction, character: str, relic_set: str | None = None,
+                      planar_set: str | None = None, speed: str | None = None, uid: str | None = None, server: str | None = None,
                       exclude: str | None = None) -> None:
         bot: HoyoBot = interaction.client  # type: ignore[assignment]
         uid = resolve_uid(bot.claims, interaction.user.id, game, uid, bot.links, server)
@@ -505,13 +505,18 @@ def make_optimize_command() -> app_commands.Command:
         if not UID_RE.match(uid):
             await interaction.response.send_message("A UID is 8 to 10 digits, like `618285856`.", ephemeral=True)
             return
-        sets = {False: matching.find(relic_set, optimize.set_names(bot.assets, planar=False)),
-                True: matching.find(planar_set, optimize.set_names(bot.assets, planar=True))}
+        sets: dict[bool, str | None] = {}
         for planar, typed in ((False, relic_set), (True, planar_set)):
+            kind = "planar" if planar else "relic"
+            if typed:
+                sets[planar] = matching.find(typed, optimize.set_names(bot.assets, planar=planar))
+                problem = f"I don't know a {kind} set called **{typed}**. Pick one from the list."
+            else:  # the set the game itself recommends first for this character
+                name = matching.find(character, bot.assets.character_names(game)) or ""
+                sets[planar] = next(iter(optimize.recommended(bot.assets, bot.effective.recommended_sets, name, planar)), None)
+                problem = f"The game recommends no {kind} set for **{character}** that I know of. Pick one from the list."
             if not sets[planar]:
-                await interaction.response.send_message(
-                    f"I don't know a {'planar' if planar else 'relic'} set called **{typed}**. Pick one from the list.",
-                    ephemeral=True)
+                await interaction.response.send_message(problem, ephemeral=True)
                 return
         if not bot.access.is_owner(interaction.user.id):
             next_free = bot.lookups.take(interaction.user.id)
@@ -603,8 +608,15 @@ def make_optimize_command() -> app_commands.Command:
 
     def set_autocomplete(planar: bool):
         async def suggest(interaction: discord.Interaction, current: str):
-            names = optimize.set_names(interaction.client.assets, planar)
-            return [app_commands.Choice(name=n[:100], value=n[:100]) for n in matching.suggest(current, names)]
+            """Every set, with the ones the game recommends for the chosen character first."""
+            bot: HoyoBot = interaction.client  # type: ignore[assignment]
+            names = optimize.set_names(bot.assets, planar)
+            typed = getattr(interaction.namespace, "character", None) or ""
+            who = matching.find(typed, bot.assets.character_names(game)) if typed else None
+            best = optimize.recommended(bot.assets, bot.effective.recommended_sets, who, planar) if who else []
+            names = best + [n for n in names if n not in best]
+            return [app_commands.Choice(name=(f"{n} (recommended)" if n in best else n)[:100], value=n[:100])
+                    for n in matching.suggest(current, names)]
         return suggest
 
     @command.autocomplete("exclude")

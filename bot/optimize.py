@@ -116,6 +116,21 @@ def set_names(assets: Assets, planar: bool) -> list[str]:
     return sorted(name for name, sid in set_ids(assets).items() if (int(sid) >= 300) == planar)
 
 
+def character_id(assets: Assets, name: str) -> str | None:
+    for cid, info in assets.data.get("hsr_characters", {}).items():
+        if (info.get("Name") or assets.hsr_text(info.get("AvatarName", {}).get("Hash"))) == name:
+            return cid
+    return None
+
+
+def recommended(assets: Assets, set_ids_for, name: str, planar: bool) -> list[str]:
+    """The names of the sets the game recommends for the character called name, best first. set_ids_for is
+    EffectiveStats.recommended_sets."""
+    cid = character_id(assets, name)
+    by_id = {int(sid): set_name for set_name, sid in set_ids(assets).items()}
+    return [by_id[i] for i in (set_ids_for(cid, planar) if cid else []) if i in by_id]
+
+
 def pool(builds: list[CharacterBuild]) -> list[Piece]:
     """Every relic the player's characters wear that has its stats (HoYoLAB hides them for other players)."""
     pieces = []
@@ -287,7 +302,8 @@ def _undominated(pieces: list[Piece], keys: set[str]) -> list[Piece]:
 def optimize(assets: Assets, target: CharacterBuild, builds: list[CharacterBuild], relic_set: str, planar_set: str,
              wanted: set[str] | None, exclude: set[str] | None = None) -> Result:
     """The target in the best pieces of the two sets that the player's characters wear. The relics of the characters
-    named in exclude stay where they are (their light cones can still be tried)."""
+    and the light cones of the characters named in exclude stay where they are."""
+    exclude = (exclude or set()) - {target.name}  # the target's own gear is theirs to keep or swap
     ids = set_ids(assets)
     for name, planar in ((relic_set, False), (planar_set, True)):
         if name not in ids or (int(ids[name]) >= 300) != planar:
@@ -310,12 +326,14 @@ def optimize(assets: Assets, target: CharacterBuild, builds: list[CharacterBuild
     seen = {_cone_key(info.get("equipment"))}
     for other in builds:
         eq = (other.bare or other.raw).get("equipment")
+        if other.name in exclude:
+            continue
         if eq and _cone_key(eq) not in seen and assets.data["hsr_weapons"].get(str(eq.get("tid")), {}).get("AvatarBaseType") == path:
             seen.add(_cone_key(eq))
             cones.append((other.name, eq))
     bare, scorer = with_cone(info.get("equipment"))
 
-    everything = pool([b for b in builds if b.name not in (exclude or ())])
+    everything = pool([b for b in builds if b.name not in exclude])
     by_slot: dict[str, list[Piece]] = {}
     missing = []
     for slot in sr.SLOT_ORDER:
