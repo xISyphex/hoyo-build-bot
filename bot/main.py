@@ -1050,8 +1050,26 @@ class HoyolabGroup(app_commands.Group):
         await interaction.response.send_message(msg, ephemeral=True)
 
 
+def ping_messages(user_ids: list[int], text: str = "", limit: int = 2000) -> list[str]:
+    """The mentions of everyone on the access list, then the text, split so each message fits Discord's limit."""
+    chunks, line = [], ""
+    for mention in (f"<@{uid}>" for uid in user_ids):
+        if len(line) + len(mention) + 1 > limit:
+            chunks.append(line)
+            line = ""
+        line += (" " if line else "") + mention
+    text = text[:limit]
+    if text and len(line) + len(text) + 1 > limit:
+        chunks.append(line)
+        line = text
+    elif text:
+        line += "\n" + text
+    chunks.append(line)
+    return chunks
+
+
 class AccessGroup(app_commands.Group):
-    """/access add, remove and list: who besides the owner may use the bot."""
+    """/access add, remove, list and ping: who besides the owner may use the bot."""
 
     def __init__(self) -> None:
         super().__init__(name="access", description="Choose who can use this bot (owner only)")
@@ -1105,6 +1123,39 @@ class AccessGroup(app_commands.Group):
         else:
             msg = f"{user.mention} wasn't on the list."
         await interaction.response.send_message(msg, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+    @app_commands.command(name="ping", description="Ping everyone who can use the bot")
+    @app_commands.describe(message="What to tell them, e.g. about a new command",
+                           where="Here in this channel (default), or as a DM to each of them")
+    @app_commands.choices(where=[app_commands.Choice(name="Here", value="here"),
+                                 app_commands.Choice(name="DM each of them", value="dm")])
+    async def ping(self, interaction: discord.Interaction, message: str | None = None, where: str = "here") -> None:
+        bot: HoyoBot = interaction.client  # type: ignore[assignment]
+        ids = list(bot.access.users)
+        if not ids:
+            await interaction.response.send_message("Nobody else has access yet. Add people with `/access add`.", ephemeral=True)
+            return
+        text = (message or "").strip()
+        if where == "dm":
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            body = (text or f"{interaction.user.display_name} pinged everyone who can use this bot.")[:1900]
+            failed = []
+            for uid in ids:
+                try:
+                    user = bot.get_user(uid) or await bot.fetch_user(uid)
+                    await user.send(body)
+                except discord.HTTPException:
+                    failed.append(uid)
+            msg = f"Sent a DM to {len(ids) - len(failed)} of {len(ids)} people."
+            if failed:
+                msg += " I couldn't reach (DMs closed?): " + " ".join(f"<@{u}>" for u in failed)
+            await interaction.followup.send(msg[:2000], ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+            return
+        chunks = ping_messages(ids, text)
+        allowed = discord.AllowedMentions(users=True, everyone=False, roles=False)
+        await interaction.response.send_message(chunks[0], allowed_mentions=allowed)
+        for chunk in chunks[1:]:
+            await interaction.followup.send(chunk, allowed_mentions=allowed)
 
     @app_commands.command(name="list", description="Show who can use the bot")
     async def list_(self, interaction: discord.Interaction) -> None:
