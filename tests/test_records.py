@@ -58,8 +58,10 @@ class ReadersTest(unittest.TestCase):
 
     def test_anomaly_arbitration_knights_then_king(self):
         rec = R.hsr_aa(F.aa())
-        self.assertEqual([t.label for t in rec.teams],
-                         ["Wolf Knight", "Lion Knight", "Stag Knight", "Sovereign of Thrones · Plight"])
+        self.assertEqual([t.label for t in rec.teams], ["Knight I", "Knight II", "Knight III", "Plight"])
+        self.assertEqual([t.enemies[0].name for t in rec.teams],  # HoYoLAB's names until the game data has them
+                         ["Wolf Knight", "Lion Knight", "Stag Knight", "Sovereign of Thrones"])
+        self.assertEqual([t.key for t in rec.teams], ["1|K1", "2|K2", "3|K3", ":plight|PLIGHT"])
         self.assertEqual(rec.teams[3].left, [("Cycles", "4")])
         self.assertTrue(rec.teams[3].plight)
         self.assertEqual(dict(rec.headline), {"Stars": "9", "Cycles": "7"})  # the knights only
@@ -185,29 +187,227 @@ class HsrPerfectTest(unittest.TestCase):
         self.assertFalse(_perfect("aa", "cycles", "2"))
 
 
-class HsrBossArtTest(unittest.TestCase):
-    MONSTERS = {"1": {"rank": "Elite", "icon": "SpriteOutput/MonsterFigure/Monster_1.png", "en": "Ice <i>Edge</i>"},
-                "2": {"rank": "LittleBoss", "icon": "SpriteOutput/MonsterFigure/Monster_2.png"},
-                "3": {"rank": "Elite", "icon": "SpriteOutput/MonsterFigure/Monster_3.png"}}
+def _stage(level, group, elite, *waves):
+    """A made-up Hakushin stage: its level, HP curve, elite group and waves of monster ids."""
+    return {"level": level, "hard_level_group": group, "elite_group": elite,
+            "monster_list": [{f"monster{i}": m for i, m in enumerate(w)} for w in waves]}
 
-    def test_strongest_enemy_of_each_half_and_the_starward_floor(self):
-        from bot.hsr_bosses import boss_art
-        season = [{"id": 5511, "npc_monster_id_list1": [3], "npc_monster_id_list2": [1]},
-                  {"id": 5512, "npc_monster_id_list1": [2, 1], "npc_monster_id_list2": [1, 3]},
-                  {"id": 5513, "npc_monster_id_list": [2]}]
-        arts = boss_art(season, self.MONSTERS, "5512")
-        self.assertTrue(arts["1"]["art"].endswith("/monsterfigure/Monster_2.webp"))  # the LittleBoss beats the Elite
-        self.assertTrue(arts["2"]["art"].endswith("/monsterfigure/Monster_3.webp"))  # equals: the last listed
-        self.assertTrue(arts["3"]["art"].endswith("/monsterfigure/Monster_2.webp"))
-        self.assertEqual(boss_art(season, self.MONSTERS, "5511")["2"]["name"], "Ice Edge")  # markup dropped
-        self.assertEqual(boss_art({"level": season}, self.MONSTERS, "9999").keys(), {"3"})  # Pure Fiction's shape
 
-    def test_nodes_get_their_boss(self):
-        rec = R.hsr_moc(F.moc())
+def _value(hp_base, *children, bars=None, phases=None):
+    """A made-up monstervalue.json entry: (variant id, HPModifyRatio, its own EliteGroup) per variant."""
+    out = {"HPBase": hp_base, "child": [{"Id": c, "HPModifyRatio": r, "EliteGroup": e} for c, r, e in children]}
+    if bars:
+        out["MaxMonsterPhase"] = bars
+    if phases:
+        out["PhaseList"] = [{"PhaseNum": i + 1, "PhaseMaxHPRatio": r} for i, r in enumerate(phases)]
+    return out
+
+
+class HsrEnemiesTest(unittest.TestCase):
+    """HP worked out as hsr.nanoka.cc does it. The tables are made up in Hakushin's shapes, with the real rows the
+    worked examples use (each matched against the site's own numbers)."""
+
+    @classmethod
+    def setUpClass(cls):
+        from bot.hsr_enemies import Tables
+        cls.TABLES = Tables(
+            [{"HardLevelGroup": 1, "Level": 90, "HPRatio": 236.534716}, {"HardLevelGroup": 3, "Level": 95, "HPRatio": 375.438496},
+             {"HardLevelGroup": 1, "Level": 85, "HPRatio": 188.263594},
+             {"HardLevelGroup": 3, "Level": 120, "HPRatio": {"Value": 1938.763448}}],  # the raw files' {"Value": x} too
+            [{"EliteGroup": 173, "HPRatio": 9.6}, {"EliteGroup": 164, "HPRatio": 6.5}, {"EliteGroup": 169, "HPRatio": 8},
+             {"EliteGroup": 57, "HPRatio": 1}, {"EliteGroup": 2, "HPRatio": 1.7}],
+            [{"EliteGroup": 349, "HPRatio": 8}],  # InfiniteEliteGroup.json: Anomaly Arbitration's wave groups
+            {"3024013": _value(5812.5, (302401304, 1, 1), bars=2),
+             "3024012": _value(5812.5, (302401204, 1, 1)),
+             "4034014": _value(7672.5, (4034014, 1, 1)),
+             "8015030": _value(14880, (8015030, 1, 1), (801503006, 0.375, 1), bars=3, phases=[1, 1, 1]),
+             "5034010": _value(2092.5, (5034010, 1, 2), bars=2),
+             "2034010": _value(2557.5, (2034010, 1, 1), bars=2, phases=[1, 1.5])})
+        cls.NAMES = {"3024013": {"en": "Silver Knight", "icon": "SpriteOutput/MonsterFigure/Monster_3024010.png"},
+                     "8015030": {"en": "Lord of <i>Ash</i>", "icon": "SpriteOutput/MonsterFigure/Monster_8015030.png"},
+                     "2034010": {"en": "Warhead"}, "5034010": {"en": "Yabuli"}}
+
+    def test_hp_as_the_site_works_it_out(self):
+        hp = lambda *a: self.TABLES.hp(*a)["hp"]  # noqa: E731
+        # Silver Knight, Apocalyptic Shadow 3022 Starward: 5812.5 x 1 x 9.6 x 236.534716 = 13,198,637 (site: same)
+        self.assertEqual(hp(302401304, _stage(90, 1, 173)), 13198637)
+        self.assertEqual(self.TABLES.hp(302401304, _stage(90, 1, 173))["bars"], 2)  # the site: "x 2"
+        # Flame Reaver, Pure Fiction 2027 floor 4: 7672.5 x 1 x 1 x 188.263594 x (1 + 45) = 66,444,812 (site: same)
+        self.assertEqual(hp(4034014, _stage(85, 1, None), {"elite_group": 57, "param_list": [0.12, 45]}), 66444812)
+        # Yabuli, Anomaly Arbitration 11 Knight I: 2092.5 x 1 x InfiniteEliteGroup[349] 8 x 375.438496 = 6,284,840
+        self.assertEqual(hp(5034010, _stage(95, 3, None), {"elite_group": 349, "param_list": []}), 6284840)
+        # Asat Pramad on Plight: 14880 x 0.375 x 8 x 1938.763448 = 86,546,400 (site: same)
+        self.assertEqual(hp(801503006, _stage(120, 3, None), {"elite_group": 169}), 86546400)
+
+    def test_the_sites_fallbacks(self):
+        hp = lambda *a: self.TABLES.hp(*a)["hp"]  # noqa: E731
+        # an elite group in neither table: the variant's own group (Yabuli's is 2, x1.7), then x1
+        self.assertEqual(hp(5034010, _stage(95, 3, 999)), round(2092.5 * 1.7 * 375.438496))
+        self.assertEqual(hp(2034010, _stage(95, 3, 999)), round(2557.5 * 375.438496))
+        self.assertIsNone(self.TABLES.hp(1234567, _stage(95, 3, 1)))  # not in monstervalue.json
+        self.assertEqual(hp(302401299, _stage(90, 1, 173)), 13198637)  # a variant not listed: the monster's own
+        self.assertEqual(hp(5034010, _stage(95, 3, None), {"elite_group": 349, "param_list": [0, 3]}), round(2092.5 * 8 * 375.438496 * 4))
+        # InfiniteEliteGroup is only for waves
+        self.assertEqual(hp(5034010, _stage(95, 3, 349)), round(2092.5 * 1.7 * 375.438496))
+
+    def test_memory_of_chaos_floor_by_id_or_number(self):
+        from bot.hsr_enemies import floor_enemies
+        season = [{"id": 5511, "event_id_list1": [_stage(92, 3, 164, [2034010])], "event_id_list2": [_stage(92, 3, 164, [2034010])]},
+                  {"id": 5512, "event_id_list1": [_stage(95, 3, 164, [8012030, 2034010, 8012030], [2034010, 2034010])],
+                   "event_id_list2": [_stage(95, 3, 164, [302401304])]},
+                  {"id": 5513, "event_id_list": [_stage(90, 1, 173, [8012030], [302401304])]}]
+        found = floor_enemies("moc", season, self.NAMES, self.TABLES, "5512")
+        self.assertEqual(found.keys(), {"1", "2", "3"})
+        self.assertEqual([(e["name"], e["level"]) for e in found["1"]], [("Warhead", 95)])  # the last wave, each kind once
+        self.assertEqual(found["1"][0]["hp"], round(2557.5 * 375.438496 * 6.5))
+        self.assertEqual((found["1"][0]["bars"], found["1"][0]["phases"]), (2, [1, 1.5]))  # bars of different size
+        self.assertIsNone(found["1"][0]["art"])
+        self.assertEqual((found["3"][0]["hp"], found["3"][0]["phases"]), (13198637, []))
+        self.assertTrue(found["3"][0]["art"].endswith("/assets/hsr/monsterfigure/Monster_3024010.webp"))
+        by_number = floor_enemies("moc", season, self.NAMES, self.TABLES, "9999", 2)  # an unknown id: the 2nd floor
+        self.assertEqual(by_number["2"], found["2"])
+        self.assertEqual(floor_enemies("moc", season, self.NAMES, self.TABLES, "9999").keys(), {"3"})
+
+    def test_pure_fiction_takes_the_last_waves_elite_group_and_hp_bonus(self):
+        from bot.hsr_enemies import floor_enemies
+        ability = "FantasticStory_Wave_Ability_0001"
+        stage = _stage(85, 1, None, [8012030], [8012030], [4034014])
+        waves = {"2": {"elite_group": 57, "ability": ability, "param_list": [0.05, 9]},
+                 "1": {"elite_group": 57, "ability": ability, "param_list": [0, 4]},
+                 "3": {"elite_group": 57, "ability": ability, "param_list": [0.12, 45]}}
+        season = {"level": [{"id": 20274, "event_id_list1": [stage], "infinite_list1": waves}]}
+        self.assertEqual(floor_enemies("pf", season, self.NAMES, self.TABLES, "20274")["1"][0]["hp"], 66444812)
+
+    def test_anomaly_arbitration_knights_and_the_king(self):
+        from bot.hsr_enemies import floor_enemies
+        season = {"pre_level": [{"id": 1101, "event_id_list": [_stage(95, 3, None, [5034010])],
+                                 "infinite_list": {"1": {"elite_group": 349, "param_list": []}}}],
+                  "boss_level": {"id": 1104, "event_id_list": [_stage(100, 3, None, [801503006])]},
+                  "boss_config": {"event_id_list": [_stage(120, 3, None, [801503006])], "infinite_list": {"9": {"elite_group": 169}}}}
+        found = floor_enemies("aa", season, self.NAMES, self.TABLES)
+        self.assertEqual(found["1101"], found["K1"])
+        self.assertEqual(found["K1"][0]["hp"], 6284840)
+        self.assertEqual((found["PLIGHT"][0]["hp"], found["PLIGHT"][0]["bars"]), (86546400, 3))
+        self.assertEqual(found["PLIGHT"][0]["name"], "Lord of Ash")  # markup dropped
+        rec = R.hsr_aa(F.aa())
+        rec.teams[3].key = "1104:plight|PLIGHT"
+        R.set_enemies(rec, {"K2": found["K1"], "PLIGHT": found["PLIGHT"]})
+        self.assertEqual((rec.teams[1].enemies[0].name, rec.teams[1].enemies[0].level), ("Yabuli", 95))  # by place
+        self.assertEqual((rec.teams[3].enemies[0].hp, rec.teams[3].enemies[0].bars), (86546400, 3))
+        self.assertEqual(rec.teams[0].enemies[0].name, "Wolf Knight")  # not found: HoYoLAB's stays
+
+    def test_hp_written_like_the_site(self):
+        from bot.records_hsr import _hp
+        self.assertEqual(_hp(R.Enemy("a", hp=6241196)), "6,241,196")
+        self.assertEqual(_hp(R.Enemy("a", hp=6241196, bars=2)), "6,241,196 ×2")
+        self.assertEqual(_hp(R.Enemy("a", hp=1000, bars=2, phases=[1, 1.5])), "1,000 / 1,500")
+
+    def test_floor_numbers(self):
+        from bot.hsr_enemies import base_id, floor_number
+        self.assertEqual([floor_number(n) for n in ("Survival of the Fittest (XII)Starward Mode", "Pure Fiction (4)", "04", "(IX)")],
+                         [12, 4, 4, 9])
+        self.assertEqual((base_id(501402404), base_id(5014024)), (5014024, 5014024))
+
+    def test_readers_note_the_floor_to_look_up(self):
+        data = F.moc()
+        data.season, data.floors[0].id = 1036, 5512
+        rec = R.hsr_moc(data)
+        self.assertEqual((rec.season_id, rec.floor_id, rec.floor_no), ("1036", "5512", 12))
         self.assertEqual([t.key for t in rec.teams], ["1", "2", "3"])
-        R.set_bosses(rec, {"1": {"art": "a", "name": "Ice Edge"}, "3": {"art": "c", "name": ""}})
-        self.assertEqual([t.art for t in rec.teams], ["a", None, "c"])
-        self.assertEqual([t.label for t in rec.teams], ["Node 1 · Ice Edge", "Node 2", "Starward"])
+        self.assertEqual([t.label for t in rec.teams], ["Node 1", "Node 2", "Starward"])
+        R.set_enemies(rec, {"1": [{"name": "Warhead", "art": "a", "level": 95, "hp": 6241196}]})
+        self.assertEqual(rec.teams[0].enemies, [R.Enemy("Warhead", "a", 95, 6241196)])
+        self.assertEqual(rec.teams[1].enemies, [])
+
+    def test_apocalyptic_shadow_starts_with_hoyolabs_bosses(self):
+        from types import SimpleNamespace as NS
+        data = F.apoc()
+        data.seasons[0].id, data.seasons[0].upper_boss = 3022, NS(name="The Conductor", icon="boss.png")
+        rec = R.hsr_apoc(data)
+        self.assertEqual(rec.teams[0].enemies, [R.Enemy("The Conductor", "boss.png")])
+        self.assertEqual((rec.season_id, rec.floor_no), ("3022", 4))
+
+    def test_hp_change_since_the_enemy_last_came(self):
+        from bot.hsr_enemies import add_changes, hp_change
+        now = {"1": [{"id": 302401304, "name": "Silver Knight", "hp": 1125, "bars": 2, "phases": []}],
+               "2": [{"id": 4034014, "name": "Flame Reaver", "hp": 920, "bars": 1, "phases": []}],
+               "3": [{"id": 8015030, "name": "Lord of Ash", "hp": 500, "bars": 1, "phases": []}]}
+        history = [("3021", "Newer", {"floor": [{"id": 9999999, "name": "Someone Else", "hp": 1}]}),
+                   ("3020", "Older", {"floor": [{"id": 302401399, "name": "Silver Knight", "hp": 1000, "bars": 2},  # same monster
+                                                {"id": 1234567, "name": "Flame Reaver", "hp": 1000, "bars": 1}]}),  # same name
+                   ("3015", "Oldest", {"floor": [{"id": 302401304, "name": "Silver Knight", "hp": 10, "bars": 2}],
+                                       "starward": [{"id": 4034014, "name": "Flame Reaver", "hp": 1, "bars": 1}]})]
+        add_changes("apoc", now, history)
+        knight, reaver, lord = now["1"][0], now["2"][0], now["3"][0]
+        self.assertEqual((knight["change"], knight["prev_season"], knight["prev_season_id"]), (12.5, "Older", "3020"))  # the latest
+        self.assertEqual((reaver["change"], reaver["prev_season"]), (-8.0, "Older"))  # a drop
+        self.assertNotIn("change", lord)  # starward only: never on a floor before
+        self.assertIsNone(R.Enemy("x").change)
+        # bars changed: all of them compared; unchanged: 0
+        self.assertEqual(hp_change({"hp": 100, "bars": 3}, {"hp": 150, "bars": 2}), 0)
+        self.assertEqual(hp_change({"hp": 100, "bars": 2, "phases": [1, 1.5]}, {"hp": 100, "bars": 1}), 150)
+        self.assertIsNone(hp_change({"hp": 100}, {"hp": 0}))
+        # Anomaly Arbitration: by place, any knight
+        aa = {"K2": [{"id": 5034010, "name": "Yabuli", "hp": 110, "bars": 2}], "KING": [{"id": 8015030, "hp": 5}]}
+        add_changes("aa", aa, [("9", "Past", {"knight": [{"id": 5034010, "name": "Yabuli", "hp": 100, "bars": 2}],
+                                              "plight": [{"id": 8015030, "hp": 1}]})])
+        self.assertAlmostEqual(aa["K2"][0]["change"], 10)
+        self.assertNotIn("change", aa["KING"][0])  # the King isn't the King on Plight
+        rec = R.hsr_aa(F.aa())
+        R.set_enemies(rec, aa)
+        self.assertEqual((rec.teams[1].enemies[0].change, rec.teams[1].enemies[0].prev_season), (10.0, "Past"))
+
+    def test_earlier_seasons_newest_first(self):
+        from bot.hsr_enemies import earlier_seasons, season_slots
+        index = {"1035": {"en": "Last (1.0)"}, "1036": {"en": "Now"}, "1034": {"en": None}, "120": {"en": "Old mode"},
+                 "1037": {"en": "Next"}}
+        self.assertEqual(earlier_seasons(index, "1036", ({"1034": {"en": "Before"}},)),
+                         [("1035", "Last"), ("1034", "Before")])
+        self.assertEqual(earlier_seasons({"9": {"en": "Nine"}, "10": {"en": "Ten"}, "11": {}}, 11), [("10", "Ten"), ("9", "Nine")])
+        self.assertEqual(earlier_seasons(index, "now"), [])
+        season = [{"id": 5511, "event_id_list1": [_stage(92, 3, 164, [2034010])], "event_id_list2": [_stage(92, 3, 164, [5034010])]},
+                  {"id": 5513, "event_id_list": [_stage(90, 1, 173, [302401304])]}]
+        slots = season_slots("moc", season, self.NAMES, self.TABLES, 1)
+        self.assertEqual([e["name"] for e in slots["floor"]], ["Warhead", "Yabuli"])
+        self.assertEqual([e["name"] for e in slots["starward"]], ["Silver Knight"])
+        self.assertEqual(season_slots("moc", season, self.NAMES, self.TABLES, 2).keys(), {"starward"})  # no 2nd floor then
+
+    def test_hp_change_written_and_coloured(self):
+        from bot import card, card_hsr
+        from bot.records_hsr import DIM, DOWN, UP, _change
+        card.FONTS = card.FONTS or card.Fonts()
+        f = card_hsr._raj("Bold", 14)
+        self.assertEqual(_change(12.5, f), ("(+12.5%)", UP))
+        self.assertEqual(_change(-8, f)[1], DOWN)
+        self.assertIn(_change(-8, f)[0], ("(−8.0%)", "(-8.0%)"))
+        self.assertEqual(_change(0.04, f), ("(±0%)", DIM))
+        self.assertEqual(_change(1234.5, f)[0], "(+1,234.5%)")
+
+
+class HsrDrawTest(unittest.TestCase):
+    def test_every_mode_draws_with_enemies(self):
+        pic = Image.new("RGBA", (300, 500), (200, 40, 40, 255))
+        for rec in (R.hsr_moc(F.moc()), R.hsr_pf(F.pf()), R.hsr_apoc(F.apoc()), R.hsr_aa(F.aa())):
+            for i, team in enumerate(rec.teams):
+                team.enemies = [R.Enemy("Lord of Saṃvartasthāyi, Asat Pramad", "boss.png", 120, 86546400, 3),
+                                R.Enemy("Missing Picture", "gone.png", 95, 12345678, 2, [1, 1.25])][: 1 + i % 2]
+            rec.teams[0].enemies[0].change, rec.teams[0].enemies[0].prev_season = 12.5, "A Long Season Name Over Its Screen"
+            rec.teams[-1].enemies = []  # not known yet: an empty screen saying so
+            img = Image.open(io.BytesIO(draw_records("hsr", "800069903", [rec], {"boss.png": pic})))
+            self.assertEqual(img.width, W)
+            self.assertGreater(img.height, 700, rec.mode)
+
+    def test_a_mode_not_played(self):
+        rec = R.hsr_pf(F.pf())
+        rec.teams, rec.empty = [], "No Pure Fiction runs this season yet."
+        img = Image.open(io.BytesIO(draw_records("hsr", "800069903", [rec], {})))
+        self.assertLess(img.height, 400)
+
+    def test_letters_the_font_lacks(self):
+        from bot import card, card_hsr
+        from bot.records_hsr import _typeable
+        card.FONTS = card.FONTS or card.Fonts()
+        self.assertEqual(_typeable("Saṃvartasthāyi", card_hsr._raj("Bold", 15)), "Samvartasthāyi")
 
 
 class StatsTest(unittest.TestCase):

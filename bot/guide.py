@@ -108,14 +108,17 @@ def guide_message(bot_name: str, per_hour: int, app_id: int | None = None, welco
     section(
         1,
         "Battle records",
-        " ".join(f"`/{cmd}-records`" for cmd, _ in GAMES)
+        "`/genshin-records` `/zzz-records` `/hsr-moc` `/hsr-pf` `/hsr-apoc` `/hsr-aa`"
         + "\nYour endgame runs as one picture: scores, cycles, rankings and the teams you used, with every"
-        " character's copies and their weapon's. Weapons are the ones equipped now: HoYoLAB doesn't keep the run's."
-        " Name the modes you want, or leave `modes` empty for all of them."
-        " With accounts on several servers, add `server` to pick one."
-        " You don't need `/hoyolab link` for these, but the player's battle records must be public:"
-        " on HoYoLAB, open your profile, go to **Privacy Settings** and turn on **Show my Battle Chronicle on my profile**."
-        "\nExample: `/hsr-records modes:moc pf`",
+        " character's copies and their weapon's (equipped now: HoYoLAB doesn't keep the run's)."
+        "\n**New:** Star Rail has its own command per mode instead of `/hsr-records`: `/hsr-moc` Memory of Chaos,"
+        " `/hsr-pf` Pure Fiction, `/hsr-apoc` Apocalyptic Shadow, `/hsr-aa` Anomaly Arbitration. Each shows the"
+        " enemies with their level and HP, and how much their HP changed since they last came."
+        "\nFor Genshin and ZZZ, name the modes you want, or leave `modes` empty for all of them."
+        " With accounts on several servers, add `server`."
+        " No `/hoyolab link` needed, but the player's Battle Chronicle must be public:"
+        " on HoYoLAB, open your profile, **Privacy Settings**, turn on **Show my Battle Chronicle on my profile**."
+        "\nExample: `/hsr-moc`, or `/zzz-records modes:sd`",
     )
     section(
         1,

@@ -34,7 +34,7 @@ from .models import CharacterBuild, PlayerProfile
 from .ratelimit import LookupLimit
 from .set_emojis import SetEmojis
 from .unreleased import Unreleased
-from .hsr_bosses import HsrBosses
+from .hsr_enemies import HsrEnemies
 from .shiyu_bosses import ShiyuBosses
 from .stats import add_enka
 from .unit_traits import UnitTraits
@@ -90,7 +90,7 @@ class HoyoBot(discord.Client):
         self.unreleased = Unreleased(cache_dir)  # the beta's new characters, for trying gear on them
         self.assets.extras.append(self.unreleased.apply)
         self.shiyu_bosses = ShiyuBosses(cache_dir)  # Shiyu Defense boss names for /zzz-records
-        self.hsr_bosses = HsrBosses(cache_dir)  # Memory of Chaos / Pure Fiction boss pictures for /hsr-records
+        self.hsr_enemies = HsrEnemies(cache_dir)  # each node's enemies, level and HP for /hsr-moc, /hsr-pf, /hsr-apoc, /hsr-aa
         self.hoyolab = HoyolabClient(cookies or None, self.assets, self.links, self.effective)
         # Element and path symbols for the patch card's banners, newer units included.
         self.traits = UnitTraits(cache_dir)
@@ -122,7 +122,11 @@ class HoyoBot(discord.Client):
         for game in GAME_NAMES:
             self.tree.add_command(make_command(game))
             self.tree.add_command(make_claim_command(game))
-            self.tree.add_command(make_records_command(game))
+            if game == "hsr":  # a command per mode: /hsr-moc, /hsr-pf, /hsr-apoc, /hsr-aa
+                for mode in records.MODES[game]:
+                    self.tree.add_command(make_hsr_mode_command(mode))
+            else:
+                self.tree.add_command(make_records_command(game))
             self.tree.add_command(make_stats_command(game))
             self.tree.add_command(make_patch_command(game))
             self.tree.add_command(make_news_command(game))
@@ -666,88 +670,12 @@ def make_records_command(game: str) -> app_commands.Command:
     @app_commands.choices(server=SERVER_CHOICES)
     async def command(interaction: discord.Interaction, modes: str | None = None, uid: str | None = None,
                       server: str | None = None) -> None:
-        bot: HoyoBot = interaction.client  # type: ignore[assignment]
         picked, unknown = records.parse_modes(game, modes)
         if unknown:
             await interaction.response.send_message(
                 f"I don't know `{' '.join(unknown)}`. The modes are: {modes_help}.", ephemeral=True)
             return
-        uid = resolve_uid(bot.claims, interaction.user.id, game, uid, bot.links, server)
-        if uid is None:
-            await interaction.response.send_message(no_uid_message(bot, interaction.user.id, game, server), ephemeral=True)
-            return
-        if not UID_RE.match(uid):
-            await interaction.response.send_message("A UID is 8 to 10 digits, like `618285856`.", ephemeral=True)
-            return
-        if not bot.hoyolab.available(game, uid):
-            await interaction.response.send_message(
-                "Battle records come from HoYoLAB. Link your account with `/hoyolab link` to see your own.", ephemeral=True)
-            return
-        if not bot.access.is_owner(interaction.user.id):
-            next_free = bot.lookups.take(interaction.user.id)
-            if next_free is not None:
-                await interaction.response.send_message(
-                    f"You've used your {bot.lookups.per_hour} lookups for this hour. "
-                    f"You can look up again <t:{math.ceil(next_free)}:R>.",
-                    ephemeral=True,
-                )
-                return
-        await interaction.response.defer(thinking=True)
-        # The records, the player's characters (for weapon copies: HoYoLAB's list if it shares it, else their
-        # showcase) and the in-game name from Enka are read at the same time; a recent Enka lookup is reused
-        started = time.perf_counter()
-
-        async def hoyolab_builds() -> list[CharacterBuild]:
-            if game == "zzz":  # ZZZ asks HoYoLAB once per agent, so only the agents in the records are read, after them
-                return []
-            try:
-                return await bot.hoyolab.fetch(game, uid)
-            except HoyolabError:
-                return []
-
-        async def enka_profile():
-            if (cached := bot.enka.cached(game, uid)) is not None:
-                return cached
-            try:
-                return await bot.enka.fetch(game, uid)
-            except Exception as exc:
-                log.info("No Enka profile for %s %s: %s", game, uid, exc)
-                return None
-
-        found, builds, profile = await asyncio.gather(bot.hoyolab.records(game, uid, picked), hoyolab_builds(),
-                                                      enka_profile(), return_exceptions=True)
-        if isinstance(found, HoyolabError):
-            await interaction.followup.send(str(found))
-            return
-        if isinstance(found, BaseException):
-            raise found
-        builds = list(builds) if isinstance(builds, list) else []
-        profile = None if isinstance(profile, BaseException) else profile
-        if game == "zzz":  # the agents' builds, and the Shiyu Defense bosses' names, at the same time
-            ids = list(dict.fromkeys(m.id for r in found for t in r.teams for m in t.members))
-            shiyu = [r for r in found if r.season_id]
-            builds, *names = await asyncio.gather(
-                bot.hoyolab.zzz_agents(uid, ids),
-                *(bot.shiyu_bosses.name(bot.session, r.season_id, [t.key for t in r.teams]) for r in shiyu))
-            for r, n in zip(shiyu, names):
-                records.name_bosses(r, n)
-        if game == "hsr":  # the Memory of Chaos and Pure Fiction bosses' pictures and names
-            looked = [r for r in found if r.floor_id]
-            arts = await asyncio.gather(*(bot.hsr_bosses.arts(bot.session, r.mode, r.season_id, r.floor_id) for r in looked))
-            for r, a in zip(looked, arts):
-                records.set_bosses(r, a)
-        read = time.perf_counter()
-        if profile:
-            builds += profile.characters
-        records.fill_copies(found, builds)
-        try:
-            png = await bot.cards.render_records(game, uid, found, profile.nickname if profile else None)
-        except Exception:
-            log.exception("Could not draw the %s battle records for %s", game, uid)
-            await interaction.followup.send("Something went wrong drawing the battle records. Try again later.")
-            return
-        await interaction.followup.send(file=discord.File(io.BytesIO(png), filename="records.png"))
-        log.info("%s records for %s: read in %.1fs, drawn and sent in %.1fs", game, uid, read - started, time.perf_counter() - read)
+        await send_records(interaction, game, picked, uid, server)
 
     @command.autocomplete("modes")
     async def modes_autocomplete(interaction: discord.Interaction, current: str):
@@ -767,6 +695,101 @@ def make_records_command(game: str) -> app_commands.Command:
         return options[:25]
 
     return command
+
+
+def make_hsr_mode_command(mode: records.Mode) -> app_commands.Command:
+    """One Star Rail mode's record: /hsr-moc, /hsr-pf, /hsr-apoc or /hsr-aa."""
+
+    @app_commands.command(name=f"hsr-{mode.key}", description=f"Show a player's {mode.title} record")
+    @app_commands.describe(uid="In-game UID. Leave empty to use the one you claimed with /hsr-claim", server=SERVER_HELP)
+    @app_commands.choices(server=SERVER_CHOICES)
+    async def command(interaction: discord.Interaction, uid: str | None = None, server: str | None = None) -> None:
+        await send_records(interaction, "hsr", [mode.key], uid, server)
+
+    return command
+
+
+async def send_records(interaction: discord.Interaction, game: str, picked: list[str], uid: str | None,
+                       server: str | None) -> None:
+    """Reads these modes' records from HoYoLAB and sends them as one picture."""
+    bot: HoyoBot = interaction.client  # type: ignore[assignment]
+    uid = resolve_uid(bot.claims, interaction.user.id, game, uid, bot.links, server)
+    if uid is None:
+        await interaction.response.send_message(no_uid_message(bot, interaction.user.id, game, server), ephemeral=True)
+        return
+    if not UID_RE.match(uid):
+        await interaction.response.send_message("A UID is 8 to 10 digits, like `618285856`.", ephemeral=True)
+        return
+    if not bot.hoyolab.available(game, uid):
+        await interaction.response.send_message(
+            "Battle records come from HoYoLAB. Link your account with `/hoyolab link` to see your own.", ephemeral=True)
+        return
+    if not bot.access.is_owner(interaction.user.id):
+        next_free = bot.lookups.take(interaction.user.id)
+        if next_free is not None:
+            await interaction.response.send_message(
+                f"You've used your {bot.lookups.per_hour} lookups for this hour. "
+                f"You can look up again <t:{math.ceil(next_free)}:R>.",
+                ephemeral=True,
+            )
+            return
+    await interaction.response.defer(thinking=True)
+    # The records, the player's characters (for weapon copies: HoYoLAB's list if it shares it, else their
+    # showcase) and the in-game name from Enka are read at the same time; a recent Enka lookup is reused
+    started = time.perf_counter()
+
+    async def hoyolab_builds() -> list[CharacterBuild]:
+        if game == "zzz":  # ZZZ asks HoYoLAB once per agent, so only the agents in the records are read, after them
+            return []
+        try:
+            return await bot.hoyolab.fetch(game, uid)
+        except HoyolabError:
+            return []
+
+    async def enka_profile():
+        if (cached := bot.enka.cached(game, uid)) is not None:
+            return cached
+        try:
+            return await bot.enka.fetch(game, uid)
+        except Exception as exc:
+            log.info("No Enka profile for %s %s: %s", game, uid, exc)
+            return None
+
+    found, builds, profile = await asyncio.gather(bot.hoyolab.records(game, uid, picked), hoyolab_builds(),
+                                                  enka_profile(), return_exceptions=True)
+    if isinstance(found, HoyolabError):
+        await interaction.followup.send(str(found))
+        return
+    if isinstance(found, BaseException):
+        raise found
+    builds = list(builds) if isinstance(builds, list) else []
+    profile = None if isinstance(profile, BaseException) else profile
+    if game == "zzz":  # the agents' builds, and the Shiyu Defense bosses' names, at the same time
+        ids = list(dict.fromkeys(m.id for r in found for t in r.teams for m in t.members))
+        shiyu = [r for r in found if r.season_id]
+        builds, *names = await asyncio.gather(
+            bot.hoyolab.zzz_agents(uid, ids),
+            *(bot.shiyu_bosses.name(bot.session, r.season_id, [t.key for t in r.teams]) for r in shiyu))
+        for r, n in zip(shiyu, names):
+            records.name_bosses(r, n)
+    if game == "hsr":  # each node's enemies with their level and HP, from the game data
+        looked = [r for r in found if r.season_id]
+        enemies = await asyncio.gather(*(bot.hsr_enemies.enemies(bot.session, r.mode, r.season_id, r.floor_id, r.floor_no)
+                                         for r in looked))
+        for r, e in zip(looked, enemies):
+            records.set_enemies(r, e)
+    read = time.perf_counter()
+    if profile:
+        builds += profile.characters
+    records.fill_copies(found, builds)
+    try:
+        png = await bot.cards.render_records(game, uid, found, profile.nickname if profile else None)
+    except Exception:
+        log.exception("Could not draw the %s battle records for %s", game, uid)
+        await interaction.followup.send("Something went wrong drawing the battle records. Try again later.")
+        return
+    await interaction.followup.send(file=discord.File(io.BytesIO(png), filename="records.png"))
+    log.info("%s records for %s: read in %.1fs, drawn and sent in %.1fs", game, uid, read - started, time.perf_counter() - read)
 
 
 def make_stats_command(game: str) -> app_commands.Command:
