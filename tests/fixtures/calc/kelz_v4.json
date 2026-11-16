@@ -1,0 +1,38 @@
+{
+  "source": "reliquary_archiver",
+  "build": "v0.0.0-test",
+  "version": 4,
+  "metadata": {"uid": null, "trailblazer": "Stelle"},
+  "gacha_funds": 0,
+  "materials": [],
+  "light_cones": [
+    {"id": "23001", "name": "In the Night", "level": 80, "ascension": 6, "superimposition": 2, "location": "1102",
+     "lock": true, "_uid": "light_cone_1"},
+    {"id": "21001", "name": "Good Night and Sleep Well", "level": 60, "ascension": 5, "superimposition": 5,
+     "location": "", "lock": false, "_uid": "light_cone_2"}
+  ],
+  "relics": [
+    {"set_id": "108", "name": "Genius of Brilliant Stars", "slot": "Head", "rarity": 5, "level": 15, "mainstat": "HP",
+     "substats": [{"key": "CRIT Rate_", "value": 6.156, "count": 2, "step": 3},
+                  {"key": "SPD", "value": 6.6, "count": 3, "step": 2},
+                  {"key": "CRIT DMG_", "value": 5.184, "count": 1, "step": 0},
+                  {"key": "ATK", "value": 19.051896, "count": 1, "step": 1}],
+     "location": "1102", "lock": true, "discard": false, "_uid": "relic_1"},
+    {"set_id": "108", "name": "Genius of Brilliant Stars", "slot": "Body", "rarity": 5, "level": 15,
+     "mainstat": "CRIT Rate",
+     "substats": [{"key": "ATK_", "value": 8.64}, {"key": "CRIT DMG_", "value": 12.96}],
+     "location": "", "lock": false, "discard": false, "_uid": "relic_2"},
+    {"set_id": "305", "name": "Celestial Differentiator", "slot": "Link Rope", "rarity": 5, "level": 15,
+     "mainstat": "ATK", "substats": [{"key": "Break Effect_", "value": 6.48}],
+     "location": "1102", "lock": false, "discard": false, "_uid": "relic_3"},
+    {"set_id": "104", "name": "Hunter of Glacial Forest", "slot": "Feet", "rarity": 5, "level": 15, "mainstat": "SPD",
+     "substats": [], "location": "", "lock": false, "discard": false, "_uid": "relic_4"}
+  ],
+  "characters": [
+    {"id": "1102", "name": "Seele", "path": "Hunt", "level": 80, "ascension": 6, "eidolon": 1, "ability_version": 1,
+     "skills": {"basic": 7, "skill": 12, "ult": 10, "talent": 10},
+     "traces": {"ability_1": true, "ability_2": true, "ability_3": false, "stat_1": true, "stat_2": true,
+                "stat_3": true, "stat_4": true, "stat_5": true, "stat_6": true, "stat_7": true, "stat_8": true,
+                "stat_9": true, "stat_10": true}}
+  ]
+}
