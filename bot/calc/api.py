@@ -303,37 +303,56 @@ def _evaluation(prep, req: EvaluateRequest, relics: list[Relic]) -> Evaluation:
 
 def toggle_listing(assets, req: EvaluateRequest) -> dict[str, float]:
     """Every toggle key of this request (main character, its light cone, teammates and their gear), with its value."""
+    return {t["key"]: t["value"] for t in toggle_specs(assets, req)}
+
+
+def toggle_specs(assets, req: EvaluateRequest, extra_sets=()) -> list[dict]:
+    """The toggles of toggle_listing() with what a page needs to draw them: key, owner ("main", "tm0".."tm2"), part
+    ("char", "lc", "set"), source (the definition's name), id, kind (switch / slider / select), value (with the
+    request's override), default, min, max, text and options. extra_sets: more set ids the main character may wear
+    (the sets of an "any set" search)."""
     from . import registry
-    from .engine import toggle_values
     from .prepare import character_def, variant_for
 
+    req = _request(req)
     gd = GameData(assets)
-    out: dict[str, float] = {}
+    out: list[dict] = []
+    seen: set[str] = set()
     overrides = {k: (1.0 if v is True else 0.0 if v is False else v) for k, v in (req.toggles or {}).items()}
 
-    def put(prefix, defs, role):
-        for k, v in toggle_values(defs, role, {}, prefix).items():
-            out[f"{prefix}.{k}"] = float(overrides.get(f"{prefix}.{k}", v))
+    def put(owner, part, defn, role):
+        prefix = f"{owner}.{part}"
+        for t in defn.toggles:
+            key = f"{prefix}.{t.id}"
+            if key in seen:
+                continue
+            seen.add(key)
+            default = t.teammate_default if role == "teammate" and t.teammate_default is not None else t.default
+            value = overrides.get(key, default)
+            out.append({"key": key, "owner": owner, "part": part.split(".")[0], "source": defn.name, "id": t.id,
+                        "kind": t.kind, "value": float(value), "default": float(default), "min": float(t.min),
+                        "max": float(t.max), "text": t.text, "options": t.options})
 
     c = req.character
-    put("main.char", character_def(gd, c.id, variant_for(gd, c.id, c.ability_version)).toggles, "main")
+    put("main", "char", character_def(gd, c.id, variant_for(gd, c.id, c.ability_version)), "main")
     if c.light_cone and c.light_cone.id in registry.light_cones():
-        put("main.lc", registry.light_cones()[c.light_cone.id].toggles, "main")
-    for sid in {*req.relic_sets, *req.planar_sets} - {"*"}:
+        put("main", "lc", registry.light_cones()[c.light_cone.id], "main")
+    for sid in sorted({*map(str, req.relic_sets), *map(str, req.planar_sets), *map(str, extra_sets)} - {"*"}, key=int):
         if sid in registry.sets():
-            put(f"main.set.{sid}", registry.sets()[sid].toggles, "main")
+            put("main", f"set.{sid}", registry.sets()[sid], "main")
     for i, t in enumerate(req.teammates):
-        put(f"tm{i}.char", character_def(gd, t.id, variant_for(gd, t.id, t.ability_version)).toggles, "teammate")
+        put(f"tm{i}", "char", character_def(gd, t.id, variant_for(gd, t.id, t.ability_version)), "teammate")
         if t.light_cone and t.light_cone.id in registry.light_cones():
-            put(f"tm{i}.lc", registry.light_cones()[t.light_cone.id].toggles, "teammate")
+            put(f"tm{i}", "lc", registry.light_cones()[t.light_cone.id], "teammate")
         for sid in (t.relic_set, t.planar_set):
             if sid and sid in registry.sets():
-                put(f"tm{i}.set.{sid}", registry.sets()[sid].toggles, "teammate")
+                put(f"tm{i}", f"set.{sid}", registry.sets()[sid], "teammate")
     return out
 
 
-def optimize(assets, request, inventory) -> OptimizeResult:
-    """The best six relics for the main character out of the inventory, with request.top_n alternatives."""
+def optimize(assets, request, inventory, progress=None) -> OptimizeResult:
+    """The best six relics for the main character out of the inventory, with request.top_n alternatives.
+    progress(fraction) is called now and then from the search with 0..1; an exception it raises ends the search."""
     from .search import search
 
-    return search(assets, _request(request), _relics(inventory))
+    return search(assets, _request(request), _relics(inventory), progress)

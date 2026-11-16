@@ -106,6 +106,22 @@ class SearchVsBruteForce(unittest.TestCase):
             self.assertGreaterEqual(result.best.stats["spd"], 150 - 1e-9)
 
 
+    def test_progress_and_cancel(self):
+        seen = []
+        result = optimize(self.assets, {"character": {"id": "1102"}}, self.inventory, progress=seen.append)
+        self.assertIsNotNone(result.best)
+        self.assertEqual((seen[0], seen[-1]), (0.0, 1.0))
+        self.assertEqual(seen, sorted(seen))  # never goes backwards
+
+        class Stop(Exception):
+            pass
+
+        def stop(fraction):
+            if fraction > 0:
+                raise Stop()
+        with self.assertRaises(Stop):  # an exception from the callback ends the search
+            optimize(self.assets, {"character": {"id": "1102"}}, self.inventory, progress=stop)
+
 class Timing(unittest.TestCase):
     """2,000 synthetic relics; the timings are printed (the bound only catches a pathological slowdown)."""
 

@@ -11,7 +11,7 @@ import unittest
 
 from test_parsers import load_assets
 
-from bot.calc import CalcError, EvaluateRequest, Relic, evaluate
+from bot.calc import CalcError, EvaluateRequest, Relic, evaluate, toggle_listing, toggle_specs
 from bot.calc.gamedata import GameData
 
 LV_MULT = 3767.5533
@@ -183,6 +183,20 @@ class Targets(unittest.TestCase):
             evaluate(self.assets, {"character": {"id": "1102"}, "toggles": {"main.char.nope": 1}}, [])
         with self.assertRaises(CalcError):
             evaluate(self.assets, {"character": {"id": "1102"}, "toggles": {"main.char.dmgBoostStacks": 9}}, [])
+
+    def test_toggle_specs(self):
+        req = {"character": {"id": "1102", "light_cone": {"id": "23001"}}, "teammates": [{"id": "1309", "relic_set": "117"}],
+               "relic_sets": ["108"], "toggles": {"main.char.dmgBoostStacks": 1}}
+        specs = {t["key"]: t for t in toggle_specs(self.assets, req, extra_sets=["305"])}
+        self.assertEqual({k: t["value"] for k, t in specs.items() if not k.startswith("main.set.305")},
+                         toggle_listing(self.assets, EvaluateRequest.from_dict(req)))
+        stacks = specs["main.char.dmgBoostStacks"]
+        self.assertEqual((stacks["owner"], stacks["part"], stacks["source"], stacks["kind"]), ("main", "char", "Seele", "slider"))
+        self.assertEqual((stacks["value"], stacks["default"]), (1.0, 3.0))
+        self.assertLess(stacks["min"], stacks["max"])
+        robin_atk = specs["tm0.char.teammateATKValue"]
+        self.assertEqual((robin_atk["owner"], robin_atk["source"]), ("tm0", "Robin"))
+        self.assertTrue(any(k.startswith("tm0.set.117.") for k in specs))
 
 
 class Fallback(unittest.TestCase):

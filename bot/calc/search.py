@@ -60,8 +60,11 @@ def _valid_counts(mode, sets, counts: dict) -> bool:
     return True
 
 
-def search(assets, req: EvaluateRequest, inventory: list[Relic]) -> OptimizeResult:
+def search(assets, req: EvaluateRequest, inventory: list[Relic], progress=None) -> OptimizeResult:
+    """progress(fraction 0..1), when given, is called between chunks; an exception it raises ends the search."""
     t0 = time.perf_counter()
+    report = progress or (lambda fraction: None)
+    report(0.0)
     main_id = str(req.character.id)
     mode, csets = _constraint(req)
     for s in csets:
@@ -139,13 +142,15 @@ def search(assets, req: EvaluateRequest, inventory: list[Relic]) -> OptimizeResu
     g = gradient(ref, ref_counts)
     tried_candidates: set = set()
     for _round in range(2):
+        report(_round / 2)
         cand = {s: _prune(pool[s], vec[s], g, rel_idx, mode, csets, best_sets) for s in SLOTS}
         key = tuple(tuple(c) for c in cand.values())
         if key in tried_candidates:
             break
         tried_candidates.add(key)
         kept_total = max(kept_total, sum(len(c) for c in cand.values()))
-        found, n = _enumerate(cand, vec, pool, keys, mode, csets, score_rows, req.top_n)
+        found, n = _enumerate(cand, vec, pool, keys, mode, csets, score_rows, req.top_n,
+                              lambda f, r=_round: report((r + f) / 2))
         combos_done += n
         best = _merge(best, found, req.top_n)
         if not best:
@@ -168,6 +173,7 @@ def search(assets, req: EvaluateRequest, inventory: list[Relic]) -> OptimizeResu
             stats = np.array([sum(vec[s][i] for s, i in zip(SLOTS, idx))])
             val = score_rows(stats, {k: np.array([v]) for k, v in cur_counts.items()})[0]
             best = _merge(best, [(float(val), idx)], req.top_n)
+    report(1.0)
     best = [b for b in best if np.isfinite(b[0])]
     if not best:
         return OptimizeResult(best=None, alternatives=[], current=current, candidates=kept_total,
@@ -265,7 +271,7 @@ def _undominated(idx: list[int], v: np.ndarray, rel_idx, lin) -> list[int]:
     return [idx[o] for o in kept]
 
 
-def _enumerate(cand, vec, pool, keys, mode, csets, score_rows, top_n):
+def _enumerate(cand, vec, pool, keys, mode, csets, score_rows, top_n, report=lambda fraction: None):
     """Evaluates quadruples x pairs; returns ([(score, (i_head, ..., i_rope))], combinations evaluated)."""
     quads = []
     q_sets = []
@@ -310,6 +316,7 @@ def _enumerate(cand, vec, pool, keys, mode, csets, score_rows, top_n):
     found: list[tuple[float, tuple]] = []
     per = max(1, CHUNK // len(pi_all))
     for start in range(0, len(qi_all), per):
+        report(start / len(qi_all))
         qi = qi_all[start:start + per]
         block = eval_block(qi, pi_all)
         n_done += block.size

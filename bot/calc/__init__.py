@@ -9,10 +9,10 @@ Public API:
 """
 
 from .api import (Alternative, CharacterRequest, ConeRequest, EnemyOptions, EvaluateRequest, Evaluation,
-                  OptimizeResult, TeammateRequest, evaluate, optimize, toggle_listing)
+                  OptimizeResult, TeammateRequest, evaluate, optimize, toggle_listing, toggle_specs)
 from .engine import CalcError
 from .relics import KelzExport, Relic, character_request, parse_kelz
 
 __all__ = ["Alternative", "CalcError", "CharacterRequest", "ConeRequest", "EnemyOptions", "EvaluateRequest",
            "Evaluation", "KelzExport", "OptimizeResult", "Relic", "TeammateRequest", "character_request", "evaluate",
-           "optimize", "parse_kelz", "toggle_listing"]
+           "optimize", "parse_kelz", "toggle_listing", "toggle_specs"]
