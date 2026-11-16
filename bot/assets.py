@@ -34,6 +34,7 @@ FILES = {
     "srr_character_promotions": "hsr/srr/character_promotions.json",
     "srr_skill_trees": "hsr/srr/character_skill_trees.json",
     "srr_character_skills": "hsr/srr/character_skills.json",
+    "srr_character_ranks": "hsr/srr/character_ranks.json",  # eidolon names, for the optimizer page (bot/web)
     "srr_light_cones": "hsr/srr/light_cones.json",
     "srr_light_cone_promotions": "hsr/srr/light_cone_promotions.json",
     "srr_relic_sets": "hsr/srr/relic_sets.json",

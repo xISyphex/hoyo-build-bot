@@ -19,7 +19,7 @@ import genshin
 from discord import app_commands
 from discord.ext import tasks
 
-from . import borrow, matching, news, patch, optimize, records, scold, timezones
+from . import borrow, matching, news, patch, optimize, records, scold, timezones, web
 from .access import PRIVATE, AccessList
 from .assets import Assets
 from .claims import ClaimStore
@@ -105,6 +105,14 @@ class HoyoBot(discord.Client):
         self._banner_refresh = -3600.0  # when a new character on a banner last made the game data download again
         self.set_emojis: SetEmojis | None = None
         self.cards: CardMaker | None = None
+        # The optimizer website (bot/web), only when WEB_BASE_URL is set; /hsr-optimize then answers with a link to it.
+        try:
+            self.web_config = web.config_from_env()
+        except ValueError as exc:
+            log.error("The optimizer site is off: %s", exc)
+            self.web_config = None
+        self.web: web.WebContext | None = None
+        self._web_runner = None
 
     async def setup_hook(self) -> None:
         self.session = aiohttp.ClientSession(headers={"User-Agent": USER_AGENT}, trust_env=True)
@@ -119,6 +127,13 @@ class HoyoBot(discord.Client):
         self.refresh_assets.start()
         self.warm_calendars.start()
         self.check_news.start()
+        if self.web_config:
+            context = web.WebContext(self.assets, self.effective, self.unreleased, web.SessionStore(), self.web_config.base_url)
+            try:
+                self._web_runner = await web.start(context, self.web_config)
+                self.web = context
+            except OSError:
+                log.exception("Could not start the optimizer site; /hsr-optimize answers in Discord instead")
 
         # The bot's owner (or its team on the Developer Portal) always has access and manages the list.
         app = await self.application_info()
@@ -135,7 +150,7 @@ class HoyoBot(discord.Client):
             self.tree.add_command(make_stats_command(game))
             self.tree.add_command(make_patch_command(game))
             self.tree.add_command(make_news_command(game))
-        self.tree.add_command(make_optimize_command())
+        self.tree.add_command(make_optimize_command(web_on=self.web is not None))
         self.tree.add_command(AccessGroup())
         self.tree.add_command(HoyolabGroup())
         self.tree.add_command(help_command)
@@ -209,6 +224,8 @@ class HoyoBot(discord.Client):
         await self.wait_until_ready()
 
     async def close(self) -> None:
+        if self._web_runner:
+            await self._web_runner.cleanup()
         if self.session:
             await self.session.close()
         await super().close()
@@ -498,25 +515,85 @@ def optimize_text(result: optimize.Result, target: CharacterBuild, relic_set: st
     return "\n".join(lines)
 
 
-def make_optimize_command() -> app_commands.Command:
+NO_CHARACTERS = ("I can't see any of this account's characters. Link it with `/hoyolab link` so every character's relics "
+                 "can be used, or put characters on the in-game showcase with **Show Character Details** on.")
+
+
+async def hsr_characters(bot: HoyoBot, uid: str) -> tuple[PlayerProfile, list[CharacterBuild]]:
+    """The account's Star Rail characters for /hsr-optimize: the showcase from Enka plus every character HoYoLAB has
+    when the account is linked, read at the same time. Also returns HoYoLAB's own list (empty when it had none)."""
     game = "hsr"
 
-    @app_commands.command(name="hsr-optimize",
-                          description="Find a character's best relics of two sets among the ones your characters wear")
-    @app_commands.describe(
-        character="The character to gear up",
-        relic_set="The 4-piece relic set to use. Leave empty for the one the game recommends first",
-        planar_set="The 2-piece planar ornament set to use. Leave empty for the one the game recommends first",
-        speed="Count Speed in the score? Leave empty to count it only for characters who build Speed",
-        uid="In-game UID. Leave empty to use the one you claimed with /hsr-claim",
-        server=SERVER_HELP,
-        exclude="Characters whose relics must stay on them, separated by commas (e.g. Acheron, Kafka)",
-    )
-    @app_commands.choices(server=SERVER_CHOICES, speed=[app_commands.Choice(name="On", value="on"),
-                                                        app_commands.Choice(name="Off", value="off")])
-    async def command(interaction: discord.Interaction, character: str, relic_set: str | None = None,
-                      planar_set: str | None = None, speed: str | None = None, uid: str | None = None, server: str | None = None,
-                      exclude: str | None = None) -> None:
+    async def enka_profile():
+        try:
+            return await bot.enka.fetch(game, uid)
+        except Exception as exc:
+            log.info("No Enka profile for %s %s: %s", game, uid, exc)
+            return None
+
+    async def hoyolab_builds():
+        if not bot.hoyolab.available(game, uid):
+            return []
+        try:
+            return await bot.hoyolab.fetch(game, uid)
+        except HoyolabError as exc:
+            log.info("No HoYoLAB characters for %s %s: %s", game, uid, exc)
+            return []
+
+    profile, extra = await asyncio.gather(enka_profile(), hoyolab_builds())
+    if profile is None:
+        profile = PlayerProfile(game, uid, f"UID {uid}", 0, [], 60, PROFILE_URLS[game].format(uid=uid))
+    return with_hoyolab(profile, extra), extra
+
+
+def optimize_preselect(assets: Assets, characters: list[CharacterBuild], character: str | None, relic_set: str | None,
+                       planar_set: str | None, speed: str | None, exclude: str | None) -> tuple[dict, list[str]]:
+    """The command's options as ids for the website to start from, and the ones that match nothing."""
+    chosen: dict = {}
+    unknown: list[str] = []
+    if character:
+        name = matching.find(character, assets.character_names("hsr"))
+        cid = optimize.character_id(assets, name) if name else None
+        chosen["character"] = cid
+        if not cid:
+            unknown.append(character)
+    ids = optimize.set_ids(assets)
+    for key, typed, planar in (("relic_set", relic_set, False), ("planar_set", planar_set, True)):
+        if typed:
+            name = matching.find(typed, optimize.set_names(assets, planar=planar))
+            chosen[key] = ids.get(name) if name else None
+            if not name:
+                unknown.append(typed)
+    if speed in ("on", "off"):
+        chosen["speed"] = speed == "on"
+    if exclude:
+        names, missing = excluded_names(exclude, [c.name for c in characters])
+        chosen["exclude"] = [c.character_id for c in characters if c.name in names]
+        unknown += missing
+    return {k: v for k, v in chosen.items() if v is not None}, unknown
+
+
+def web_link_text(uid: str, characters: int, linked: bool, unknown: list[str]) -> str:
+    """The private reply that carries the optimizer link."""
+    lines = [f"Your relic optimizer for UID {uid} is ready, with the relics of {characters} characters.",
+             "-# The link is for you only and works for 2 hours. Running `/hsr-optimize` again makes a new one."]
+    if not linked:
+        lines.append("-# Only the showcase characters' relics are visible. With `/hoyolab link`, every character's "
+                     "relics can be used.")
+    if unknown:
+        lines.append(f"-# Not found, so not picked on the page: {', '.join(unknown)}.")
+    return "\n".join(lines)
+
+
+def make_optimize_command(web_on: bool = False) -> app_commands.Command:
+    """/hsr-optimize. With the website on, it answers with a private link to the optimizer page and every option is
+    optional (given ones are picked there already); without it, it answers with the optimized card as before."""
+    game = "hsr"
+
+    async def in_discord(interaction: discord.Interaction, character: str, relic_set: str | None = None,
+                         planar_set: str | None = None, speed: str | None = None, uid: str | None = None,
+                         server: str | None = None, exclude: str | None = None) -> None:
+        """The answer in Discord: the optimized card (when the website is off)."""
         bot: HoyoBot = interaction.client  # type: ignore[assignment]
         uid = resolve_uid(bot.claims, interaction.user.id, game, uid, bot.links, server)
         if uid is None:
@@ -549,30 +626,9 @@ def make_optimize_command() -> app_commands.Command:
                 return
         await interaction.response.defer(thinking=True)
 
-        async def enka_profile():
-            try:
-                return await bot.enka.fetch(game, uid)
-            except Exception as exc:
-                log.info("No Enka profile for %s %s: %s", game, uid, exc)
-                return None
-
-        async def hoyolab_builds():
-            if not bot.hoyolab.available(game, uid):
-                return []
-            try:
-                return await bot.hoyolab.fetch(game, uid)
-            except HoyolabError as exc:
-                log.info("No HoYoLAB characters for %s %s: %s", game, uid, exc)
-                return []
-
-        profile, extra = await asyncio.gather(enka_profile(), hoyolab_builds())
-        if profile is None:
-            profile = PlayerProfile(game, uid, f"UID {uid}", 0, [], 60, PROFILE_URLS[game].format(uid=uid))
-        profile = with_hoyolab(profile, extra)
+        profile, extra = await hsr_characters(bot, uid)
         if not profile.characters:
-            await interaction.followup.send(
-                "I can't see any of this account's characters. Link it with `/hoyolab link` so every character's relics "
-                "can be used, or put characters on the in-game showcase with **Show Character Details** on.")
+            await interaction.followup.send(NO_CHARACTERS)
             return
         match = pick(bot, game, profile, character)
         target = next((c for c in profile.characters if c.name == match), None)
@@ -613,6 +669,65 @@ def make_optimize_command() -> app_commands.Command:
             await interaction.followup.send(content=content, embed=build_embed(profile, result.build, piece_emojis=pieces), view=view)
             return
         await interaction.followup.send(content=content, view=view, file=discord.File(io.BytesIO(png), filename="build.png"))
+
+    async def on_web(interaction: discord.Interaction, character: str | None = None, relic_set: str | None = None,
+                     planar_set: str | None = None, speed: str | None = None, uid: str | None = None,
+                     server: str | None = None, exclude: str | None = None) -> None:
+        """The answer with the website on: a private link to the optimizer page, for this account."""
+        bot: HoyoBot = interaction.client  # type: ignore[assignment]
+        uid = resolve_uid(bot.claims, interaction.user.id, game, uid, bot.links, server)
+        if uid is None:
+            await interaction.response.send_message(no_uid_message(bot, interaction.user.id, game, server), ephemeral=True)
+            return
+        if not UID_RE.match(uid):
+            await interaction.response.send_message("A UID is 8 to 10 digits, like `618285856`.", ephemeral=True)
+            return
+        if not bot.access.is_owner(interaction.user.id):
+            next_free = bot.lookups.take(interaction.user.id)
+            if next_free is not None:
+                await interaction.response.send_message(
+                    f"You've used your {bot.lookups.per_hour} lookups for this hour. "
+                    f"You can look up again <t:{math.ceil(next_free)}:R>.",
+                    ephemeral=True,
+                )
+                return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        profile, extra = await hsr_characters(bot, uid)
+        if not profile.characters:
+            await interaction.followup.send(NO_CHARACTERS, ephemeral=True)
+            return
+        preselect, unknown = optimize_preselect(bot.assets, profile.characters, character, relic_set, planar_set, speed,
+                                                exclude)
+        session = bot.web.sessions.create(interaction.user.id, uid, profile.characters, preselect)
+        view = discord.ui.View(timeout=None)
+        view.add_item(discord.ui.Button(label="Open the optimizer", url=bot.web.link(session)))
+        await interaction.followup.send(web_link_text(uid, len(profile.characters), bool(extra), unknown), view=view,
+                                        ephemeral=True)
+
+    if web_on:
+        async def command(interaction: discord.Interaction, character: str | None = None, relic_set: str | None = None,
+                          planar_set: str | None = None, speed: str | None = None, uid: str | None = None,
+                          server: str | None = None, exclude: str | None = None) -> None:
+            await on_web(interaction, character, relic_set, planar_set, speed, uid, server, exclude)
+        description = "Open the relic optimizer page for your account: any character, team and sets"
+    else:
+        async def command(interaction: discord.Interaction, character: str, relic_set: str | None = None,
+                          planar_set: str | None = None, speed: str | None = None, uid: str | None = None,
+                          server: str | None = None, exclude: str | None = None) -> None:
+            await in_discord(interaction, character, relic_set, planar_set, speed, uid, server, exclude)
+        description = "Find a character's best relics of two sets among the ones your characters wear"
+    command = app_commands.choices(server=SERVER_CHOICES, speed=[app_commands.Choice(name="On", value="on"),
+                                                                 app_commands.Choice(name="Off", value="off")])(command)
+    command = app_commands.describe(
+        character="The character to gear up" + (". Leave empty to pick one on the page" if web_on else ""),
+        relic_set="The 4-piece relic set to use. Leave empty for the one the game recommends first",
+        planar_set="The 2-piece planar ornament set to use. Leave empty for the one the game recommends first",
+        speed="Count Speed in the score? Leave empty to count it only for characters who build Speed",
+        uid="In-game UID. Leave empty to use the one you claimed with /hsr-claim",
+        server=SERVER_HELP,
+        exclude="Characters whose relics must stay on them, separated by commas (e.g. Acheron, Kafka)",
+    )(command)
+    command = app_commands.command(name="hsr-optimize", description=description)(command)
 
     @command.autocomplete("character")
     async def character_autocomplete(interaction: discord.Interaction, current: str):
