@@ -100,10 +100,11 @@ hour to appear the first time.
 `/zzz-records` and `/genshin-records` draw a player's endgame runs from
 HoYoLAB as one picture. `modes` picks which ones and in what order (empty
 means all): ZZZ `sd da`, Genshin `abyss theater stygian`. Star Rail has a
-command per mode: `/hsr-moc` (Memory of Chaos), `/hsr-pf` (Pure Fiction),
-`/hsr-apoc` (Apocalyptic Shadow) and `/hsr-aa` (Anomaly Arbitration); each
-node shows its enemies whole with their level and HP, from Hakushin's game
-data (see `bot/hsr_enemies.py`), and the team under them. Each mode shows its
+command per mode instead of `/hsr-records`: `/hsr-moc` (Memory of Chaos),
+`/hsr-pf` (Pure Fiction), `/hsr-apoc` (Apocalyptic Shadow) and `/hsr-aa`
+(Anomaly Arbitration); each node shows its enemies whole with their level and
+HP, from Hakushin's game data (see `bot/hsr_enemies.py`), how much that HP
+changed since the enemy last came in the same mode, and the team under them. Each mode shows its
 score or stars and cycles (ZZZ also the ranking percentile) and the teams
 used; every portrait carries the
 character's copies and their weapon's (E2S1, C0R1, M6P1). HoYoLAB's records
