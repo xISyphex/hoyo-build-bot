@@ -204,7 +204,9 @@ class HsrEnemiesTest(unittest.TestCase):
         cls.TABLES = Tables(
             [{"HardLevelGroup": 1, "Level": 90, "HPRatio": 236.534716}, {"HardLevelGroup": 3, "Level": 95, "HPRatio": 375.438496},
              {"HardLevelGroup": 3, "Level": 120, "HPRatio": {"Value": 1938.763448}}],  # the raw files' {"Value": x} too
-            [{"EliteGroup": 173, "HPRatio": 9.6}, {"EliteGroup": 164, "HPRatio": 6.5}, {"EliteGroup": 169, "HPRatio": 8}])
+            [{"EliteGroup": 173, "HPRatio": 9.6}, {"EliteGroup": 164, "HPRatio": 6.5}, {"EliteGroup": 169, "HPRatio": 8},
+             {"EliteGroup": 57, "HPRatio": 1}],
+            [{"EliteGroup": 349, "HPRatio": 8}])  # InfiniteEliteGroup.json: Anomaly Arbitration's wave groups
         cls.DETAILS = {
             3024013: {"name": "Silver Knight", "hp_base": 5812.5, "image_path": "SpriteOutput/MonsterFigure/Monster_3024010.png",
                       "child": [{"id": 302401304, "hp_modify_ratio": 1}]},
@@ -217,7 +219,10 @@ class HsrEnemiesTest(unittest.TestCase):
         # Silver Knight, Apocalyptic Shadow's Starward: 5812.5 x 1 x 236.534716 x 9.6 = 13,198,637
         self.assertEqual(self.TABLES.hp(5812.5, 1, 1, 90, 173), 13198637)
         self.assertEqual(self.TABLES.hp(14880, 0.375, 3, 120, 169), 86546400)
-        self.assertEqual(self.TABLES.hp(1000, 1, 3, 95, 999), 375438)  # an elite group the table lacks scales by 1
+        self.assertIsNone(self.TABLES.hp(1000, 1, 3, 95, 999))  # an elite group in neither table: unknown, not guessed
+        self.assertEqual(self.TABLES.hp(1000, 1, 3, 95, None), 375438)  # none named: unscaled
+        # Anomaly Arbitration's Knight I (Yabuli): 2092.5 x 1 x 375.438496 x InfiniteEliteGroup[349] 8 = 6,284,840
+        self.assertEqual(self.TABLES.hp(2092.5, 1, 3, 95, 349), 6284840)
         self.assertIsNone(self.TABLES.hp(1000, 1, 1, 77, 1))  # no curve for that level: unknown, not made up
 
     def test_memory_of_chaos_floor_by_id_or_number(self):
@@ -237,12 +242,22 @@ class HsrEnemiesTest(unittest.TestCase):
         self.assertEqual(by_number["2"], found["2"])
         self.assertEqual(floor_enemies("moc", season, self.DETAILS, self.TABLES, "9999").keys(), {"3"})
 
-    def test_pure_fiction_takes_the_wave_elite_group(self):
-        from bot.hsr_enemies import floor_enemies
+    def test_pure_fiction_takes_the_last_waves_elite_group_and_hp_bonus(self):
+        from bot.hsr_enemies import floor_enemies, wave_hp_ratio
+        ability = "FantasticStory_Wave_Ability_0001"
         stage = _stage(90, 1, None, [8012030], [8012030], [302401304])
-        season = {"level": [{"id": 20274, "event_id_list1": [stage], "infinite_list1": {"2": {"elite_group": 173}, "1": {"elite_group": 1}, "3": {"elite_group": 173}}}]}
+        waves = {"2": {"elite_group": 1, "ability": ability, "param_list": [0.05, 9]},
+                 "1": {"elite_group": 1, "ability": ability, "param_list": [0, 4]},
+                 "3": {"elite_group": 173, "ability": ability, "param_list": [0.12, 45]}}
+        season = {"level": [{"id": 20274, "event_id_list1": [stage], "infinite_list1": waves}]}
         found = floor_enemies("pf", season, self.DETAILS, self.TABLES, "20274")
-        self.assertEqual(found["1"][0]["hp"], 13198637)
+        self.assertEqual(found["1"][0]["hp"], round(5812.5 * 236.534716 * 9.6 * 46))  # HP + 4500% in the last wave
+        # Flame Reaver, Pure Fiction floor 4: 7672.5 x 1 x 188.263594 x EliteGroup[57] 1 x (1 + 45) = 66,444,812
+        tables = type(self.TABLES)([{"HardLevelGroup": 1, "Level": 85, "HPRatio": 188.263594}], [{"EliteGroup": 57, "HPRatio": 1}])
+        self.assertEqual(tables.hp(7672.5, 1, 1, 85, 57, wave_hp_ratio(waves["3"])), 66444812)
+        self.assertEqual(wave_hp_ratio({}), 1.0)
+        self.assertIsNone(wave_hp_ratio({"ability": "Some_New_Ability", "param_list": [0, 3]}))  # not known: no HP
+        self.assertIsNone(wave_hp_ratio({"ability": "", "param_list": [0, 3]}))
 
     def test_anomaly_arbitration_knights_and_the_king(self):
         from bot.hsr_enemies import floor_enemies
