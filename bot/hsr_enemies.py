@@ -49,8 +49,9 @@ log = logging.getLogger(__name__)
 
 PATHS = {"moc": "en/maze/{season}.json", "pf": "en/story/{season}.json", "apoc": "en/boss/{season}.json",
          "aa": "en/peak/{season}.json"}
+INDEXES = {"moc": "maze.json", "pf": "maze_extra.json", "apoc": "maze_boss.json", "aa": "maze_peak.json"}  # seasons
 MAX_SHOWN = 3  # enemies per node, at most
-CACHE_VERSION = 3  # 3: worked out as hsr.nanoka.cc does it, with HP bar counts
+CACHE_VERSION = 4  # 4: with the HP change since the boss's last appearance
 
 
 def base_id(monster_id) -> int:
@@ -218,8 +219,106 @@ def enemy(monster_id: int, stage: dict, waves: list[dict], names: dict, tables: 
 def floor_enemies(mode: str, season: Any, names: dict, tables: Tables, floor_id: str = "",
                   floor_no: int = 0) -> dict[str, list[dict]]:
     """Node -> its enemies (see stages for the node keys). names: Hakushin's monster.json (names and pictures)."""
-    return {node: [enemy(i, stage, waves, names, tables) for i in shown_ids(stage)]
+    built: dict[int, list[dict]] = {}  # a stage named twice (Anomaly Arbitration: by maze id and by place) shares one list
+    return {node: built.setdefault(id(stage), [enemy(i, stage, waves, names, tables) for i in shown_ids(stage)])
             for node, (stage, waves) in stages(mode, season, floor_id, floor_no).items()}
+
+
+# The last time a boss appeared -----------------------------------------------------------------------------------
+#
+# "Last time" is the most recent earlier season of the same mode in which the same enemy stood in the same place: the
+# same floor / difficulty number (Memory of Chaos XII, Pure Fiction / Apocalyptic Shadow's top one) or that season's
+# Starward stage, and for Anomaly Arbitration the same slot (any knight, the King, the King on Plight). The same
+# variant id is looked for first, then the same monster, then the same name. HP is compared per bar when both
+# appearances have the same bars, else as the total of all bars.
+
+
+def floor_position(mode: str, season: Any, floor_id: str = "", floor_no: int = 0) -> int:
+    """Which floor (1 = the first that isn't Starward) the reported floor is in this season file; 0 if none."""
+    if mode == "aa":
+        return 0
+    halves = [f for f in _list(season) if f.get("event_id_list1") or f.get("event_id_list2")]
+    for i, f in enumerate(halves, 1):
+        if floor_id and str(f.get("id")) == str(floor_id):
+            return i
+    return floor_no if 0 < floor_no <= len(halves) else 0
+
+
+def node_slot(mode: str, node: str) -> str:
+    """Where a node's enemies stand, for finding them in an earlier season: "floor", "starward", "knight", "king",
+    "plight"."""
+    if mode == "aa":  # by place only: the same stages under their maze ids share these lists
+        return {"KING": "king", "PLIGHT": "plight", "K1": "knight", "K2": "knight", "K3": "knight"}.get(node, "")
+    return "starward" if node == "3" else "floor"
+
+
+def season_slots(mode: str, season: Any, names: dict, tables: Tables, position: int) -> dict[str, list[dict]]:
+    """Slot -> the enemies shown there in one season (see node_slot), for the floor at this position."""
+    out: dict[str, list[dict]] = {}
+    for node, enemies in floor_enemies(mode, season, names, tables, "", position).items():
+        if slot := node_slot(mode, node):
+            out.setdefault(slot, []).extend(enemies)
+    return out
+
+
+def _total(e: dict) -> float:
+    """All of an enemy's HP bars together."""
+    phases = e.get("phases") or []
+    return (e.get("hp") or 0) * (sum(phases) if phases else (e.get("bars") or 1))
+
+
+def hp_change(now: dict, before: dict) -> float | None:
+    """How much more HP (in %) the enemy has now than before: per bar when both have the same bars, else in all."""
+    same = (now.get("bars") or 1) == (before.get("bars") or 1) and (now.get("phases") or []) == (before.get("phases") or [])
+    a, b = (now.get("hp"), before.get("hp")) if same else (_total(now), _total(before))
+    return (a / b - 1) * 100 if a and b else None
+
+
+def last_seen(enemy_: dict, slot: str, history: list[tuple[str, str, dict[str, list[dict]]]]) -> tuple[str, str, dict] | None:
+    """The latest earlier appearance of this enemy in this slot: (season id, season name, that enemy). history:
+    (season id, name, its slots) newest first."""
+    tests = (lambda e: e.get("id") == enemy_.get("id"),
+             lambda e: base_id(e.get("id") or 0) == base_id(enemy_.get("id") or 0),
+             lambda e: e.get("name") and e.get("name") == enemy_.get("name"))
+    for season_id, name, slots in history:
+        candidates = slots.get(slot) or []
+        for test in tests:
+            if match := next((e for e in candidates if test(e) and e.get("hp")), None):
+                return season_id, name, match
+    return None
+
+
+def add_changes(mode: str, found: dict[str, list[dict]], history: list[tuple[str, str, dict[str, list[dict]]]]) -> None:
+    """Notes on each enemy its HP change since it last appeared ("change", %, and "prev_season", that season's name)."""
+    for node, enemies in found.items():
+        slot = node_slot(mode, node)
+        for e in enemies if slot else ():
+            if seen := last_seen(e, slot, history):
+                change = hp_change(e, seen[2])
+                if change is not None:
+                    e["change"], e["prev_season"], e["prev_season_id"] = round(change, 4), seen[1], seen[0]
+
+
+def earlier_seasons(index: dict, season, more_names: tuple[dict, ...] = ()) -> list[tuple[str, str]]:
+    """The seasons before this one in a Hakushin season list (maze.json etc.), newest first, as (id, English name).
+    A name missing there is taken from more_names (the same list of other versions), else left empty. For 4-digit
+    ids only ids of 4 digits count (Memory of Chaos's old 3-digit ids were another mode)."""
+    try:
+        now = int(season)
+    except (TypeError, ValueError):
+        return []
+
+    def english(entry) -> str:
+        return clean(entry.get("en")) if isinstance(entry, dict) and entry.get("en") else ""
+
+    out = []
+    for key, entry in (index or {}).items():
+        key = str(key)
+        if not key.isdigit() or (len(str(now)) >= 4 and len(key) != len(str(now))) or int(key) >= now:
+            continue
+        name = english(entry) or next(filter(None, (english((m or {}).get(key)) for m in more_names)), "")
+        out.append((int(key), str(key), re.sub(r"\s*\(\s*\d+(\.\d+)?\s*\)\s*$", "", name)))
+    return [(k, n) for _, k, n in sorted(out, reverse=True)]
 
 
 class HsrEnemies:
@@ -234,6 +333,13 @@ class HsrEnemies:
         self.missed: dict[str, float] = {}  # floor -> when Hakushin last didn't know it (asked again after an hour)
         self.partial: dict[str, dict[str, list[dict]]] = {}  # floors found with an HP missing, until asked again
         self.tables: dict[str, tuple[Tables, dict]] = {}  # version -> its HP tables and monster.json (the last one read)
+        # past seasons' enemies by slot, "mode/season/floor" -> {slot: [enemy]} ({} when that season had no such floor)
+        self.seasons_path = Path(cache_dir) / "hsr_seasons.json"
+        try:
+            saved = json.loads(self.seasons_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            saved = {}
+        self.seasons: dict[str, dict[str, list[dict]]] = saved.get("seasons", {}) if saved.get("version") == CACHE_VERSION else {}
 
     async def _find(self, session, mode: str, season: str, floor: str, floor_no: int) -> dict[str, list[dict]]:
         async def get(path: str):
@@ -242,7 +348,8 @@ class HsrEnemies:
 
         manifest = await get("manifest.json") or {}
         hsr = manifest.get("hsr") or {}
-        for version in dict.fromkeys(filter(None, (hsr.get("latest"), hsr.get("live")))):  # the site's default first
+        versions = list(dict.fromkeys(filter(None, (hsr.get("latest"), hsr.get("live")))))
+        for version in versions:  # the site's default first
             data = await get(f"hsr/{version}/" + PATHS[mode].format(season=season))
             if not data:
                 continue
@@ -254,8 +361,43 @@ class HsrEnemies:
                 hard, elite, infinite, values, names = await asyncio.gather(*(get(f"hsr/{version}/{n}.json") for n in files))
                 self.tables = {version: (Tables(hard or [], elite or [], infinite or [], values or {}), names or {})}
             tables, names = self.tables[version]
-            return floor_enemies(mode, data, names, tables, floor, floor_no)
+            out = floor_enemies(mode, data, names, tables, floor, floor_no)
+            try:
+                others = [v for v in versions if v != version]
+                await asyncio.wait_for(self._history(get, [version, *others], mode, season, data, floor, floor_no, out), 45)
+                out["_history"] = []  # looked back all the way (kept, so it isn't done again)
+            except Exception as exc:
+                log.info("No full %s history for %s: %s", mode, season, exc)
+            return out
         return {}
+
+    async def _history(self, get, versions: list[str], mode: str, season: str, data, floor: str, floor_no: int,
+                       found: dict[str, list[dict]]) -> None:
+        """Looks back through the mode's earlier seasons, newest first, until every shown enemy's last appearance
+        is found (or there are none left), and notes each one's HP change (see add_changes)."""
+        version = versions[0]  # the one the floor was found in; the others only for season names
+        tables, names = self.tables[version]
+        position = floor_position(mode, data, floor, floor_no)
+        wanted = {e.get("id") for n, es in found.items() if node_slot(mode, n) for e in es}
+        history: list[tuple[str, str, dict[str, list[dict]]]] = []
+        indexes = [await get(f"hsr/{v}/{INDEXES[mode]}") or {} for v in versions]
+        for past, name in earlier_seasons(indexes[0], season, tuple(indexes[1:])):
+            key = f"{mode}/{past}/{position}"
+            if key not in self.seasons:
+                past_data = await get(f"hsr/{version}/" + PATHS[mode].format(season=past))
+                self.seasons[key] = season_slots(mode, past_data, names, tables, position) if past_data else {}
+                self._save_seasons()
+            history.append((past, name, self.seasons[key]))
+            add_changes(mode, found, history)
+            if all(any(e.get("id") == i and "change" in e for es in found.values() for e in es) for i in wanted):
+                return
+
+    def _save_seasons(self) -> None:
+        try:
+            self.seasons_path.parent.mkdir(parents=True, exist_ok=True)
+            self.seasons_path.write_text(json.dumps({"version": CACHE_VERSION, "seasons": self.seasons}), encoding="utf-8")
+        except OSError:
+            log.exception("Could not save %s", self.seasons_path)
 
     async def enemies(self, session, mode: str, season, floor="", floor_no: int = 0) -> dict[str, list[dict]]:
         """Node -> its enemies for this floor (empty when Hakushin doesn't know it)."""
@@ -264,18 +406,19 @@ class HsrEnemies:
         key = f"{mode}/{season}/{floor or floor_no}" if mode != "aa" else f"aa/{season}"
         if key not in self.known and (key not in self.missed or time.monotonic() - self.missed[key] >= 3600):
             try:
-                found = await asyncio.wait_for(self._find(session, mode, str(season), str(floor or ""), floor_no), 30)
+                found = await asyncio.wait_for(self._find(session, mode, str(season), str(floor or ""), floor_no), 60)
             except Exception as exc:
                 log.info("No %s enemies for %s: %s", mode, key, exc)
                 found = {}
-            if found and all(e.get("hp") for es in found.values() for e in es):
+            looked_back = found.pop("_history", None) is not None
+            if found and looked_back and all(e.get("hp") for es in found.values() for e in es):
                 self.known[key] = found
                 try:
                     self.path.parent.mkdir(parents=True, exist_ok=True)
                     self.path.write_text(json.dumps({"version": CACHE_VERSION, "floors": self.known}), encoding="utf-8")
                 except OSError:
                     log.exception("Could not save %s", self.path)
-            else:  # nothing, or some HP missing (a monster file wasn't there yet): ask again in an hour
+            else:  # nothing, an HP missing (a monster file wasn't there yet) or no full history: ask again in an hour
                 self.missed[key] = time.monotonic()
                 if found:
                     self.partial[key] = found

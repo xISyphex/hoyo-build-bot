@@ -37,6 +37,8 @@ CHIPS_H = 40  # its results under them
 FOE_IMG = 212  # an enemy's figure, whole, in this tall a space
 FOE_TEXT = 74  # its name, level and HP under it
 FOE_H = FOE_IMG + FOE_TEXT  # the enemies' row over the team
+CHANGE_H = 20  # and a line more under the HP for its change since the enemy last came, when one has one
+UP, DOWN = (92, 222, 140), (255, 104, 104)  # more HP than last time, less
 FOE_MAX_W = 300  # an enemy's screen at most this wide (one enemy doesn't fill a node)
 SIDE_H = 220  # a stage's own numbers beside its screen, centred on it
 FOE_GAP = 8
@@ -64,8 +66,9 @@ def _perfect(mode: str, kind: str, value: str, total: bool = False) -> bool:
 MODE_FILL = (2, 24, 34, 190)
 
 
-def _team_h(chips: bool, foes: bool = False) -> int:
-    return LABEL_H + 6 + (FOE_H + 12 if foes else 0) + TILE_H + 14 + (CHIPS_H if chips else 0)
+def _team_h(chips: bool, foes: int = 0) -> int:
+    """foes: the enemies' row's height (0 when there's none, see _foes_h)."""
+    return LABEL_H + 6 + (foes + 12 if foes else 0) + TILE_H + 14 + (CHIPS_H if chips else 0)
 
 
 @functools.lru_cache(maxsize=64)
@@ -312,8 +315,25 @@ def _hp(foe: Enemy) -> str:
     return f"{foe.hp:,}" + (f" ×{foe.bars}" if foe.bars > 1 else "")
 
 
-def _foe(card: Image.Image, foe: Enemy, pic: Image.Image | None, box) -> None:
-    """One enemy on its own small screen: its figure projected whole from a pad, then its name, level and HP."""
+def _foes_h(record: Record) -> int:
+    """The enemies' row's height on this record's nodes: 0 without enemies, taller when one has an HP change."""
+    if not any(t.enemies for t in record.teams):
+        return 0
+    return FOE_H + (CHANGE_H if any(e.change is not None for t in record.teams for e in t.enemies) else 0)
+
+
+def _change(change: float, font) -> tuple[str, tuple]:
+    """An HP change as the card writes it, and its colour: "(+12.5%)" green, "(−8.0%)" red, "(±0%)" grey."""
+    if round(change, 1) == 0:
+        return "(±0%)", DIM
+    minus = "−" if _has_glyph(font, "−") else "-"
+    return (f"(+{change:,.1f}%)", UP) if change > 0 else (f"({minus}{-change:,.1f}%)", DOWN)
+
+
+def _foe(card: Image.Image, foe: Enemy, pic: Image.Image | None, box, change_row: bool = False) -> None:
+    """One enemy on its own small screen: its figure projected whole from a pad, then its name, level and HP, and
+    under those (change_row: a line kept for it on every screen of the record) how much more or less HP it has than
+    when it last came in this mode, with that season's name when it fits."""
     x0, y0, x1, y1 = (round(v) for v in box)
     w = x1 - x0
     _box(card, (x0, y0, x1, y1), (2, 16, 26, 200), 90, 10)
@@ -342,7 +362,19 @@ def _foe(card: Image.Image, foe: Enemy, pic: Image.Image | None, box) -> None:
         if len(lines) == 1 or all(draw.textlength(l, font=font) <= room and not l.endswith("…") for l in lines):
             break
     mid = (x0 + x1) / 2
-    stats_y = y1 - 15
+    stats_y = y1 - 15 - (CHANGE_H if change_row else 0)
+    if change_row and foe.change is not None and foe.hp:
+        f, sf = h._raj("Bold", 14), h._raj("SemiBold", 12)
+        text, colour = _change(foe.change, f)
+        tw = draw.textlength(text, font=f)
+        vs = _typeable(f"vs {foe.prev_season}", sf) if foe.prev_season else ""
+        if vs and tw + 6 + draw.textlength(vs, font=sf) > w - 14:
+            vs = ""  # no room for the season's name: the change alone
+        full = tw + (6 + draw.textlength(vs, font=sf) if vs else 0)
+        cx, cy = mid - full / 2, y1 - 16
+        draw.text((cx, cy), text, font=f, fill=colour, anchor="lm")
+        if vs:
+            draw.text((cx + tw + 6, cy), vs, font=sf, fill=FAINT, anchor="lm")
     step = font.size + 3
     top = (img_bottom + stats_y - 11) / 2 - (len(lines) - 1) * step / 2  # centred between the line and the numbers
     for i, line in enumerate(lines):
@@ -368,26 +400,27 @@ def _foe(card: Image.Image, foe: Enemy, pic: Image.Image | None, box) -> None:
         x += pw + 14
 
 
-def _foes(card: Image.Image, foes: list[Enemy], images: dict, x0: float, x1: float, y: float) -> None:
-    """A node's enemies side by side, centred; an empty screen saying so when the game data doesn't know them."""
+def _foes(card: Image.Image, foes: list[Enemy], images: dict, x0: float, x1: float, y: float, fh: int = FOE_H) -> None:
+    """A node's enemies side by side, centred, fh tall (see _foes_h); an empty screen saying so when the game data
+    doesn't know them."""
     if not foes:
-        box = (round(x0), round(y), round(x1), round(y + FOE_H))
+        box = (round(x0), round(y), round(x1), round(y + fh))
         _box(card, box, (2, 16, 26, 140), 50, 10)
         draw = ImageDraw.Draw(card)
         f = h._raj("Bold", 12)
         text = "ENEMIES NOT KNOWN YET"
         tw = sum(draw.textlength(ch, font=f) + 2.6 for ch in text) - 2.6
-        h._spaced(draw, ((x0 + x1 - tw) / 2, y + FOE_H / 2), text, f, FAINT, 2.6)
+        h._spaced(draw, ((x0 + x1 - tw) / 2, y + fh / 2), text, f, FAINT, 2.6)
         return
     n = len(foes)
     w = min(FOE_MAX_W, (x1 - x0 - FOE_GAP * (n - 1)) / n)
     x = (x0 + x1 - (w * n + FOE_GAP * (n - 1))) / 2
     for foe in foes:
-        _foe(card, foe, images.get(foe.art or ""), (x, y, x + w, y + FOE_H))
+        _foe(card, foe, images.get(foe.art or ""), (x, y, x + w, y + fh), fh > FOE_H)
         x += w + FOE_GAP
 
 
-def _team(card: Image.Image, team: Team, images: dict, box, chips: bool, mode: str = "", foes: bool = False) -> None:
+def _team(card: Image.Image, team: Team, images: dict, box, chips: bool, mode: str = "", foes: int = 0) -> None:
     """A node on its own screen: a waypoint and its name, its enemies, the team's characters on tiles under them and
     its results under those."""
     x0, y0, x1, y1 = box
@@ -401,8 +434,8 @@ def _team(card: Image.Image, team: Team, images: dict, box, chips: bool, mode: s
     h._spaced(draw, (x0 + 32, cy), base._fit_text(draw, label, font, room - 1.6 * len(label)), font, TEXT, 1.6)
     top = y0 + LABEL_H + 6
     if foes:
-        _foes(card, team.enemies, images, x0 + 14, x1 - 14, top)
-        top += FOE_H + 12
+        _foes(card, team.enemies, images, x0 + 14, x1 - 14, top, foes)
+        top += foes + 12
     members = team.members[:4]
     row = len(members) * TILE_W + max(0, len(members) - 1) * TILE_GAP
     x = round((x0 + x1 - row) / 2)
@@ -486,7 +519,7 @@ def _section_h(record: Record) -> int:
     if record.empty or not record.teams:
         return HEAD + 50
     chips = any(t.chips for t in record.teams)
-    foes = any(t.enemies for t in record.teams)
+    foes = _foes_h(record)
     rows = rc._rows(record)
     return HEAD + (FLOORS_H if record.floors else 0) + sum(_team_h(chips, foes) + GAP + (STAGE_H if head else 0) for head, _ in rows) - GAP + INNER
 
@@ -535,7 +568,7 @@ def draw_records(uid: str, records: list[Record], images: dict[str, Image.Image]
             y += sh + GAP
             continue
         chips = any(t.chips for t in record.teams)
-        foes = any(t.enemies for t in record.teams)
+        foes = _foes_h(record)
         th = _team_h(chips, foes)
         by = y + HEAD
         col_w = (W - 2 * PAD - 2 * INNER - 2 * GAP) // 3

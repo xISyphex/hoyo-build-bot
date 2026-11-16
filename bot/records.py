@@ -44,6 +44,8 @@ class Enemy:
     hp: int = 0  # per HP bar
     bars: int = 1  # how many HP bars it has (the site's "HP 6,241,196 x 2")
     phases: list[float] = field(default_factory=list)  # each bar's size, when they differ (the site's "P1 ... / P2 ...")
+    change: float | None = None  # % more HP than when it last came in this mode (None: never before, or not known)
+    prev_season: str = ""  # that season's name
 
 
 @dataclass
@@ -460,7 +462,9 @@ def set_enemies(record: Record, found: dict[str, list[dict]]) -> None:
         enemies = next((found[k] for k in team.key.split("|") if k and found.get(k)), None)
         if enemies:
             team.enemies = [Enemy(e.get("name") or "", e.get("art"), int(e.get("level") or 0), int(e.get("hp") or 0),
-                                  int(e.get("bars") or 1), [float(r) for r in e.get("phases") or ()])
+                                  int(e.get("bars") or 1), [float(r) for r in e.get("phases") or ()],
+                                  float(e["change"]) if e.get("change") is not None else None,
+                                  str(e.get("prev_season") or ""))
                             for e in enemies]
 
 

@@ -327,6 +327,62 @@ class HsrEnemiesTest(unittest.TestCase):
         self.assertEqual(rec.teams[0].enemies, [R.Enemy("The Conductor", "boss.png")])
         self.assertEqual((rec.season_id, rec.floor_no), ("3022", 4))
 
+    def test_hp_change_since_the_enemy_last_came(self):
+        from bot.hsr_enemies import add_changes, hp_change
+        now = {"1": [{"id": 302401304, "name": "Silver Knight", "hp": 1125, "bars": 2, "phases": []}],
+               "2": [{"id": 4034014, "name": "Flame Reaver", "hp": 920, "bars": 1, "phases": []}],
+               "3": [{"id": 8015030, "name": "Lord of Ash", "hp": 500, "bars": 1, "phases": []}]}
+        history = [("3021", "Newer", {"floor": [{"id": 9999999, "name": "Someone Else", "hp": 1}]}),
+                   ("3020", "Older", {"floor": [{"id": 302401399, "name": "Silver Knight", "hp": 1000, "bars": 2},  # same monster
+                                                {"id": 1234567, "name": "Flame Reaver", "hp": 1000, "bars": 1}]}),  # same name
+                   ("3015", "Oldest", {"floor": [{"id": 302401304, "name": "Silver Knight", "hp": 10, "bars": 2}],
+                                       "starward": [{"id": 4034014, "name": "Flame Reaver", "hp": 1, "bars": 1}]})]
+        add_changes("apoc", now, history)
+        knight, reaver, lord = now["1"][0], now["2"][0], now["3"][0]
+        self.assertEqual((knight["change"], knight["prev_season"], knight["prev_season_id"]), (12.5, "Older", "3020"))  # the latest
+        self.assertEqual((reaver["change"], reaver["prev_season"]), (-8.0, "Older"))  # a drop
+        self.assertNotIn("change", lord)  # starward only: never on a floor before
+        self.assertIsNone(R.Enemy("x").change)
+        # bars changed: all of them compared; unchanged: 0
+        self.assertEqual(hp_change({"hp": 100, "bars": 3}, {"hp": 150, "bars": 2}), 0)
+        self.assertEqual(hp_change({"hp": 100, "bars": 2, "phases": [1, 1.5]}, {"hp": 100, "bars": 1}), 150)
+        self.assertIsNone(hp_change({"hp": 100}, {"hp": 0}))
+        # Anomaly Arbitration: by place, any knight
+        aa = {"K2": [{"id": 5034010, "name": "Yabuli", "hp": 110, "bars": 2}], "KING": [{"id": 8015030, "hp": 5}]}
+        add_changes("aa", aa, [("9", "Past", {"knight": [{"id": 5034010, "name": "Yabuli", "hp": 100, "bars": 2}],
+                                              "plight": [{"id": 8015030, "hp": 1}]})])
+        self.assertAlmostEqual(aa["K2"][0]["change"], 10)
+        self.assertNotIn("change", aa["KING"][0])  # the King isn't the King on Plight
+        rec = R.hsr_aa(F.aa())
+        R.set_enemies(rec, aa)
+        self.assertEqual((rec.teams[1].enemies[0].change, rec.teams[1].enemies[0].prev_season), (10.0, "Past"))
+
+    def test_earlier_seasons_newest_first(self):
+        from bot.hsr_enemies import earlier_seasons, season_slots
+        index = {"1035": {"en": "Last (1.0)"}, "1036": {"en": "Now"}, "1034": {"en": None}, "120": {"en": "Old mode"},
+                 "1037": {"en": "Next"}}
+        self.assertEqual(earlier_seasons(index, "1036", ({"1034": {"en": "Before"}},)),
+                         [("1035", "Last"), ("1034", "Before")])
+        self.assertEqual(earlier_seasons({"9": {"en": "Nine"}, "10": {"en": "Ten"}, "11": {}}, 11), [("10", "Ten"), ("9", "Nine")])
+        self.assertEqual(earlier_seasons(index, "now"), [])
+        season = [{"id": 5511, "event_id_list1": [_stage(92, 3, 164, [2034010])], "event_id_list2": [_stage(92, 3, 164, [5034010])]},
+                  {"id": 5513, "event_id_list": [_stage(90, 1, 173, [302401304])]}]
+        slots = season_slots("moc", season, self.NAMES, self.TABLES, 1)
+        self.assertEqual([e["name"] for e in slots["floor"]], ["Warhead", "Yabuli"])
+        self.assertEqual([e["name"] for e in slots["starward"]], ["Silver Knight"])
+        self.assertEqual(season_slots("moc", season, self.NAMES, self.TABLES, 2).keys(), {"starward"})  # no 2nd floor then
+
+    def test_hp_change_written_and_coloured(self):
+        from bot import card, card_hsr
+        from bot.records_hsr import DIM, DOWN, UP, _change
+        card.FONTS = card.FONTS or card.Fonts()
+        f = card_hsr._raj("Bold", 14)
+        self.assertEqual(_change(12.5, f), ("(+12.5%)", UP))
+        self.assertEqual(_change(-8, f)[1], DOWN)
+        self.assertIn(_change(-8, f)[0], ("(−8.0%)", "(-8.0%)"))
+        self.assertEqual(_change(0.04, f), ("(±0%)", DIM))
+        self.assertEqual(_change(1234.5, f)[0], "(+1,234.5%)")
+
 
 class HsrDrawTest(unittest.TestCase):
     def test_every_mode_draws_with_enemies(self):
@@ -335,6 +391,7 @@ class HsrDrawTest(unittest.TestCase):
             for i, team in enumerate(rec.teams):
                 team.enemies = [R.Enemy("Lord of Saṃvartasthāyi, Asat Pramad", "boss.png", 120, 86546400, 3),
                                 R.Enemy("Missing Picture", "gone.png", 95, 12345678, 2, [1, 1.25])][: 1 + i % 2]
+            rec.teams[0].enemies[0].change, rec.teams[0].enemies[0].prev_season = 12.5, "A Long Season Name Over Its Screen"
             rec.teams[-1].enemies = []  # not known yet: an empty screen saying so
             img = Image.open(io.BytesIO(draw_records("hsr", "800069903", [rec], {"boss.png": pic})))
             self.assertEqual(img.width, W)
