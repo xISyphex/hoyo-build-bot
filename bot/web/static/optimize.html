@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="dark">
+<title>Relic Optimizer · Star Rail</title>
+<link rel="stylesheet" href="/static/optimizer.css">
+<script type="module" src="/static/js/main.js"></script>
+</head>
+<body>
+<a class="skip" href="#workspace">Skip to the optimizer</a>
+<header class="top">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true"></span>
+    <div>
+      <p class="eyebrow">Astral Express · Navigation</p>
+      <h1>Relic Optimizer</h1>
+    </div>
+  </div>
+  <p class="session-info" id="session-info" hidden></p>
+</header>
+
+<main>
+  <section class="state holo" id="state-loading" aria-live="polite">
+    <div class="spinner" aria-hidden="true"></div>
+    <p>Reading your relics…</p>
+  </section>
+
+  <section class="state holo" id="state-expired" hidden>
+    <h2>This link has expired</h2>
+    <p>Optimizer links work for 2 hours, and only the newest one works. Run <code>/hsr-optimize</code> in Discord again to get a new link.</p>
+  </section>
+
+  <section class="state holo" id="state-error" hidden>
+    <h2>Something went wrong</h2>
+    <p id="state-error-text">The optimizer couldn't load. Try again in a moment.</p>
+    <button type="button" class="btn" id="retry">Try again</button>
+  </section>
+
+  <div class="workspace" id="workspace" hidden>
+    <div class="config">
+      <section class="holo panel" aria-labelledby="h-character">
+        <h2 id="h-character" class="panel-title"><span>01</span> Character</h2>
+        <div class="pick-row">
+          <button type="button" class="picker-trigger big" id="pick-character" aria-haspopup="dialog">
+            <span class="pt-empty">Choose a character</span>
+          </button>
+        </div>
+        <div id="character-details" hidden>
+          <div class="field-grid">
+            <label class="field">
+              <span class="label">Level</span>
+              <input type="number" id="char-level" min="1" max="80" inputmode="numeric">
+            </label>
+            <label class="field">
+              <span class="label">Ascension</span>
+              <select id="char-ascension"></select>
+            </label>
+          </div>
+          <fieldset class="field">
+            <legend class="label">Eidolons</legend>
+            <div class="segmented" id="char-eidolon" role="radiogroup" aria-label="Eidolons"></div>
+            <p class="hint" id="char-eidolon-name"></p>
+          </fieldset>
+          <fieldset class="field">
+            <legend class="label">Abilities</legend>
+            <div class="abilities" id="char-abilities"></div>
+          </fieldset>
+          <fieldset class="field">
+            <legend class="label">Traces</legend>
+            <div class="traces" id="char-traces"></div>
+          </fieldset>
+          <div class="row-actions">
+            <button type="button" class="btn ghost" id="char-max">Max everything</button>
+            <button type="button" class="btn ghost" id="char-owned" hidden>Use my build</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="holo panel" aria-labelledby="h-cone">
+        <h2 id="h-cone" class="panel-title"><span>02</span> Light cone</h2>
+        <div class="pick-row">
+          <button type="button" class="picker-trigger" id="pick-cone" aria-haspopup="dialog">
+            <span class="pt-empty">No light cone</span>
+          </button>
+        </div>
+        <div class="field-grid">
+          <label class="field">
+            <span class="label">Level</span>
+            <input type="number" id="cone-level" min="1" max="80" value="80" inputmode="numeric">
+          </label>
+          <fieldset class="field">
+            <legend class="label">Superimposition</legend>
+            <div class="segmented" id="cone-rank" role="radiogroup" aria-label="Superimposition"></div>
+          </fieldset>
+        </div>
+      </section>
+
+      <section class="holo panel" aria-labelledby="h-sets">
+        <h2 id="h-sets" class="panel-title"><span>03</span> Relics</h2>
+        <div class="field-grid">
+          <div class="field">
+            <span class="label" id="l-relic-set">Relic set (4 pieces)</span>
+            <button type="button" class="picker-trigger" id="pick-relic-set" aria-haspopup="dialog" aria-describedby="l-relic-set"></button>
+          </div>
+          <div class="field">
+            <span class="label" id="l-planar-set">Planar set (2 pieces)</span>
+            <button type="button" class="picker-trigger" id="pick-planar-set" aria-haspopup="dialog" aria-describedby="l-planar-set"></button>
+          </div>
+        </div>
+        <fieldset class="field">
+          <legend class="label">Speed in the score</legend>
+          <div class="segmented" id="opt-speed" role="radiogroup" aria-label="Speed in the score"></div>
+        </fieldset>
+        <div class="field">
+          <span class="label" id="l-exclude">Keep these characters' relics on them</span>
+          <div class="chips" id="exclude-chips" aria-describedby="l-exclude"></div>
+          <button type="button" class="btn ghost small" id="exclude-add" aria-haspopup="dialog">Add a character</button>
+        </div>
+      </section>
+
+      <section class="holo panel" aria-labelledby="h-team">
+        <h2 id="h-team" class="panel-title"><span>04</span> Team</h2>
+        <p class="hint">Up to three teammates. The current scoring doesn't use the team yet; it is sent along for the new damage engine.</p>
+        <div class="team" id="team"></div>
+      </section>
+
+      <div class="go">
+        <button type="button" class="btn primary" id="optimize" disabled>Optimize</button>
+        <p class="hint" id="go-hint">Pick a character first.</p>
+      </div>
+    </div>
+
+    <aside class="holo panel result" id="result" aria-labelledby="h-result" aria-live="polite">
+      <h2 id="h-result" class="panel-title"><span>05</span> Best relics</h2>
+      <div id="result-body">
+        <p class="empty">Pick a character and press <strong>Optimize</strong>. The best relics from your account's characters show up here.</p>
+      </div>
+    </aside>
+  </div>
+</main>
+
+<dialog class="picker" id="picker" aria-labelledby="picker-title">
+  <div class="picker-head">
+    <h2 id="picker-title">Choose</h2>
+    <button type="button" class="icon-btn" id="picker-close" aria-label="Close">×</button>
+  </div>
+  <input type="search" id="picker-search" placeholder="Search" autocomplete="off" spellcheck="false"
+         role="combobox" aria-expanded="true" aria-controls="picker-list" aria-autocomplete="list" aria-label="Search">
+  <div class="picker-filters" id="picker-filters"></div>
+  <ul class="picker-list" id="picker-list" role="listbox" aria-labelledby="picker-title"></ul>
+</dialog>
+</body>
+</html>
