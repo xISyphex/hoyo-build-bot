@@ -41,7 +41,9 @@ class Enemy:
     name: str
     art: str | None = None
     level: int = 0
-    hp: int = 0
+    hp: int = 0  # per HP bar
+    bars: int = 1  # how many HP bars it has (the site's "HP 6,241,196 x 2")
+    phases: list[float] = field(default_factory=list)  # each bar's size, when they differ (the site's "P1 ... / P2 ...")
 
 
 @dataclass
@@ -457,7 +459,8 @@ def set_enemies(record: Record, found: dict[str, list[dict]]) -> None:
     for team in record.teams:
         enemies = next((found[k] for k in team.key.split("|") if k and found.get(k)), None)
         if enemies:
-            team.enemies = [Enemy(e.get("name") or "", e.get("art"), int(e.get("level") or 0), int(e.get("hp") or 0))
+            team.enemies = [Enemy(e.get("name") or "", e.get("art"), int(e.get("level") or 0), int(e.get("hp") or 0),
+                                  int(e.get("bars") or 1), [float(r) for r in e.get("phases") or ()])
                             for e in enemies]
 
 

@@ -193,37 +193,62 @@ def _stage(level, group, elite, *waves):
             "monster_list": [{f"monster{i}": m for i, m in enumerate(w)} for w in waves]}
 
 
+def _value(hp_base, *children, bars=None, phases=None):
+    """A made-up monstervalue.json entry: (variant id, HPModifyRatio, its own EliteGroup) per variant."""
+    out = {"HPBase": hp_base, "child": [{"Id": c, "HPModifyRatio": r, "EliteGroup": e} for c, r, e in children]}
+    if bars:
+        out["MaxMonsterPhase"] = bars
+    if phases:
+        out["PhaseList"] = [{"PhaseNum": i + 1, "PhaseMaxHPRatio": r} for i, r in enumerate(phases)]
+    return out
+
+
 class HsrEnemiesTest(unittest.TestCase):
-    # Made-up tables in Hakushin's shape (HardLevelGroup.json / EliteGroup.json), with the real rows the worked
-    # example uses: group 1 at level 90, elite group 173
-    TABLES = None
+    """HP worked out as hsr.nanoka.cc does it. The tables are made up in Hakushin's shapes, with the real rows the
+    worked examples use (each matched against the site's own numbers)."""
 
     @classmethod
     def setUpClass(cls):
         from bot.hsr_enemies import Tables
         cls.TABLES = Tables(
             [{"HardLevelGroup": 1, "Level": 90, "HPRatio": 236.534716}, {"HardLevelGroup": 3, "Level": 95, "HPRatio": 375.438496},
+             {"HardLevelGroup": 1, "Level": 85, "HPRatio": 188.263594},
              {"HardLevelGroup": 3, "Level": 120, "HPRatio": {"Value": 1938.763448}}],  # the raw files' {"Value": x} too
             [{"EliteGroup": 173, "HPRatio": 9.6}, {"EliteGroup": 164, "HPRatio": 6.5}, {"EliteGroup": 169, "HPRatio": 8},
-             {"EliteGroup": 57, "HPRatio": 1}],
-            [{"EliteGroup": 349, "HPRatio": 8}])  # InfiniteEliteGroup.json: Anomaly Arbitration's wave groups
-        cls.DETAILS = {
-            3024013: {"name": "Silver Knight", "hp_base": 5812.5, "image_path": "SpriteOutput/MonsterFigure/Monster_3024010.png",
-                      "child": [{"id": 302401304, "hp_modify_ratio": 1}]},
-            8015030: {"name": "Lord of <i>Ash</i>", "hp_base": 14880, "image_path": "SpriteOutput/MonsterFigure/Monster_8015030.png",
-                      "child": [{"id": 801503006, "hp_modify_ratio": 0.375}]},
-            2034010: {"name": "Warhead", "hp_base": 2557.5, "image_path": None, "child": [{"id": 2034010, "hp_modify_ratio": 1}]},
-        }
+             {"EliteGroup": 57, "HPRatio": 1}, {"EliteGroup": 2, "HPRatio": 1.7}],
+            [{"EliteGroup": 349, "HPRatio": 8}],  # InfiniteEliteGroup.json: Anomaly Arbitration's wave groups
+            {"3024013": _value(5812.5, (302401304, 1, 1), bars=2),
+             "3024012": _value(5812.5, (302401204, 1, 1)),
+             "4034014": _value(7672.5, (4034014, 1, 1)),
+             "8015030": _value(14880, (8015030, 1, 1), (801503006, 0.375, 1), bars=3, phases=[1, 1, 1]),
+             "5034010": _value(2092.5, (5034010, 1, 2), bars=2),
+             "2034010": _value(2557.5, (2034010, 1, 1), bars=2, phases=[1, 1.5])})
+        cls.NAMES = {"3024013": {"en": "Silver Knight", "icon": "SpriteOutput/MonsterFigure/Monster_3024010.png"},
+                     "8015030": {"en": "Lord of <i>Ash</i>", "icon": "SpriteOutput/MonsterFigure/Monster_8015030.png"},
+                     "2034010": {"en": "Warhead"}, "5034010": {"en": "Yabuli"}}
 
-    def test_hp_as_hakushin_works_it_out(self):
-        # Silver Knight, Apocalyptic Shadow's Starward: 5812.5 x 1 x 236.534716 x 9.6 = 13,198,637
-        self.assertEqual(self.TABLES.hp(5812.5, 1, 1, 90, 173), 13198637)
-        self.assertEqual(self.TABLES.hp(14880, 0.375, 3, 120, 169), 86546400)
-        self.assertIsNone(self.TABLES.hp(1000, 1, 3, 95, 999))  # an elite group in neither table: unknown, not guessed
-        self.assertEqual(self.TABLES.hp(1000, 1, 3, 95, None), 375438)  # none named: unscaled
-        # Anomaly Arbitration's Knight I (Yabuli): 2092.5 x 1 x 375.438496 x InfiniteEliteGroup[349] 8 = 6,284,840
-        self.assertEqual(self.TABLES.hp(2092.5, 1, 3, 95, 349), 6284840)
-        self.assertIsNone(self.TABLES.hp(1000, 1, 1, 77, 1))  # no curve for that level: unknown, not made up
+    def test_hp_as_the_site_works_it_out(self):
+        hp = lambda *a: self.TABLES.hp(*a)["hp"]  # noqa: E731
+        # Silver Knight, Apocalyptic Shadow 3022 Starward: 5812.5 x 1 x 9.6 x 236.534716 = 13,198,637 (site: same)
+        self.assertEqual(hp(302401304, _stage(90, 1, 173)), 13198637)
+        self.assertEqual(self.TABLES.hp(302401304, _stage(90, 1, 173))["bars"], 2)  # the site: "x 2"
+        # Flame Reaver, Pure Fiction 2027 floor 4: 7672.5 x 1 x 1 x 188.263594 x (1 + 45) = 66,444,812 (site: same)
+        self.assertEqual(hp(4034014, _stage(85, 1, None), {"elite_group": 57, "param_list": [0.12, 45]}), 66444812)
+        # Yabuli, Anomaly Arbitration 11 Knight I: 2092.5 x 1 x InfiniteEliteGroup[349] 8 x 375.438496 = 6,284,840
+        self.assertEqual(hp(5034010, _stage(95, 3, None), {"elite_group": 349, "param_list": []}), 6284840)
+        # Asat Pramad on Plight: 14880 x 0.375 x 8 x 1938.763448 = 86,546,400 (site: same)
+        self.assertEqual(hp(801503006, _stage(120, 3, None), {"elite_group": 169}), 86546400)
+
+    def test_the_sites_fallbacks(self):
+        hp = lambda *a: self.TABLES.hp(*a)["hp"]  # noqa: E731
+        # an elite group in neither table: the variant's own group (Yabuli's is 2, x1.7), then x1
+        self.assertEqual(hp(5034010, _stage(95, 3, 999)), round(2092.5 * 1.7 * 375.438496))
+        self.assertEqual(hp(2034010, _stage(95, 3, 999)), round(2557.5 * 375.438496))
+        self.assertIsNone(self.TABLES.hp(1234567, _stage(95, 3, 1)))  # not in monstervalue.json
+        self.assertEqual(hp(302401299, _stage(90, 1, 173)), 13198637)  # a variant not listed: the monster's own
+        self.assertEqual(hp(5034010, _stage(95, 3, None), {"elite_group": 349, "param_list": [0, 3]}), round(2092.5 * 8 * 375.438496 * 4))
+        # InfiniteEliteGroup is only for waves
+        self.assertEqual(hp(5034010, _stage(95, 3, 349)), round(2092.5 * 1.7 * 375.438496))
 
     def test_memory_of_chaos_floor_by_id_or_number(self):
         from bot.hsr_enemies import floor_enemies
@@ -231,50 +256,51 @@ class HsrEnemiesTest(unittest.TestCase):
                   {"id": 5512, "event_id_list1": [_stage(95, 3, 164, [8012030, 2034010, 8012030], [2034010, 2034010])],
                    "event_id_list2": [_stage(95, 3, 164, [302401304])]},
                   {"id": 5513, "event_id_list": [_stage(90, 1, 173, [8012030], [302401304])]}]
-        found = floor_enemies("moc", season, self.DETAILS, self.TABLES, "5512")
+        found = floor_enemies("moc", season, self.NAMES, self.TABLES, "5512")
         self.assertEqual(found.keys(), {"1", "2", "3"})
         self.assertEqual([(e["name"], e["level"]) for e in found["1"]], [("Warhead", 95)])  # the last wave, each kind once
         self.assertEqual(found["1"][0]["hp"], round(2557.5 * 375.438496 * 6.5))
+        self.assertEqual((found["1"][0]["bars"], found["1"][0]["phases"]), (2, [1, 1.5]))  # bars of different size
         self.assertIsNone(found["1"][0]["art"])
-        self.assertEqual(found["3"][0]["hp"], 13198637)
+        self.assertEqual((found["3"][0]["hp"], found["3"][0]["phases"]), (13198637, []))
         self.assertTrue(found["3"][0]["art"].endswith("/assets/hsr/monsterfigure/Monster_3024010.webp"))
-        by_number = floor_enemies("moc", season, self.DETAILS, self.TABLES, "9999", 2)  # an unknown id: the 2nd floor
+        by_number = floor_enemies("moc", season, self.NAMES, self.TABLES, "9999", 2)  # an unknown id: the 2nd floor
         self.assertEqual(by_number["2"], found["2"])
-        self.assertEqual(floor_enemies("moc", season, self.DETAILS, self.TABLES, "9999").keys(), {"3"})
+        self.assertEqual(floor_enemies("moc", season, self.NAMES, self.TABLES, "9999").keys(), {"3"})
 
     def test_pure_fiction_takes_the_last_waves_elite_group_and_hp_bonus(self):
-        from bot.hsr_enemies import floor_enemies, wave_hp_ratio
+        from bot.hsr_enemies import floor_enemies
         ability = "FantasticStory_Wave_Ability_0001"
-        stage = _stage(90, 1, None, [8012030], [8012030], [302401304])
-        waves = {"2": {"elite_group": 1, "ability": ability, "param_list": [0.05, 9]},
-                 "1": {"elite_group": 1, "ability": ability, "param_list": [0, 4]},
-                 "3": {"elite_group": 173, "ability": ability, "param_list": [0.12, 45]}}
+        stage = _stage(85, 1, None, [8012030], [8012030], [4034014])
+        waves = {"2": {"elite_group": 57, "ability": ability, "param_list": [0.05, 9]},
+                 "1": {"elite_group": 57, "ability": ability, "param_list": [0, 4]},
+                 "3": {"elite_group": 57, "ability": ability, "param_list": [0.12, 45]}}
         season = {"level": [{"id": 20274, "event_id_list1": [stage], "infinite_list1": waves}]}
-        found = floor_enemies("pf", season, self.DETAILS, self.TABLES, "20274")
-        self.assertEqual(found["1"][0]["hp"], round(5812.5 * 236.534716 * 9.6 * 46))  # HP + 4500% in the last wave
-        # Flame Reaver, Pure Fiction floor 4: 7672.5 x 1 x 188.263594 x EliteGroup[57] 1 x (1 + 45) = 66,444,812
-        tables = type(self.TABLES)([{"HardLevelGroup": 1, "Level": 85, "HPRatio": 188.263594}], [{"EliteGroup": 57, "HPRatio": 1}])
-        self.assertEqual(tables.hp(7672.5, 1, 1, 85, 57, wave_hp_ratio(waves["3"])), 66444812)
-        self.assertEqual(wave_hp_ratio({}), 1.0)
-        self.assertIsNone(wave_hp_ratio({"ability": "Some_New_Ability", "param_list": [0, 3]}))  # not known: no HP
-        self.assertIsNone(wave_hp_ratio({"ability": "", "param_list": [0, 3]}))
+        self.assertEqual(floor_enemies("pf", season, self.NAMES, self.TABLES, "20274")["1"][0]["hp"], 66444812)
 
     def test_anomaly_arbitration_knights_and_the_king(self):
         from bot.hsr_enemies import floor_enemies
-        season = {"pre_level": [{"id": 1101, "event_id_list": [_stage(95, 3, None, [2034010])], "infinite_list": {"1": {"elite_group": 164}}}],
+        season = {"pre_level": [{"id": 1101, "event_id_list": [_stage(95, 3, None, [5034010])],
+                                 "infinite_list": {"1": {"elite_group": 349, "param_list": []}}}],
                   "boss_level": {"id": 1104, "event_id_list": [_stage(100, 3, None, [801503006])]},
                   "boss_config": {"event_id_list": [_stage(120, 3, None, [801503006])], "infinite_list": {"9": {"elite_group": 169}}}}
-        found = floor_enemies("aa", season, self.DETAILS, self.TABLES)
+        found = floor_enemies("aa", season, self.NAMES, self.TABLES)
         self.assertEqual(found["1101"], found["K1"])
-        self.assertEqual(found["PLIGHT"][0]["hp"], 86546400)
+        self.assertEqual(found["K1"][0]["hp"], 6284840)
+        self.assertEqual((found["PLIGHT"][0]["hp"], found["PLIGHT"][0]["bars"]), (86546400, 3))
         self.assertEqual(found["PLIGHT"][0]["name"], "Lord of Ash")  # markup dropped
-        self.assertIsNone(found["KING"][0]["hp"])  # level 100 isn't in these tables
         rec = R.hsr_aa(F.aa())
         rec.teams[3].key = "1104:plight|PLIGHT"
         R.set_enemies(rec, {"K2": found["K1"], "PLIGHT": found["PLIGHT"]})
-        self.assertEqual((rec.teams[1].enemies[0].name, rec.teams[1].enemies[0].level), ("Warhead", 95))  # by place
-        self.assertEqual(rec.teams[3].enemies[0].hp, 86546400)
+        self.assertEqual((rec.teams[1].enemies[0].name, rec.teams[1].enemies[0].level), ("Yabuli", 95))  # by place
+        self.assertEqual((rec.teams[3].enemies[0].hp, rec.teams[3].enemies[0].bars), (86546400, 3))
         self.assertEqual(rec.teams[0].enemies[0].name, "Wolf Knight")  # not found: HoYoLAB's stays
+
+    def test_hp_written_like_the_site(self):
+        from bot.records_hsr import _hp
+        self.assertEqual(_hp(R.Enemy("a", hp=6241196)), "6,241,196")
+        self.assertEqual(_hp(R.Enemy("a", hp=6241196, bars=2)), "6,241,196 ×2")
+        self.assertEqual(_hp(R.Enemy("a", hp=1000, bars=2, phases=[1, 1.5])), "1,000 / 1,500")
 
     def test_floor_numbers(self):
         from bot.hsr_enemies import base_id, floor_number
@@ -307,8 +333,8 @@ class HsrDrawTest(unittest.TestCase):
         pic = Image.new("RGBA", (300, 500), (200, 40, 40, 255))
         for rec in (R.hsr_moc(F.moc()), R.hsr_pf(F.pf()), R.hsr_apoc(F.apoc()), R.hsr_aa(F.aa())):
             for i, team in enumerate(rec.teams):
-                team.enemies = [R.Enemy("Lord of Saṃvartasthāyi, Asat Pramad", "boss.png", 120, 86546400),
-                                R.Enemy("Missing Picture", "gone.png", 95, 1234)][: 1 + i % 2]
+                team.enemies = [R.Enemy("Lord of Saṃvartasthāyi, Asat Pramad", "boss.png", 120, 86546400, 3),
+                                R.Enemy("Missing Picture", "gone.png", 95, 12345678, 2, [1, 1.25])][: 1 + i % 2]
             rec.teams[-1].enemies = []  # not known yet: an empty screen saying so
             img = Image.open(io.BytesIO(draw_records("hsr", "800069903", [rec], {"boss.png": pic})))
             self.assertEqual(img.width, W)

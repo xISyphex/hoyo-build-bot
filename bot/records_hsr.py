@@ -304,8 +304,12 @@ def _typeable(text: str, font) -> str:
     return "".join(out)
 
 
-def _hp(hp: int) -> str:
-    return f"{hp:,}"
+def _hp(foe: Enemy) -> str:
+    """The HP as hsr.nanoka.cc writes it: "6,241,196", "6,241,196 ×2" for two bars, "1,000 / 2,000" for bars of
+    different size."""
+    if len(foe.phases) > 1 and len(set(foe.phases)) > 1:
+        return " / ".join(f"{round(foe.hp * r):,}" for r in foe.phases)
+    return f"{foe.hp:,}" + (f" ×{foe.bars}" if foe.bars > 1 else "")
 
 
 def _foe(card: Image.Image, foe: Enemy, pic: Image.Image | None, box) -> None:
@@ -348,11 +352,15 @@ def _foe(card: Image.Image, foe: Enemy, pic: Image.Image | None, box) -> None:
     if foe.level:
         parts.append(("LV", str(foe.level), TEXT))
     if foe.hp:
-        parts.append(("HP", _hp(foe.hp), HOLO))
+        parts.append(("HP", _hp(foe), HOLO))
     if not parts:
         return
     label_w = lambda t: sum(draw.textlength(ch, font=small) + 1.4 for ch in t)  # noqa: E731
-    widths = [label_w(a) + 4 + draw.textlength(b, font=big) for a, b, _ in parts]
+    for size in (16, 14, 13, 12):  # long bar-by-bar HP gets smaller digits before it runs off its screen
+        big = h._raj("Bold", size)
+        widths = [label_w(a) + 4 + draw.textlength(b, font=big) for a, b, _ in parts]
+        if sum(widths) + 14 * (len(parts) - 1) <= w - 12:
+            break
     x = mid - (sum(widths) + 14 * (len(parts) - 1)) / 2
     for (label, value, colour), pw in zip(parts, widths):
         h._spaced(draw, (x, stats_y), label, small, DIM, 1.4)

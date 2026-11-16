@@ -13,16 +13,22 @@ A floor's two halves are its "event_id_list1" / "event_id_list2" (the Starward f
 stage: its level, its HP growth curve ("hard_level_group"), an HP scale ("elite_group"; Pure Fiction and Anomaly
 Arbitration put it on each wave under "infinite_list") and its waves of monster ids ("monster_list").
 
-A node shows the enemies of its last wave (the boss wave), each kind once. An enemy's HP is
+A node shows the enemies of its last wave (the boss wave), each kind once. An enemy's HP is worked out exactly as
+hsr.nanoka.cc does it (its function in _app/immutable/chunks/BEQWqNLk.js, checked against its pages):
 
-    hp_base × hp_modify_ratio × HardLevelGroup[stage group, stage level].HPRatio × EliteGroup[elite group].HPRatio
-           × (1 + the wave's param_list[1], Pure Fiction only)
+    HPBase × HPModifyRatio × EliteGroup.HPRatio × HardLevelGroup[stage group, stage level].HPRatio
+           × (1 + the wave's param_list[1])          Pure Fiction / Anomaly Arbitration waves ("infinite_list")
+    rounded to the nearest whole number
 
-with hp_base from the monster's own file (hsr/<version>/en/monster/<id>.json), hp_modify_ratio from its variant (the
-stage names variants like 501402404, the monster 5014024's fourth), and the tables from Hakushin's
-HardLevelGroup.json, EliteGroup.json and InfiniteEliteGroup.json (Anomaly Arbitration's wave groups). Pure Fiction's
-waves carry FantasticStory_Wave_Ability_0001, which raises every enemy's HP by param_list[1] (see wave_hp_ratio). A
-ratio that isn't in the tables leaves the HP unknown (not shown) rather than guessed.
+from monstervalue.json (HPBase, and the variant's HPModifyRatio: the stage names variants like 501402404, the
+monster 5014024's; a variant not listed takes the first) and HardLevelGroup.json. The elite group is the stage's,
+or for a wave-based stage the last wave's (EliteGroup.json, then InfiniteEliteGroup.json, which holds Anomaly
+Arbitration's 345+); one in neither table falls back to the variant's own group, then to ×1. Pure Fiction's
+param_list[1] is the HPAddedRatio its wave ability (FantasticStory_Wave_Ability_0001) gives every enemy of the wave.
+A boss with several HP bars (MaxMonsterPhase) shows its HP per bar and the bar count, like the site ("HP 6,241,196
+x 2"); bars of different size (PhaseList's PhaseMaxHPRatio) are each shown.
+
+The data version is the site's default (the manifest's latest), then the live one.
 
 A season's enemies never change, so each floor's are kept in hsr_enemies.json once found.
 """
@@ -44,7 +50,7 @@ log = logging.getLogger(__name__)
 PATHS = {"moc": "en/maze/{season}.json", "pf": "en/story/{season}.json", "apoc": "en/boss/{season}.json",
          "aa": "en/peak/{season}.json"}
 MAX_SHOWN = 3  # enemies per node, at most
-CACHE_VERSION = 2  # 2: InfiniteEliteGroup and Pure Fiction's wave HP bonus counted
+CACHE_VERSION = 3  # 3: worked out as hsr.nanoka.cc does it, with HP bar counts
 
 
 def base_id(monster_id) -> int:
@@ -65,32 +71,56 @@ def clean(name: str | None) -> str:
     return re.sub(r"<[^>]*>|\{RUBY_[BE]#[^}]*\}", "", name or "").strip()
 
 
-class Tables:
-    """Hakushin's HardLevelGroup.json, EliteGroup.json and InfiniteEliteGroup.json, as the HP ratio of a (group,
-    level) and of an elite group. Waves of Pure Fiction / Anomaly Arbitration name groups from either elite table
-    (Anomaly Arbitration's knights use InfiniteEliteGroup's 345+; the two tables share no ids)."""
-
-    def __init__(self, hard_levels: list[dict], elite_groups: list[dict], infinite_groups: list[dict] = ()):
-        self.hard = {(int(r["HardLevelGroup"]), int(r["Level"])): _value(r.get("HPRatio")) for r in hard_levels or ()
-                     if isinstance(r, dict) and "HardLevelGroup" in r and "Level" in r}
-        self.elite = {int(r["EliteGroup"]): _value(r.get("HPRatio")) for rows in (infinite_groups, elite_groups)
-                      for r in rows or () if isinstance(r, dict) and "EliteGroup" in r}
-
-    def hp(self, hp_base: float, modify: float, group: int, level: int, elite: int | None,
-           wave_ratio: float = 1) -> int | None:
-        """The enemy's HP; None when a ratio it needs isn't in the tables (never guessed)."""
-        growth = self.hard.get((int(group or 1), int(level)))
-        scale = self.elite.get(int(elite)) if elite else 1.0  # no elite group named: unscaled
-        if growth is None or scale is None or not hp_base or wave_ratio is None:
-            return None
-        return int(hp_base * (modify or 1) * growth * scale * wave_ratio + 0.5)
-
-
-def _value(v) -> float | None:
-    """A ratio, written bare (Hakushin) or as {"Value": x} (the raw game files)."""
+def _num(v, default: float = 0.0) -> float:
+    """A number, written bare (Hakushin) or as {"Value": x} (the raw game files); default when it isn't one."""
     if isinstance(v, dict):
         v = v.get("Value")
-    return float(v) if isinstance(v, (int, float)) else None
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        return default
+    return n if n == n else default
+
+
+class Tables:
+    """Hakushin's HardLevelGroup.json, EliteGroup.json, InfiniteEliteGroup.json and monstervalue.json."""
+
+    def __init__(self, hard_levels: list[dict], elite_groups: list[dict], infinite_groups: list[dict] = (),
+                 values: dict | None = None):
+        self.hard = {(int(r["HardLevelGroup"]), int(r["Level"])): r for r in hard_levels or ()
+                     if isinstance(r, dict) and "HardLevelGroup" in r and "Level" in r}
+        self.elite = {int(r["EliteGroup"]): r for r in elite_groups or () if isinstance(r, dict) and "EliteGroup" in r}
+        self.infinite = {int(r["EliteGroup"]): r for r in infinite_groups or () if isinstance(r, dict) and "EliteGroup" in r}
+        self.values = values or {}
+
+    def _elite(self, group, variant: dict, waves: bool) -> dict:
+        for g in (int(_num(group)), int(_num(variant.get("EliteGroup")))):  # the stage's / wave's, else the variant's
+            row = self.elite.get(g) or (self.infinite.get(g) if waves else None)
+            if row:
+                return row
+        return {}
+
+    def hp(self, monster_id: int, stage: dict, wave: dict | None = None) -> dict | None:
+        """{"hp": per bar, "bars": count, "phases": [ratio per bar]} for this enemy in this stage (and wave, for a
+        wave-based stage); None when monstervalue.json doesn't have it."""
+        value = self.values.get(str(base_id(monster_id))) or {}
+        children = [c for c in value.get("child") or () if isinstance(c, dict)]
+        variant = next((c for c in children if int(_num(c.get("Id"))) == monster_id), None) \
+            or next((c for c in children if base_id(int(_num(c.get("Id")))) == base_id(monster_id)), None) \
+            or (children[0] if children else None)
+        if not value or variant is None:
+            return None
+        waves = wave is not None
+        elite = self._elite((wave or {}).get("elite_group") if waves else stage.get("elite_group"), variant, waves)
+        hard = self.hard.get((int(_num(stage.get("hard_level_group"))), int(_num(stage.get("level"))))) or {}
+        hp = _num(value.get("HPBase")) * _num(variant.get("HPModifyRatio"), 1) * _num(elite.get("HPRatio"), 1) \
+            * _num(hard.get("HPRatio"), 1)
+        if waves and isinstance(wave.get("param_list"), list):
+            params = wave["param_list"]
+            hp *= 1 + _num(params[1] if len(params) > 1 else None)
+        bars = int(_num(value.get("MaxMonsterPhase"), 1)) or 1
+        phases = [_num(p.get("PhaseMaxHPRatio"), 1) for p in value.get("PhaseList") or () if isinstance(p, dict)]
+        return {"hp": int(hp + 0.5) if hp > 0 else None, "bars": max(1, bars), "phases": phases or [1.0]}
 
 
 # Finding a floor's stages ----------------------------------------------------------------------------------------
@@ -104,22 +134,6 @@ def _list(season) -> list[dict]:
 
 def _first(events) -> dict | None:
     return next((e for e in events or () if isinstance(e, dict)), None)
-
-
-PF_WAVE_ABILITY = "FantasticStory_Wave_Ability_0001"
-
-
-def wave_hp_ratio(wave: dict) -> float | None:
-    """How much a Pure Fiction wave multiplies its enemies' HP: its ability FantasticStory_Wave_Ability_0001 gives
-    every enemy of the wave AttackAddedRatio = param_list[0] and HPAddedRatio = param_list[1] (the game's
-    Config/ConfigAbility/BattleEvent/FantasticStory_Wave_Ability.json), so HP x (1 + param_list[1]). No ability: 1.
-    An ability or parameters this doesn't know: None (HP unknown rather than wrong)."""
-    ability, params = wave.get("ability") or "", wave.get("param_list") or []
-    if not ability:
-        return None if params else 1.0
-    if ability != PF_WAVE_ABILITY or len(params) != 2 or not isinstance(params[1], (int, float)) or params[1] < 0:
-        return None
-    return 1.0 + params[1]
 
 
 def _waves(infinite) -> list[dict]:
@@ -187,25 +201,24 @@ def shown_ids(stage: dict) -> list[int]:
     return list(dict.fromkeys(int(i) for i in ids))[:MAX_SHOWN]
 
 
-def enemy(monster_id: int, stage: dict, waves: list[dict], detail: dict | None, tables: Tables) -> dict:
-    """One enemy as the card shows it: {"id", "name", "level", "hp", "art"} (hp None when it can't be worked out).
-    It stands in the stage's last wave, so that wave's elite group and HP bonus apply."""
-    detail = detail or {}
-    variant = next((c for c in detail.get("child") or () if isinstance(c, dict) and int(c.get("id") or 0) == monster_id), {})
-    level = int(stage.get("level") or 0)
+def enemy(monster_id: int, stage: dict, waves: list[dict], names: dict, tables: Tables) -> dict:
+    """One enemy as the card shows it: {"id", "name", "level", "hp", "bars", "phases", "art"} (hp None when it can't
+    be worked out). It stands in the stage's last wave, so for a wave-based stage that wave's elite group and HP
+    bonus apply."""
+    info = names.get(str(base_id(monster_id))) or {}
     count = len([w for w in stage.get("monster_list") or () if w])
-    wave = waves[min(count, len(waves)) - 1] if waves else {}
-    elite = stage.get("elite_group") or wave.get("elite_group") or 0
-    hp = tables.hp(float(detail.get("hp_base") or 0), float(variant.get("hp_modify_ratio") or 1),
-                   int(stage.get("hard_level_group") or 1), level, elite, wave_hp_ratio(wave))
-    return {"id": monster_id, "name": clean(detail.get("name")), "level": level, "hp": hp,
-            "art": art_url(detail.get("image_path"))}
+    wave = waves[min(count, len(waves)) - 1] if waves else None
+    worked = tables.hp(monster_id, stage, wave) or {}
+    phases = worked.get("phases") or [1.0]
+    return {"id": monster_id, "name": clean(info.get("en")), "level": int(_num(stage.get("level"))),
+            "hp": worked.get("hp"), "bars": worked.get("bars", 1),
+            "phases": phases if len(phases) > 1 and len(set(phases)) > 1 else [], "art": art_url(info.get("icon"))}
 
 
-def floor_enemies(mode: str, season: Any, details: dict[int, dict], tables: Tables, floor_id: str = "",
+def floor_enemies(mode: str, season: Any, names: dict, tables: Tables, floor_id: str = "",
                   floor_no: int = 0) -> dict[str, list[dict]]:
-    """Node -> its enemies (see stages for the node keys). details: monster id -> its Hakushin monster file."""
-    return {node: [enemy(i, stage, waves, details.get(base_id(i)), tables) for i in shown_ids(stage)]
+    """Node -> its enemies (see stages for the node keys). names: Hakushin's monster.json (names and pictures)."""
+    return {node: [enemy(i, stage, waves, names, tables) for i in shown_ids(stage)]
             for node, (stage, waves) in stages(mode, season, floor_id, floor_no).items()}
 
 
@@ -220,7 +233,7 @@ class HsrEnemies:
         self.known: dict[str, dict[str, list[dict]]] = saved.get("floors", {}) if saved.get("version") == CACHE_VERSION else {}
         self.missed: dict[str, float] = {}  # floor -> when Hakushin last didn't know it (asked again after an hour)
         self.partial: dict[str, dict[str, list[dict]]] = {}  # floors found with an HP missing, until asked again
-        self.tables: dict[str, Tables] = {}  # version -> its HP tables
+        self.tables: dict[str, tuple[Tables, dict]] = {}  # version -> its HP tables and monster.json (the last one read)
 
     async def _find(self, session, mode: str, season: str, floor: str, floor_no: int) -> dict[str, list[dict]]:
         async def get(path: str):
@@ -229,7 +242,7 @@ class HsrEnemies:
 
         manifest = await get("manifest.json") or {}
         hsr = manifest.get("hsr") or {}
-        for version in dict.fromkeys(filter(None, (hsr.get("live"), hsr.get("latest")))):  # live stats first
+        for version in dict.fromkeys(filter(None, (hsr.get("latest"), hsr.get("live")))):  # the site's default first
             data = await get(f"hsr/{version}/" + PATHS[mode].format(season=season))
             if not data:
                 continue
@@ -237,13 +250,11 @@ class HsrEnemies:
             if not found:
                 continue
             if version not in self.tables:
-                hard, elite, infinite = await asyncio.gather(*(get(f"hsr/{version}/{name}.json") for name in
-                                                              ("HardLevelGroup", "EliteGroup", "InfiniteEliteGroup")))
-                self.tables[version] = Tables(hard or [], elite or [], infinite or [])
-            ids = sorted({base_id(i) for stage, _ in found.values() for i in shown_ids(stage)})
-            files = await asyncio.gather(*(get(f"hsr/{version}/en/monster/{i}.json") for i in ids))
-            details = {i: f for i, f in zip(ids, files) if isinstance(f, dict)}
-            return floor_enemies(mode, data, details, self.tables[version], floor, floor_no)
+                files = ("HardLevelGroup", "EliteGroup", "InfiniteEliteGroup", "monstervalue", "monster")
+                hard, elite, infinite, values, names = await asyncio.gather(*(get(f"hsr/{version}/{n}.json") for n in files))
+                self.tables = {version: (Tables(hard or [], elite or [], infinite or [], values or {}), names or {})}
+            tables, names = self.tables[version]
+            return floor_enemies(mode, data, names, tables, floor, floor_no)
         return {}
 
     async def enemies(self, session, mode: str, season, floor="", floor_no: int = 0) -> dict[str, list[dict]]:
@@ -253,7 +264,7 @@ class HsrEnemies:
         key = f"{mode}/{season}/{floor or floor_no}" if mode != "aa" else f"aa/{season}"
         if key not in self.known and (key not in self.missed or time.monotonic() - self.missed[key] >= 3600):
             try:
-                found = await asyncio.wait_for(self._find(session, mode, str(season), str(floor or ""), floor_no), 12)
+                found = await asyncio.wait_for(self._find(session, mode, str(season), str(floor or ""), floor_no), 30)
             except Exception as exc:
                 log.info("No %s enemies for %s: %s", mode, key, exc)
                 found = {}
