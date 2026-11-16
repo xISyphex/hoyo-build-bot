@@ -1,5 +1,5 @@
-"""Battle records: a player's endgame runs from HoYoLAB's Battle Chronicle, for /hsr-records, /zzz-records and
-/genshin-records.
+"""Battle records: a player's endgame runs from HoYoLAB's Battle Chronicle, for /hsr-moc, /hsr-pf, /hsr-apoc,
+/hsr-aa, /zzz-records and /genshin-records.
 
 Each mode is read with genshin.py and boiled down to a Record: a few headline numbers and the teams that were used,
 each character with their copies (eidolons / constellations / mindscapes) and their weapon's copies. HoYoLAB's
@@ -18,6 +18,7 @@ from typing import Any, Awaitable, Callable
 
 import genshin
 
+from .hsr_enemies import floor_number  # 'Crossing the Afterlife (XII)' -> 12, '04' -> 4
 from .models import CharacterBuild
 
 log = logging.getLogger(__name__)
@@ -35,6 +36,15 @@ class Member:
 
 
 @dataclass
+class Enemy:
+    """A Star Rail node's enemy: its full figure, name, level and HP (level and HP 0 when unknown)."""
+    name: str
+    art: str | None = None
+    level: int = 0
+    hp: int = 0
+
+
+@dataclass
 class Team:
     label: str  # e.g. "Node 1", "Wolf Knight", "12-3 · First half"
     # This node's own results, each drawn with its icon: ("stars", "3/3"), ("cycles", "2"), ("score", "40,000"),
@@ -48,6 +58,7 @@ class Team:
     plight: bool = False  # the King beaten on Plight (hard) mode: a red shimmer around the box
     bangboo: Member | None = None  # ZZZ: the Bangboo that came along
     key: str = ""  # ZZZ Shiyu Defense: the battle's layer id; Star Rail: the node ("3" Starward), to look its boss up by
+    enemies: list[Enemy] = field(default_factory=list)  # Star Rail: the node's enemies, shown over its team
 
 
 @dataclass
@@ -60,7 +71,8 @@ class Record:
     empty: str | None = None  # why there's nothing to show, e.g. "No runs this season yet."
     medal: str | None = None  # Anomaly Arbitration's medal picture from HoYoLAB
     season_id: str = ""  # ZZZ Shiyu Defense: HoYoLAB's zone id for the season; Star Rail: the season's schedule id
-    floor_id: str = ""  # Star Rail Memory of Chaos / Pure Fiction: the shown floor's maze id
+    floor_id: str = ""  # Star Rail Memory of Chaos / Pure Fiction / Apocalyptic Shadow: the shown floor's maze id
+    floor_no: int = 0  # and its number (Memory of Chaos XII -> 12, Apocalyptic Shadow difficulty 04 -> 4)
     # Star Rail Memory of Chaos: every floor played this season, shallowest first, as (floor, stars, cycles, quick clear)
     floors: list[tuple[str, int, int, bool]] = field(default_factory=list)
 
@@ -337,10 +349,12 @@ def hsr_apoc(data) -> Record:
     for i, node in enumerate(nodes, 1):
         chips = [("score", _num(node.score))] + ([] if node.boss_defeated else [("text", "boss not defeated")])
         rec.teams.append(Team(_node_label(i), chips, [_hsr_member(c) for c in node.avatars], key=_node_key(floor, node)))
-    season = next(iter(data.seasons or ()), None)  # HoYoLAB sends this season's bosses with it
+    season = next(iter(data.seasons or ()), None)  # HoYoLAB sends this season's bosses with it, without level or HP
     bosses = {"1": "upper_boss", "2": "lower_boss", "3": "starward_boss"}
-    set_bosses(rec, {k: {"art": getattr(b, "icon", None), "name": getattr(b, "name", "")}
-                     for k, attr in bosses.items() if (b := getattr(season, attr, None))})
+    for team in rec.teams:
+        if boss := getattr(season, bosses.get(team.key, ""), None):
+            team.enemies = [Enemy(getattr(boss, "name", "") or "", getattr(boss, "icon", None) or None)]
+    _boss_lookup(rec, getattr(season, "id", None), floor)
     return rec
 
 
@@ -352,20 +366,28 @@ def hsr_aa(data) -> Record:
         rec.empty = "No Anomaly Arbitration runs yet."
         return rec
     rec.season = record.season.name
+    rec.season_id = str(getattr(record.season, "id", "") or "")  # Hakushin's peak file, to look the enemies up by
     mobs = {m.id: m for m in record.mini_bosses}
     knights = [m for m in record.mini_boss_records if m.has_data]  # the header has the knights only; the King's
     rec.headline = [("Stars", str(record.mini_boss_stars)),       # numbers sit beside its own box
                     ("Cycles", str(sum(m.cycles_used for m in knights)))]
+    order = [m.id for m in record.mini_boss_records]
     for mob in record.mini_boss_records:
         if mob.has_data:
             info = mobs.get(mob.id)
-            rec.teams.append(Team(info.name if info else "Knight", [("stars", f"{mob.stars}/3"), ("cycles", str(mob.cycles_used))],
-                                  [_hsr_member(c) for c in mob.characters], art=getattr(info, "icon", None)))
+            i = order.index(mob.id) + 1
+            rec.teams.append(Team(f"Knight {_roman(str(i))}", [("stars", f"{mob.stars}/3"), ("cycles", str(mob.cycles_used))],
+                                  [_hsr_member(c) for c in mob.characters], key=f"{mob.id}|K{i}",
+                                  enemies=[Enemy(info.name, getattr(info, "icon", None) or None)] if info else []))
     boss = record.boss_record
     if boss and boss.has_data:
-        king = Team(f"{record.boss.name}{' · Plight' if boss.is_hard_mode else ''}", [("stars", f"{boss.stars}/3")],
-                    [_hsr_member(c) for c in boss.characters], stage="King", art=getattr(record.boss, "icon", None),
-                    left=[("Cycles", str(boss.cycles_used))], plight=bool(boss.is_hard_mode))
+        hard = bool(boss.is_hard_mode)
+        boss_id = getattr(boss, "id", "") or getattr(record.boss, "id", "")
+        king = Team("Plight" if hard else "Standard", [("stars", f"{boss.stars}/3")],
+                    [_hsr_member(c) for c in boss.characters], stage="King",
+                    left=[("Cycles", str(boss.cycles_used))], plight=hard,
+                    key=f"{boss_id}:plight|PLIGHT" if hard else f"{boss_id}|KING",
+                    enemies=[Enemy(record.boss.name, getattr(record.boss, "icon", None) or None)])
         medal_type = getattr(boss, "medal_type", "") or (data.summary.medal_type if data.summary else "")
         if medal_type:
             king.right = [("Rank", medal_type.replace("_", " ").title())]
@@ -422,19 +444,21 @@ def _node_key(floor, node) -> str:
 
 
 def _boss_lookup(rec: Record, season, floor) -> None:
-    """Notes the season and floor, so the bosses can be looked up (see hsr_bosses)."""
+    """Notes the season and floor, so the enemies can be looked up (see hsr_enemies)."""
     rec.season_id = str(season or "")
     rec.floor_id = str(getattr(floor, "id", "") or "")
+    rec.floor_no = floor_number(getattr(floor, "name", ""))
 
 
-def set_bosses(record: Record, bosses: dict[str, dict[str, str]]) -> None:
-    """Gives each Star Rail node its boss: the picture faded into its box, the name in its label ("Node 1 · Name")."""
+def set_enemies(record: Record, found: dict[str, list[dict]]) -> None:
+    """Gives each Star Rail node its enemies from the game data (see hsr_enemies), in place of HoYoLAB's (picture
+    and name only). A team's key may name several ways to find it, split by "|" (Anomaly Arbitration: the maze id,
+    then the knight's place)."""
     for team in record.teams:
-        boss = bosses.get(team.key) or {}
-        if boss.get("art") and not team.art:
-            team.art = boss["art"]
-        if boss.get("name") and " · " not in team.label:
-            team.label = f"{team.label} · {boss['name']}"
+        enemies = next((found[k] for k in team.key.split("|") if k and found.get(k)), None)
+        if enemies:
+            team.enemies = [Enemy(e.get("name") or "", e.get("art"), int(e.get("level") or 0), int(e.get("hp") or 0))
+                            for e in enemies]
 
 
 def name_bosses(record: Record, names: dict[str, str]) -> None:

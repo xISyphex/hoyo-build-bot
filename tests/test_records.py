@@ -58,8 +58,10 @@ class ReadersTest(unittest.TestCase):
 
     def test_anomaly_arbitration_knights_then_king(self):
         rec = R.hsr_aa(F.aa())
-        self.assertEqual([t.label for t in rec.teams],
-                         ["Wolf Knight", "Lion Knight", "Stag Knight", "Sovereign of Thrones · Plight"])
+        self.assertEqual([t.label for t in rec.teams], ["Knight I", "Knight II", "Knight III", "Plight"])
+        self.assertEqual([t.enemies[0].name for t in rec.teams],  # HoYoLAB's names until the game data has them
+                         ["Wolf Knight", "Lion Knight", "Stag Knight", "Sovereign of Thrones"])
+        self.assertEqual([t.key for t in rec.teams], ["1|K1", "2|K2", "3|K3", ":plight|PLIGHT"])
         self.assertEqual(rec.teams[3].left, [("Cycles", "4")])
         self.assertTrue(rec.teams[3].plight)
         self.assertEqual(dict(rec.headline), {"Stars": "9", "Cycles": "7"})  # the knights only
@@ -185,29 +187,129 @@ class HsrPerfectTest(unittest.TestCase):
         self.assertFalse(_perfect("aa", "cycles", "2"))
 
 
-class HsrBossArtTest(unittest.TestCase):
-    MONSTERS = {"1": {"rank": "Elite", "icon": "SpriteOutput/MonsterFigure/Monster_1.png", "en": "Ice <i>Edge</i>"},
-                "2": {"rank": "LittleBoss", "icon": "SpriteOutput/MonsterFigure/Monster_2.png"},
-                "3": {"rank": "Elite", "icon": "SpriteOutput/MonsterFigure/Monster_3.png"}}
+def _stage(level, group, elite, *waves):
+    """A made-up Hakushin stage: its level, HP curve, elite group and waves of monster ids."""
+    return {"level": level, "hard_level_group": group, "elite_group": elite,
+            "monster_list": [{f"monster{i}": m for i, m in enumerate(w)} for w in waves]}
 
-    def test_strongest_enemy_of_each_half_and_the_starward_floor(self):
-        from bot.hsr_bosses import boss_art
-        season = [{"id": 5511, "npc_monster_id_list1": [3], "npc_monster_id_list2": [1]},
-                  {"id": 5512, "npc_monster_id_list1": [2, 1], "npc_monster_id_list2": [1, 3]},
-                  {"id": 5513, "npc_monster_id_list": [2]}]
-        arts = boss_art(season, self.MONSTERS, "5512")
-        self.assertTrue(arts["1"]["art"].endswith("/monsterfigure/Monster_2.webp"))  # the LittleBoss beats the Elite
-        self.assertTrue(arts["2"]["art"].endswith("/monsterfigure/Monster_3.webp"))  # equals: the last listed
-        self.assertTrue(arts["3"]["art"].endswith("/monsterfigure/Monster_2.webp"))
-        self.assertEqual(boss_art(season, self.MONSTERS, "5511")["2"]["name"], "Ice Edge")  # markup dropped
-        self.assertEqual(boss_art({"level": season}, self.MONSTERS, "9999").keys(), {"3"})  # Pure Fiction's shape
 
-    def test_nodes_get_their_boss(self):
-        rec = R.hsr_moc(F.moc())
+class HsrEnemiesTest(unittest.TestCase):
+    # Made-up tables in Hakushin's shape (HardLevelGroup.json / EliteGroup.json), with the real rows the worked
+    # example uses: group 1 at level 90, elite group 173
+    TABLES = None
+
+    @classmethod
+    def setUpClass(cls):
+        from bot.hsr_enemies import Tables
+        cls.TABLES = Tables(
+            [{"HardLevelGroup": 1, "Level": 90, "HPRatio": 236.534716}, {"HardLevelGroup": 3, "Level": 95, "HPRatio": 375.438496},
+             {"HardLevelGroup": 3, "Level": 120, "HPRatio": {"Value": 1938.763448}}],  # the raw files' {"Value": x} too
+            [{"EliteGroup": 173, "HPRatio": 9.6}, {"EliteGroup": 164, "HPRatio": 6.5}, {"EliteGroup": 169, "HPRatio": 8}])
+        cls.DETAILS = {
+            3024013: {"name": "Silver Knight", "hp_base": 5812.5, "image_path": "SpriteOutput/MonsterFigure/Monster_3024010.png",
+                      "child": [{"id": 302401304, "hp_modify_ratio": 1}]},
+            8015030: {"name": "Lord of <i>Ash</i>", "hp_base": 14880, "image_path": "SpriteOutput/MonsterFigure/Monster_8015030.png",
+                      "child": [{"id": 801503006, "hp_modify_ratio": 0.375}]},
+            2034010: {"name": "Warhead", "hp_base": 2557.5, "image_path": None, "child": [{"id": 2034010, "hp_modify_ratio": 1}]},
+        }
+
+    def test_hp_as_hakushin_works_it_out(self):
+        # Silver Knight, Apocalyptic Shadow's Starward: 5812.5 x 1 x 236.534716 x 9.6 = 13,198,637
+        self.assertEqual(self.TABLES.hp(5812.5, 1, 1, 90, 173), 13198637)
+        self.assertEqual(self.TABLES.hp(14880, 0.375, 3, 120, 169), 86546400)
+        self.assertEqual(self.TABLES.hp(1000, 1, 3, 95, 999), 375438)  # an elite group the table lacks scales by 1
+        self.assertIsNone(self.TABLES.hp(1000, 1, 1, 77, 1))  # no curve for that level: unknown, not made up
+
+    def test_memory_of_chaos_floor_by_id_or_number(self):
+        from bot.hsr_enemies import floor_enemies
+        season = [{"id": 5511, "event_id_list1": [_stage(92, 3, 164, [2034010])], "event_id_list2": [_stage(92, 3, 164, [2034010])]},
+                  {"id": 5512, "event_id_list1": [_stage(95, 3, 164, [8012030, 2034010, 8012030], [2034010, 2034010])],
+                   "event_id_list2": [_stage(95, 3, 164, [302401304])]},
+                  {"id": 5513, "event_id_list": [_stage(90, 1, 173, [8012030], [302401304])]}]
+        found = floor_enemies("moc", season, self.DETAILS, self.TABLES, "5512")
+        self.assertEqual(found.keys(), {"1", "2", "3"})
+        self.assertEqual([(e["name"], e["level"]) for e in found["1"]], [("Warhead", 95)])  # the last wave, each kind once
+        self.assertEqual(found["1"][0]["hp"], round(2557.5 * 375.438496 * 6.5))
+        self.assertIsNone(found["1"][0]["art"])
+        self.assertEqual(found["3"][0]["hp"], 13198637)
+        self.assertTrue(found["3"][0]["art"].endswith("/assets/hsr/monsterfigure/Monster_3024010.webp"))
+        by_number = floor_enemies("moc", season, self.DETAILS, self.TABLES, "9999", 2)  # an unknown id: the 2nd floor
+        self.assertEqual(by_number["2"], found["2"])
+        self.assertEqual(floor_enemies("moc", season, self.DETAILS, self.TABLES, "9999").keys(), {"3"})
+
+    def test_pure_fiction_takes_the_wave_elite_group(self):
+        from bot.hsr_enemies import floor_enemies
+        stage = _stage(90, 1, None, [8012030], [8012030], [302401304])
+        season = {"level": [{"id": 20274, "event_id_list1": [stage], "infinite_list1": {"2": {"elite_group": 173}, "1": {"elite_group": 1}, "3": {"elite_group": 173}}}]}
+        found = floor_enemies("pf", season, self.DETAILS, self.TABLES, "20274")
+        self.assertEqual(found["1"][0]["hp"], 13198637)
+
+    def test_anomaly_arbitration_knights_and_the_king(self):
+        from bot.hsr_enemies import floor_enemies
+        season = {"pre_level": [{"id": 1101, "event_id_list": [_stage(95, 3, None, [2034010])], "infinite_list": {"1": {"elite_group": 164}}}],
+                  "boss_level": {"id": 1104, "event_id_list": [_stage(100, 3, None, [801503006])]},
+                  "boss_config": {"event_id_list": [_stage(120, 3, None, [801503006])], "infinite_list": {"9": {"elite_group": 169}}}}
+        found = floor_enemies("aa", season, self.DETAILS, self.TABLES)
+        self.assertEqual(found["1101"], found["K1"])
+        self.assertEqual(found["PLIGHT"][0]["hp"], 86546400)
+        self.assertEqual(found["PLIGHT"][0]["name"], "Lord of Ash")  # markup dropped
+        self.assertIsNone(found["KING"][0]["hp"])  # level 100 isn't in these tables
+        rec = R.hsr_aa(F.aa())
+        rec.teams[3].key = "1104:plight|PLIGHT"
+        R.set_enemies(rec, {"K2": found["K1"], "PLIGHT": found["PLIGHT"]})
+        self.assertEqual((rec.teams[1].enemies[0].name, rec.teams[1].enemies[0].level), ("Warhead", 95))  # by place
+        self.assertEqual(rec.teams[3].enemies[0].hp, 86546400)
+        self.assertEqual(rec.teams[0].enemies[0].name, "Wolf Knight")  # not found: HoYoLAB's stays
+
+    def test_floor_numbers(self):
+        from bot.hsr_enemies import base_id, floor_number
+        self.assertEqual([floor_number(n) for n in ("Survival of the Fittest (XII)Starward Mode", "Pure Fiction (4)", "04", "(IX)")],
+                         [12, 4, 4, 9])
+        self.assertEqual((base_id(501402404), base_id(5014024)), (5014024, 5014024))
+
+    def test_readers_note_the_floor_to_look_up(self):
+        data = F.moc()
+        data.season, data.floors[0].id = 1036, 5512
+        rec = R.hsr_moc(data)
+        self.assertEqual((rec.season_id, rec.floor_id, rec.floor_no), ("1036", "5512", 12))
         self.assertEqual([t.key for t in rec.teams], ["1", "2", "3"])
-        R.set_bosses(rec, {"1": {"art": "a", "name": "Ice Edge"}, "3": {"art": "c", "name": ""}})
-        self.assertEqual([t.art for t in rec.teams], ["a", None, "c"])
-        self.assertEqual([t.label for t in rec.teams], ["Node 1 · Ice Edge", "Node 2", "Starward"])
+        self.assertEqual([t.label for t in rec.teams], ["Node 1", "Node 2", "Starward"])
+        R.set_enemies(rec, {"1": [{"name": "Warhead", "art": "a", "level": 95, "hp": 6241196}]})
+        self.assertEqual(rec.teams[0].enemies, [R.Enemy("Warhead", "a", 95, 6241196)])
+        self.assertEqual(rec.teams[1].enemies, [])
+
+    def test_apocalyptic_shadow_starts_with_hoyolabs_bosses(self):
+        from types import SimpleNamespace as NS
+        data = F.apoc()
+        data.seasons[0].id, data.seasons[0].upper_boss = 3022, NS(name="The Conductor", icon="boss.png")
+        rec = R.hsr_apoc(data)
+        self.assertEqual(rec.teams[0].enemies, [R.Enemy("The Conductor", "boss.png")])
+        self.assertEqual((rec.season_id, rec.floor_no), ("3022", 4))
+
+
+class HsrDrawTest(unittest.TestCase):
+    def test_every_mode_draws_with_enemies(self):
+        pic = Image.new("RGBA", (300, 500), (200, 40, 40, 255))
+        for rec in (R.hsr_moc(F.moc()), R.hsr_pf(F.pf()), R.hsr_apoc(F.apoc()), R.hsr_aa(F.aa())):
+            for i, team in enumerate(rec.teams):
+                team.enemies = [R.Enemy("Lord of Saṃvartasthāyi, Asat Pramad", "boss.png", 120, 86546400),
+                                R.Enemy("Missing Picture", "gone.png", 95, 1234)][: 1 + i % 2]
+            rec.teams[-1].enemies = []  # not known yet: an empty screen saying so
+            img = Image.open(io.BytesIO(draw_records("hsr", "800069903", [rec], {"boss.png": pic})))
+            self.assertEqual(img.width, W)
+            self.assertGreater(img.height, 700, rec.mode)
+
+    def test_a_mode_not_played(self):
+        rec = R.hsr_pf(F.pf())
+        rec.teams, rec.empty = [], "No Pure Fiction runs this season yet."
+        img = Image.open(io.BytesIO(draw_records("hsr", "800069903", [rec], {})))
+        self.assertLess(img.height, 400)
+
+    def test_letters_the_font_lacks(self):
+        from bot import card, card_hsr
+        from bot.records_hsr import _typeable
+        card.FONTS = card.FONTS or card.Fonts()
+        self.assertEqual(_typeable("Saṃvartasthāyi", card_hsr._raj("Bold", 15)), "Samvartasthāyi")
 
 
 class StatsTest(unittest.TestCase):

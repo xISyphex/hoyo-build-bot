@@ -1,6 +1,7 @@
 """Star Rail's battle records as the same navigation hologram as its build card: the bridge's star map behind cyan
-holo screens with cut corners, each mode a screen with its totals on small readouts, each team a screen holding its
-characters on projected tiles, and the stars in gold."""
+holo screens with cut corners, each mode a screen with its totals on small readouts, each node a screen with its
+enemies whole on top (name, level, HP), the team's characters on projected tiles under them and the node's own result
+under those, and the stars in gold."""
 
 from __future__ import annotations
 
@@ -8,15 +9,16 @@ import functools
 import io
 import math
 import random
+import unicodedata
 
-from PIL import Image, ImageChops, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter
 
 from . import card as base
 from . import card_hsr as h
 from . import record_icons as icons
 from . import records_card as rc
 from .card_zzz import _nine_slice
-from .records import Member, Record, Team, copies_label
+from .records import Enemy, Member, Record, Team, copies_label
 from .records_zzz import _foil_text
 
 W = rc.W  # as wide as the other games' records
@@ -32,6 +34,12 @@ LEVEL_H = 24  # the strip under its portrait that holds the level
 TILE_GAP = 10
 LABEL_H = 40  # a team's name over its tiles
 CHIPS_H = 40  # its results under them
+FOE_IMG = 212  # an enemy's figure, whole, in this tall a space
+FOE_TEXT = 74  # its name, level and HP under it
+FOE_H = FOE_IMG + FOE_TEXT  # the enemies' row over the team
+FOE_MAX_W = 300  # an enemy's screen at most this wide (one enemy doesn't fill a node)
+SIDE_H = 220  # a stage's own numbers beside its screen, centred on it
+FOE_GAP = 8
 STAGE_H = 46  # the line over a stage of its own (the King)
 SIDE_W = 150  # a stage's own numbers, as readouts beside its screen
 MODE_LIGHT = {"moc": (255, 112, 146), "pf": (120, 182, 255), "apoc": (255, 196, 92), "aa": (110, 230, 210)}
@@ -56,8 +64,8 @@ def _perfect(mode: str, kind: str, value: str, total: bool = False) -> bool:
 MODE_FILL = (2, 24, 34, 190)
 
 
-def _team_h(chips: bool) -> int:
-    return LABEL_H + 6 + TILE_H + 14 + (CHIPS_H if chips else 0)
+def _team_h(chips: bool, foes: bool = False) -> int:
+    return LABEL_H + 6 + (FOE_H + 12 if foes else 0) + TILE_H + 14 + (CHIPS_H if chips else 0)
 
 
 @functools.lru_cache(maxsize=64)
@@ -267,55 +275,129 @@ def _chips(card: Image.Image, chips: list[tuple[str, str]], cx: float, cy: float
         x += w + 22 + 8
 
 
-def _boss(card: Image.Image, pic: Image.Image, box) -> None:
-    """The node's boss projected behind its team: the figure's upper part filling the box's height on the right,
-    fading out towards the left and the cut corners."""
-    x0, y0, x1, y1 = (round(v) for v in box)
-    w, hh = x1 - x0, y1 - y0
+def _figure(pic: Image.Image, w: int, hh: int) -> Image.Image:
+    """The enemy's whole figure, scaled to fit w x hh with its shape kept: only its empty margins are left out."""
     pic = pic.convert("RGBA")
-    if bbox := pic.getchannel("A").getbbox():  # the figure without its empty margins
+    if bbox := pic.getchannel("A").getbbox():
         pic = pic.crop(bbox)
-    scale = hh * 1.5 / pic.height  # the head and body; the legs run off the bottom
-    pic = pic.resize((max(1, round(pic.width * scale)), max(1, round(pic.height * scale))), Image.LANCZOS)
-    layer = Image.new("RGBA", (w, hh), (0, 0, 0, 0))
-    layer.alpha_composite(pic, (max(0, round(w * 0.74 - pic.width / 2)), 0) if pic.width < w else ((w - pic.width) // 2, 0))
-    fade = Image.linear_gradient("L").rotate(90, expand=True).transpose(Image.FLIP_LEFT_RIGHT).resize((w, hh))
-    fade = fade.point(lambda v: round(min(255, v * 1.6) * 0.8))
-    shape = Image.new("L", (w * SS, hh * SS), 0)
-    ImageDraw.Draw(shape).polygon(h._cut((0, 0, w * SS - 1, hh * SS - 1), 12 * SS), fill=255)
-    alpha = ImageChops.multiply(layer.getchannel("A"), ImageChops.multiply(fade, shape.resize((w, hh), Image.LANCZOS)))
-    layer.putalpha(alpha)
-    card.alpha_composite(layer, (x0, y0))
+    scale = min(w / pic.width, hh / pic.height)
+    return pic.resize((max(1, round(pic.width * scale)), max(1, round(pic.height * scale))), Image.LANCZOS)
 
 
-def _team(card: Image.Image, team: Team, images: dict, box, chips: bool, mode: str = "") -> None:
-    """A team on its own screen: a waypoint and its name, its characters on tiles, its results under them."""
+@functools.lru_cache(maxsize=1024)
+def _has_glyph(font, ch: str) -> bool:
+    """Whether the font draws this letter (not its empty box)."""
+    def look(c):
+        m = font.getmask(c)
+        return m.size, bytes(m)
+    return look(ch) != look("\U000F0000")
+
+
+def _typeable(text: str, font) -> str:
+    """The text with each letter the font lacks swapped for its plain one: 'Saṃvartasthāyi' -> 'Samvartasthāyi'."""
+    out = []
+    for ch in text:
+        if ch.isascii() or _has_glyph(font, ch):
+            out.append(ch)
+        else:
+            out.append("".join(c for c in unicodedata.normalize("NFKD", ch) if not unicodedata.combining(c)) or ch)
+    return "".join(out)
+
+
+def _hp(hp: int) -> str:
+    return f"{hp:,}"
+
+
+def _foe(card: Image.Image, foe: Enemy, pic: Image.Image | None, box) -> None:
+    """One enemy on its own small screen: its figure projected whole from a pad, then its name, level and HP."""
+    x0, y0, x1, y1 = (round(v) for v in box)
+    w = x1 - x0
+    _box(card, (x0, y0, x1, y1), (2, 16, 26, 200), 90, 10)
+    img_bottom = y0 + FOE_IMG
+    pad = Image.new("RGBA", (w, 40), (0, 0, 0, 0))  # the projector's pad of light the figure stands on
+    ImageDraw.Draw(pad).ellipse((w * 0.14, 8, w * 0.86, 32), fill=HOLO + (40,))
+    card.alpha_composite(pad.filter(ImageFilter.GaussianBlur(6)), (x0, img_bottom - 30))
+    draw = ImageDraw.Draw(card)
+    if pic is not None:
+        fig = _figure(pic, w - 20, FOE_IMG - 18)
+        card.alpha_composite(fig, (round(x0 + (w - fig.width) / 2), img_bottom - 8 - fig.height))
+    else:  # no picture: an empty waypoint where it would stand
+        cx, cy, d = (x0 + x1) / 2, y0 + FOE_IMG / 2 - 6, 18
+        draw.polygon([(cx, cy - d), (cx + d, cy), (cx, cy + d), (cx - d, cy)], outline=FAINT, width=2)
+        f = h._raj("Bold", 11)
+        tw = sum(draw.textlength(ch, font=f) + 2.4 for ch in "NO IMAGE") - 2.4
+        h._spaced(draw, (cx - tw / 2, cy + d + 16), "NO IMAGE", f, FAINT, 2.4)
+    draw = ImageDraw.Draw(card)
+    draw.line((x0 + 10, img_bottom, x1 - 10, img_bottom), fill=HOLO + (90,), width=1)
+    # the name, on up to two lines, then "LV 95  HP 6,241,196" centred under it
+    room = w - 16
+    name = foe.name.upper() or "UNKNOWN"
+    for size in (15, 14, 13):
+        font = h._raj("Bold", size)
+        lines = base._wrap(draw, _typeable(name, font), font, room, 2)
+        if len(lines) == 1 or all(draw.textlength(l, font=font) <= room and not l.endswith("…") for l in lines):
+            break
+    mid = (x0 + x1) / 2
+    stats_y = y1 - 15
+    step = font.size + 3
+    top = (img_bottom + stats_y - 11) / 2 - (len(lines) - 1) * step / 2  # centred between the line and the numbers
+    for i, line in enumerate(lines):
+        draw.text((mid, top + i * step), line, font=font, fill=TEXT, anchor="mm")
+    small, big = h._raj("Bold", 11), h._raj("Bold", 16)
+    parts = []
+    if foe.level:
+        parts.append(("LV", str(foe.level), TEXT))
+    if foe.hp:
+        parts.append(("HP", _hp(foe.hp), HOLO))
+    if not parts:
+        return
+    label_w = lambda t: sum(draw.textlength(ch, font=small) + 1.4 for ch in t)  # noqa: E731
+    widths = [label_w(a) + 4 + draw.textlength(b, font=big) for a, b, _ in parts]
+    x = mid - (sum(widths) + 14 * (len(parts) - 1)) / 2
+    for (label, value, colour), pw in zip(parts, widths):
+        h._spaced(draw, (x, stats_y), label, small, DIM, 1.4)
+        draw.text((x + label_w(label) + 4, stats_y), value, font=big, fill=colour, anchor="lm")
+        x += pw + 14
+
+
+def _foes(card: Image.Image, foes: list[Enemy], images: dict, x0: float, x1: float, y: float) -> None:
+    """A node's enemies side by side, centred; an empty screen saying so when the game data doesn't know them."""
+    if not foes:
+        box = (round(x0), round(y), round(x1), round(y + FOE_H))
+        _box(card, box, (2, 16, 26, 140), 50, 10)
+        draw = ImageDraw.Draw(card)
+        f = h._raj("Bold", 12)
+        text = "ENEMIES NOT KNOWN YET"
+        tw = sum(draw.textlength(ch, font=f) + 2.6 for ch in text) - 2.6
+        h._spaced(draw, ((x0 + x1 - tw) / 2, y + FOE_H / 2), text, f, FAINT, 2.6)
+        return
+    n = len(foes)
+    w = min(FOE_MAX_W, (x1 - x0 - FOE_GAP * (n - 1)) / n)
+    x = (x0 + x1 - (w * n + FOE_GAP * (n - 1))) / 2
+    for foe in foes:
+        _foe(card, foe, images.get(foe.art or ""), (x, y, x + w, y + FOE_H))
+        x += w + FOE_GAP
+
+
+def _team(card: Image.Image, team: Team, images: dict, box, chips: bool, mode: str = "", foes: bool = False) -> None:
+    """A node on its own screen: a waypoint and its name, its enemies, the team's characters on tiles under them and
+    its results under those."""
     x0, y0, x1, y1 = box
     _box(card, box, TEAM_FILL, 100, 12)
-    art = images.get(team.art or "")
-    if art is not None:
-        _boss(card, art, (x0 + 2, y0 + 2, x1 - 2, y1 - 2))
     draw = ImageDraw.Draw(card)
     cy = y0 + LABEL_H / 2 + 4
     d = 5
     draw.polygon([(x0 + 18, cy - d), (x0 + 18 + d, cy), (x0 + 18, cy + d), (x0 + 18 - d, cy)], fill=HOLO)
     room = x1 - x0 - 48
-    label = team.label.upper()
-    fits = lambda text, font: draw.textlength(text, font=font) + 1.6 * len(text) <= room
-    for size in (19, 17, 15):  # a long boss name gets smaller letters before it gets cut short
-        font = h._raj("Bold", size)
-        if fits(label, font):
-            break
-    else:  # still too long: "Ichor Memosprite: Judge of Oblivion" keeps just its own name
-        node, _, boss = label.partition(" · ")
-        if ": " in boss and fits(short := f"{node} · {boss.split(': ', 1)[1]}", font):
-            label = short
-            font = next(f for f in (h._raj("Bold", n) for n in (19, 17, 15)) if fits(label, f))
+    label, font = team.label.upper(), h._raj("Bold", 19)  # "NODE 1", "STARWARD", "KNIGHT II": the enemies say who
     h._spaced(draw, (x0 + 32, cy), base._fit_text(draw, label, font, room - 1.6 * len(label)), font, TEXT, 1.6)
+    top = y0 + LABEL_H + 6
+    if foes:
+        _foes(card, team.enemies, images, x0 + 14, x1 - 14, top)
+        top += FOE_H + 12
     members = team.members[:4]
     row = len(members) * TILE_W + max(0, len(members) - 1) * TILE_GAP
     x = round((x0 + x1 - row) / 2)
-    top = y0 + LABEL_H + 6
     for m in members:
         _tile(card, m, images.get(m.icon_url or ""), x, top)
         x += TILE_W + TILE_GAP
@@ -396,8 +478,9 @@ def _section_h(record: Record) -> int:
     if record.empty or not record.teams:
         return HEAD + 50
     chips = any(t.chips for t in record.teams)
+    foes = any(t.enemies for t in record.teams)
     rows = rc._rows(record)
-    return HEAD + (FLOORS_H if record.floors else 0) + sum(_team_h(chips) + GAP + (STAGE_H if head else 0) for head, _ in rows) - GAP + INNER
+    return HEAD + (FLOORS_H if record.floors else 0) + sum(_team_h(chips, foes) + GAP + (STAGE_H if head else 0) for head, _ in rows) - GAP + INNER
 
 
 def draw_records(uid: str, records: list[Record], images: dict[str, Image.Image], nickname: str | None = None) -> bytes:
@@ -444,7 +527,8 @@ def draw_records(uid: str, records: list[Record], images: dict[str, Image.Image]
             y += sh + GAP
             continue
         chips = any(t.chips for t in record.teams)
-        th = _team_h(chips)
+        foes = any(t.enemies for t in record.teams)
+        th = _team_h(chips, foes)
         by = y + HEAD
         col_w = (W - 2 * PAD - 2 * INNER - 2 * GAP) // 3
         for head, row in rc._rows(record):
@@ -456,14 +540,15 @@ def draw_records(uid: str, records: list[Record], images: dict[str, Image.Image]
             for team in row:
                 if team.plight:
                     rc._shimmer(card, (bx, by, bx + col_w, by + th))
-                _team(card, team, images, (bx, by, bx + col_w, by + th), chips, record.mode)
+                _team(card, team, images, (bx, by, bx + col_w, by + th), chips, record.mode, foes)
+                inset = max(16, (th - SIDE_H) // 2)  # as tall as a readout needs, centred on the screen
                 edge = bx - 2 * GAP
                 for label, value in reversed(team.left):
-                    _side(card, record, label, value, (edge - SIDE_W, by + 16, edge, by + th - 16), images)
+                    _side(card, record, label, value, (edge - SIDE_W, by + inset, edge, by + th - inset), images)
                     edge -= SIDE_W + 12
                 edge = bx + col_w + 2 * GAP
                 for label, value in team.right:
-                    _side(card, record, label, value, (edge, by + 16, edge + SIDE_W, by + th - 16), images)
+                    _side(card, record, label, value, (edge, by + inset, edge + SIDE_W, by + th - inset), images)
                     edge += SIDE_W + 12
                 bx += col_w + GAP
             by += th + GAP

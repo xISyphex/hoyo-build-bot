@@ -134,7 +134,7 @@ class AccessCheckTest(unittest.TestCase):
         self.assertIn("Fairy's Guide for Proxy", str(self._flip(view2, STRANGER)[0][0].to_dict()))  # and back again
         guide = str([e.to_dict() for e in embeds + embeds2])
         self.assertNotIn("Master", guide)
-        for command in ("/genshin", "/hsr", "/zzz", "/genshin-claim", "/hsr-claim", "/zzz-claim", "/pat", "/help", "/hsr-records", "15"):
+        for command in ("/genshin", "/hsr", "/zzz", "/genshin-claim", "/hsr-claim", "/zzz-claim", "/pat", "/help", "/hsr-moc", "/hsr-aa", "/zzz-records", "15"):
             self.assertIn(command, guide)
         self.assertEqual(guide.count("Example: "), 6)  # one usage example per kind of command
         self.assertNotIn("/access", guide)

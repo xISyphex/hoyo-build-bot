@@ -1250,7 +1250,8 @@ class CardMaker:
 
         urls = list({m.icon_url for r in records for t in r.teams for m in t.members + ([t.bangboo] if t.bangboo else []) if m.icon_url}
                     | {r.medal for r in records if r.medal})
-        art = list({t.art for r in records for t in r.teams if t.art})  # boss pictures, kept larger
+        art = list({t.art for r in records for t in r.teams if t.art}  # boss pictures, kept larger
+                   | {e.art for r in records for t in r.teams for e in t.enemies if e.art})  # Star Rail's enemies, whole
         loaded = await asyncio.gather(*(self._image(u, ICON_MAX) for u in urls), *(self._image(u, ART_MAX) for u in art))
         images = {u: img for u, img in zip(urls + art, loaded) if img is not None}
         return await asyncio.to_thread(draw_records, game, uid, records, images, nickname)
