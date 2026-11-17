@@ -52,7 +52,7 @@ PATHS = {"moc": "en/maze/{season}.json", "pf": "en/story/{season}.json", "apoc":
 INDEXES = {"moc": "maze.json", "pf": "maze_extra.json", "apoc": "maze_boss.json", "aa": "maze_peak.json"}  # seasons
 ELATION_ICON = "https://raw.githubusercontent.com/Mar-7th/StarRailRes/master/icon/path/Elation.png"  # the path's mark
 MAX_SHOWN = 3  # enemies per node, at most
-CACHE_VERSION = 7  # 7: with all of Voracity Corrosion's numbers
+CACHE_VERSION = 8  # 8: Voracity Corrosion from each monster's monster_param
 
 
 def base_id(monster_id) -> int:
@@ -221,49 +221,56 @@ def enemy(monster_id: int, stage: dict, waves: list[dict], names: dict, tables: 
 
 def voracity(monster_id: int, stage: dict) -> dict:
     """Voracity Corrosion on this enemy, found as hsr.nanoka.cc finds it: the stage's "invasion" lists the corroded
-    enemies by id. {"voracity": its maze_buff_param (see voracity_dmg), "corrosion": level}, or {} when it isn't
+    enemies by id. {"voracity": its monster_param (see voracity_extra), "corrosion": level}, or {} when it isn't
     corroded."""
     inv = stage.get("invasion") if isinstance(stage.get("invasion"), dict) else {}
     level = int(_num(inv.get("level", inv.get("Level"))))
-    params = [_num(p) for p in inv.get("maze_buff_param", inv.get("MazeBuffParam")) or ()]
+    params = [_num(p) for p in inv.get("monster_param", inv.get("MonsterParam")) or ()]
     listed = {int(_num(m.get("monster_id", m.get("MonsterID")))) for m in inv.get("monster_list", inv.get("MonsterList")) or ()
               if isinstance(m, dict)}
     return {"voracity": params, "corrosion": level} if level > 0 and len(params) >= 5 and monster_id in listed else {}
 
 
-# How much extra HP Voracity Corrosion gives an enemy, for Elation DMG and for any other DMG.
-#
-# Multi-bar bosses: the community table "多血条4级贪饕污染削弱 v3" (by 析构万理的发条公主 & Ripple of CyrLeaks) by
-# corrosion level, as a share of the HP of the bar the revive comes in (its last):
-#   Lv 1 +20% / +20%,  Lv 2 +36% / +36%,  Lv 3 +36% / +108%,  Lv 4 +56.25% / +157.5% (Elation / other DMG)
-# These can't be worked out from Hakushin's data yet: Lv 4's Elation/other ratio there is 1 : 3 (monster_param), the
-# table's (after the Lv 4 nerf) 1 : 2.8, and no reading of the game's config below gives Lv 3's Elation figure (below
-# the revived HP itself). So the table is used as it is, and a level it doesn't have falls back to the reading below.
-#
-# Other enemies, and levels the table lacks: read from the game's own config (DimbreathBot/TurnBasedGameData). The
-# stage ability ChallengePeakBattle_GluttonyAbility_LV<n> (Config/ConfigAbility/BattleEventAbility_ChallengePeakBattle
-# .json) hands the maze buff's ParamList (MazeBuff 303400<n>, the season file's maze_buff_param) to the monster
-# modifier MCommon_Gluttony_LV<n> (Config/ConfigGlobalModifier/GlobalModifier_Common_Gluttony.json) as MDF_Param1..5:
-#   [1] / [4]  on the killing blow in its last HP bar the enemy revives with its Max HP times this share and heals to
-#              full: [1] for an enemy with one bar, [4] for one with several (MDF_HealHPRatio by MaxMonsterPhase > 1)
-#   [2] / [3]  after that, each hit's DMG is turned into "suppression" at this rate: [3] for Elation DMG, [2] for any
-#              other (MDF_ConvertRatio by attack type)
-#   [0]        once suppression reaches this share of the revived Max HP, its HP lock is lifted and it can be defeated
-# giving [0] x revived HP / rate as the extra HP for each kind of DMG.
-MULTI_BAR_TABLE = {1: (0.20, 0.20), 2: (0.36, 0.36), 3: (0.36, 1.08), 4: (0.5625, 1.575)}  # level: (Elation, other)
+# How much extra HP Voracity Corrosion gives an enemy, for Elation DMG and for any other DMG, as the game works it
+# out (DimbreathBot/TurnBasedGameData). The stage ability ChallengePeakBattle_GluttonyAbility_LV<n> hands each
+# corroded monster's own invasion params (the season file's invasion.monster_param, not the maze buff's
+# maze_buff_param) to the monster modifier MCommon_Gluttony_LV<n> (Config/ConfigGlobalModifier/
+# GlobalModifier_Common_Gluttony.json) as MDF_Param1..5, here p[0]..p[4]:
+#   - Once in its last HP bar, the enemy can't be brought below 0 HP. The first time it gets there, its Max HP becomes
+#     HealR x that bar's Max HP and it heals to full. HealR = p[1] for an enemy with one bar, p[4] for one with
+#     several.
+#   - From then on, each hit's HP loss (after DEF, RES and so on) takes CR times as much again, and that extra share
+#     of Max HP is "suppressed" for good. CR = p[3] for Elation DMG and p[2] for any other (Lv 1 and 2 have no
+#     Elation branch: p[2] for both).
+#   - Each time it reaches 0 HP again, it heals back to its unsuppressed Max HP, until the suppressed share reaches
+#     p[0]; then the lock is lifted and it can be defeated.
+# So after n refills the suppressed share is s_n = 1 - (1 + CR)^-n, n is the smallest n >= 1 with s_n >= p[0], and
+# the extra HP is HealR x M x s_n / CR, M being the last bar's Max HP (its phase multiplier included). This matches
+# the community table "多血条4级贪饕污染削弱 v3" (by 析构万理的发条公主 & Ripple of CyrLeaks) for multi-bar enemies:
+#   Lv 2 +36% / +36%,  Lv 3 +36% / +108%,  Lv 4 +56.25% / +157.5% (Elation / other DMG)
+# and gives one-bar enemies Lv 2 +20% / +20%, Lv 3 +20% / +60%, Lv 4 +37.5% / +105%. It's a floor: DMG past 0 HP in
+# one attack is lost, as the refill only comes at the end of the attack.
+
+
+def _voracity_share(params: list[float], heal: float, rate: float) -> float:
+    """The extra HP as a share of the last bar's Max HP for one conversion rate (see above)."""
+    if rate <= 0:
+        return 0.0
+    suppressed, refills = 0.0, 0
+    while suppressed < params[0] - 1e-12 and refills < 100:  # 100: a p[0] of 1 or more is never reached
+        suppressed, refills = 1 - (1 + rate) ** -(refills + 1), refills + 1
+    return round(heal * suppressed / rate, 10)
 
 
 def voracity_extra(hp: int, bars: int, phases: list[float], params: list[float], level: int) -> list[tuple[int, float]]:
     """The extra HP Voracity gives an enemy (see above): [(HP, share) for Elation DMG, (HP, share) for any other DMG],
-    as shares of its last bar's HP; [] when it isn't corroded. hp is per bar."""
+    as shares of its last bar's HP; [] when it isn't corroded. hp is per bar, params its monster_param."""
     if not hp or len(params) < 5:
         return []
     last = hp * (phases[-1] if phases else 1)
-    if bars > 1 and level in MULTI_BAR_TABLE:
-        shares = MULTI_BAR_TABLE[level]
-    else:
-        revived = params[4] if bars > 1 else params[1]
-        shares = tuple(params[0] * revived / rate if rate > 0 else 0 for rate in (params[3], params[2]))
+    heal = params[4] if bars > 1 else params[1]
+    elation = params[3] if level >= 3 else params[2]
+    shares = [_voracity_share(params, heal, rate) for rate in (elation, params[2])]
     return [(round(last * share), share) for share in shares]
 
 

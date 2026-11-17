@@ -46,7 +46,7 @@ class Enemy:
     phases: list[float] = field(default_factory=list)  # each bar's size, when they differ (the site's "P1 ... / P2 ...")
     change: float | None = None  # % more HP than when it last came in this mode (None: never before, or not known)
     prev_season: str = ""  # that season's name
-    voracity: list[float] = field(default_factory=list)  # Voracity Corrosion's maze_buff_param (see hsr_enemies)
+    voracity: list[float] = field(default_factory=list)  # Voracity Corrosion's monster_param (see hsr_enemies)
     corrosion: int = 0  # the corrosion level
 
 

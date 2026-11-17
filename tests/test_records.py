@@ -364,27 +364,32 @@ class HsrEnemiesTest(unittest.TestCase):
     def test_voracity_corrosion(self):
         from bot.hsr_enemies import floor_enemies, voracity, voracity_extra
         from bot.records_hsr import CHANGE_H, _foes_h, FOE_H, VOR_H, _voracity
-        lv3, lv4, lv2 = [0.65, 0.3, 0.5, 1, 0.5], [0.8, 0.4, 0.5, 1, 0.65], [0.4, 0.2, 1, 1, 0.35]  # maze buffs 303400n
-        invasion = {"level": 3, "maze_buff_param": lv3, "monster_param": [0.6, 0.8, 1, 3, 1.44],
+        lv2, lv3, lv4 = [0.4, 0.4, 1, 1, 0.72], [0.6, 0.8, 1, 3, 1.44], [0.77, 1.2, 1, 3, 1.8]  # monster_param
+        invasion = {"level": 3, "maze_buff_param": [0.65, 0.3, 0.5, 1, 0.5], "monster_param": lv3,
                     "monster_list": [{"monster_id": 302401304, "param_list": []}, {"monster_id": 4062010, "param_list": [1, 0]}]}
         stage = dict(_stage(90, 1, 173, [302401304, 2034010]), invasion=invasion)
-        self.assertEqual(voracity(302401304, stage), {"voracity": lv3, "corrosion": 3})
+        self.assertEqual(voracity(302401304, stage), {"voracity": lv3, "corrosion": 3})  # monster_param, not the maze buff's
         self.assertEqual(voracity(2034010, stage), {})  # in the stage, but not corroded
         self.assertEqual(voracity(302401304, _stage(90, 1, 173)), {})  # no corrosion on the stage
         found = floor_enemies("moc", [{"id": 5513, "event_id_list": [stage]}], self.NAMES, self.TABLES)["3"]
         knight, warhead = found
         self.assertEqual((knight["hp"], knight["voracity"], knight["corrosion"]), (13198637, lv3, 3))  # HP as it was
         self.assertNotIn("voracity", warhead)
-        # several bars: the community table by level, of the last bar's HP (Elation DMG, any other DMG)
+        # HealR x s_n / CR of the last bar's HP (Elation DMG, any other DMG): the community table for several bars
+        for level, params, multi, single in ((2, lv2, (0.36, 0.36), (0.2, 0.2)), (3, lv3, (0.36, 1.08), (0.2, 0.6)),
+                                             (4, lv4, (0.5625, 1.575), (0.375, 1.05))):
+            with self.subTest(level=level):
+                self.assertEqual(voracity_extra(1000000, 2, [], params, level), [(round(1e6 * s), s) for s in multi])
+                self.assertEqual(voracity_extra(1000000, 1, [], params, level), [(round(1e6 * s), s) for s in single])
         self.assertEqual(voracity_extra(7258991, 2, [], lv3, 3), [(2613237, 0.36), (7839710, 1.08)])  # Judge of Oblivion
         plight = R.Enemy("a", hp=86546400, bars=3, phases=[1, 1, 1.9], voracity=lv4, corrosion=4)  # last bar 164,438,160
         self.assertEqual(_voracity(plight), ["+92,496,465 (56.25%)", "+258,990,102 (157.5%)"])
         self.assertEqual(_voracity(R.Enemy("a", hp=1000000, bars=2, voracity=lv2, corrosion=2)),
                          ["+360,000 (36%)", "+360,000 (36%)"])  # Lv 2: the same, still both lines
-        # a level the table lacks, or one bar: from the config ([0] x revived share / rate)
-        lv5 = [0.8, 0.6, 0.5, 1, 1]
-        self.assertEqual(voracity_extra(1000000, 2, [], lv5, 5), [(800000, 0.8), (1600000, 1.6)])
-        self.assertEqual(voracity_extra(1000000, 1, [], lv3, 3), [(195000, 0.195), (390000, 0.39)])
+        self.assertEqual(_voracity(R.Enemy("a", hp=1000000, voracity=lv3, corrosion=3)),
+                         ["+200,000 (20%)", "+600,000 (60%)"])  # one bar
+        # Lv 1 and 2 have no Elation branch: p[2] for both
+        self.assertEqual(voracity_extra(1000000, 2, [], [0.4, 0.4, 1, 3, 0.72], 2), [(360000, 0.36), (360000, 0.36)])
         self.assertEqual(_voracity(R.Enemy("a", hp=1000000)), [])
         rec = R.hsr_moc(F.moc())
         R.set_enemies(rec, {"1": found})
@@ -431,7 +436,7 @@ class HsrDrawTest(unittest.TestCase):
                 team.enemies = [R.Enemy("Lord of Saṃvartasthāyi, Asat Pramad", "boss.png", 120, 86546400, 3),
                                 R.Enemy("Missing Picture", "gone.png", 95, 12345678, 2, [1, 1.25])][: 1 + i % 2]
             rec.teams[0].enemies[0].change, rec.teams[0].enemies[0].prev_season = 12.5, "A Long Season Name Over Its Screen"
-            rec.teams[0].enemies[0].voracity, rec.teams[0].enemies[0].corrosion = [0.8, 0.4, 0.5, 1, 0.65], 4
+            rec.teams[0].enemies[0].voracity, rec.teams[0].enemies[0].corrosion = [0.77, 1.2, 1, 3, 1.8], 4
             rec.teams[-1].enemies = []  # not known yet: an empty screen saying so
             img = Image.open(io.BytesIO(draw_records("hsr", "800069903", [rec], {"boss.png": pic, ELATION_ICON: pic})))
             self.assertEqual(img.width, W)
