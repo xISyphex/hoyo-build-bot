@@ -51,7 +51,7 @@ PATHS = {"moc": "en/maze/{season}.json", "pf": "en/story/{season}.json", "apoc":
          "aa": "en/peak/{season}.json"}
 INDEXES = {"moc": "maze.json", "pf": "maze_extra.json", "apoc": "maze_boss.json", "aa": "maze_peak.json"}  # seasons
 MAX_SHOWN = 3  # enemies per node, at most
-CACHE_VERSION = 4  # 4: with the HP change since the boss's last appearance
+CACHE_VERSION = 5  # 5: bar sizes read as Hakushin now writes them (phase_max_hp_ratio)
 
 
 def base_id(monster_id) -> int:
@@ -120,7 +120,8 @@ class Tables:
             params = wave["param_list"]
             hp *= 1 + _num(params[1] if len(params) > 1 else None)
         bars = int(_num(value.get("MaxMonsterPhase"), 1)) or 1
-        phases = [_num(p.get("PhaseMaxHPRatio"), 1) for p in value.get("PhaseList") or () if isinstance(p, dict)]
+        phases = [_num(p.get("PhaseMaxHPRatio", p.get("phase_max_hp_ratio")), 1)  # Hakushin writes it both ways
+                  for p in value.get("PhaseList") or () if isinstance(p, dict)]
         return {"hp": int(hp + 0.5) if hp > 0 else None, "bars": max(1, bars), "phases": phases or [1.0]}
 
 

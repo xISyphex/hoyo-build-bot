@@ -220,7 +220,8 @@ class HsrEnemiesTest(unittest.TestCase):
             {"3024013": _value(5812.5, (302401304, 1, 1), bars=2),
              "3024012": _value(5812.5, (302401204, 1, 1)),
              "4034014": _value(7672.5, (4034014, 1, 1)),
-             "8015030": _value(14880, (8015030, 1, 1), (801503006, 0.375, 1), bars=3, phases=[1, 1, 1]),
+             "8015030": dict(_value(14880, (8015030, 1, 1), (801503006, 0.375, 1), bars=3),  # as Hakushin writes it now
+                             PhaseList=[{"phase_num": i + 1, "phase_max_hp_ratio": r} for i, r in enumerate((1.0, 1.0, 1.9))]),
              "5034010": _value(2092.5, (5034010, 1, 2), bars=2),
              "2034010": _value(2557.5, (2034010, 1, 1), bars=2, phases=[1, 1.5])})
         cls.NAMES = {"3024013": {"en": "Silver Knight", "icon": "SpriteOutput/MonsterFigure/Monster_3024010.png"},
@@ -280,6 +281,7 @@ class HsrEnemiesTest(unittest.TestCase):
 
     def test_anomaly_arbitration_knights_and_the_king(self):
         from bot.hsr_enemies import floor_enemies
+        from bot.records_hsr import _hp
         season = {"pre_level": [{"id": 1101, "event_id_list": [_stage(95, 3, None, [5034010])],
                                  "infinite_list": {"1": {"elite_group": 349, "param_list": []}}}],
                   "boss_level": {"id": 1104, "event_id_list": [_stage(100, 3, None, [801503006])]},
@@ -288,6 +290,8 @@ class HsrEnemiesTest(unittest.TestCase):
         self.assertEqual(found["1101"], found["K1"])
         self.assertEqual(found["K1"][0]["hp"], 6284840)
         self.assertEqual((found["PLIGHT"][0]["hp"], found["PLIGHT"][0]["bars"]), (86546400, 3))
+        self.assertEqual(found["PLIGHT"][0]["phases"], [1, 1, 1.9])  # the site: P1 86,546,400 / P2 86,546,400 / P3 164,438,160
+        self.assertEqual(_hp(R.Enemy("a", hp=86546400, bars=3, phases=[1, 1, 1.9])), "86,546,400 / 86,546,400 / 164,438,160")
         self.assertEqual(found["PLIGHT"][0]["name"], "Lord of Ash")  # markup dropped
         rec = R.hsr_aa(F.aa())
         rec.teams[3].key = "1104:plight|PLIGHT"
