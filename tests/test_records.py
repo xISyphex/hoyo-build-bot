@@ -363,7 +363,7 @@ class HsrEnemiesTest(unittest.TestCase):
 
     def test_voracity_corrosion(self):
         from bot.hsr_enemies import floor_enemies, voracity
-        from bot.records_hsr import _foe_rows, _foes_h, FOE_H, VOR_H, _voracity
+        from bot.records_hsr import CHANGE_H, _foes_h, FOE_H, VOR_H, _voracity
         invasion = {"level": 3, "maze_buff_param": [0.65, 0.3, 0.5, 1, 0.5], "monster_param": [0.6, 0.8, 1, 3, 1.44],
                     "monster_list": [{"monster_id": 302401304, "param_list": []}, {"monster_id": 4062010, "param_list": [1, 0]}]}
         stage = dict(_stage(90, 1, 173, [302401304, 2034010]), invasion=invasion)
@@ -381,8 +381,11 @@ class HsrEnemiesTest(unittest.TestCase):
         rec = R.hsr_moc(F.moc())
         R.set_enemies(rec, {"1": found})
         self.assertEqual((rec.teams[0].enemies[0].voracity, rec.teams[0].enemies[0].corrosion), (0.3, 3))
-        self.assertEqual(_foe_rows(rec), (True, False))
         self.assertEqual(_foes_h(rec), FOE_H + VOR_H)
+        rec.teams[1].enemies = [R.Enemy("b", hp=1, change=5.0)]  # the tallest stack sets the row: no slot is shared
+        self.assertEqual(_foes_h(rec), FOE_H + VOR_H)
+        rec.teams[0].enemies[0].change = 1.0
+        self.assertEqual(_foes_h(rec), FOE_H + VOR_H + CHANGE_H)
 
     def test_earlier_seasons_newest_first(self):
         from bot.hsr_enemies import earlier_seasons, season_slots
