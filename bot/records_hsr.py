@@ -38,7 +38,9 @@ FOE_IMG = 212  # an enemy's figure, whole, in this tall a space
 FOE_TEXT = 74  # its name, level and HP under it
 FOE_H = FOE_IMG + FOE_TEXT  # the enemies' row over the team
 CHANGE_H = 20  # and a line more under the HP for its change since the enemy last came, when one has one
+VOR_H = 20  # and one for its Voracity HP, when one is corroded
 UP, DOWN = (92, 222, 140), (255, 104, 104)  # more HP than last time, less
+ROSE, ROSE_DIM = (255, 128, 150), (205, 108, 128)  # Voracity Corrosion, rose as on hsr.nanoka.cc
 FOE_MAX_W = 300  # an enemy's screen at most this wide (one enemy doesn't fill a node)
 SIDE_H = 220  # a stage's own numbers beside its screen, centred on it
 FOE_GAP = 8
@@ -315,11 +317,24 @@ def _hp(foe: Enemy) -> str:
     return f"{foe.hp:,}" + (f" ×{foe.bars}" if foe.bars > 1 else "")
 
 
+def _foe_rows(record: Record) -> tuple[bool, bool]:
+    """Which extra lines this record's enemy screens keep under the HP: (Voracity, HP change), each only when an
+    enemy of the record has one."""
+    foes = [e for t in record.teams for e in t.enemies]
+    return any(e.voracity > 0 and e.hp for e in foes), any(e.change is not None for e in foes)
+
+
 def _foes_h(record: Record) -> int:
-    """The enemies' row's height on this record's nodes: 0 without enemies, taller when one has an HP change."""
+    """The enemies' row's height on this record's nodes: 0 without enemies, taller for each extra line kept."""
     if not any(t.enemies for t in record.teams):
         return 0
-    return FOE_H + (CHANGE_H if any(e.change is not None for t in record.teams for e in t.enemies) else 0)
+    vor, change = _foe_rows(record)
+    return FOE_H + (VOR_H if vor else 0) + (CHANGE_H if change else 0)
+
+
+def _voracity(foe: Enemy) -> str:
+    """Its Voracity HP as the site writes it: "+2,177,697 (30%)" (the HP of one bar times the stage's ratio)."""
+    return f"+{round(foe.hp * foe.voracity):,} ({foe.voracity * 100:.3g}%)"
 
 
 def _change(change: float, font) -> tuple[str, tuple]:
@@ -330,10 +345,12 @@ def _change(change: float, font) -> tuple[str, tuple]:
     return (f"(+{change:,.1f}%)", UP) if change > 0 else (f"({minus}{-change:,.1f}%)", DOWN)
 
 
-def _foe(card: Image.Image, foe: Enemy, pic: Image.Image | None, box, change_row: bool = False) -> None:
+def _foe(card: Image.Image, foe: Enemy, pic: Image.Image | None, box, change_row: bool = False,
+         vor_row: bool = False) -> None:
     """One enemy on its own small screen: its figure projected whole from a pad, then its name, level and HP, and
-    under those (change_row: a line kept for it on every screen of the record) how much more or less HP it has than
-    when it last came in this mode, with that season's name when it fits."""
+    under those (each a line kept on every screen of the record when one enemy has it) its Voracity HP with the
+    corrosion level (vor_row), and how much more or less HP it has than when it last came in this mode, with that
+    season's name when it fits (change_row)."""
     x0, y0, x1, y1 = (round(v) for v in box)
     w = x1 - x0
     _box(card, (x0, y0, x1, y1), (2, 16, 26, 200), 90, 10)
@@ -362,7 +379,28 @@ def _foe(card: Image.Image, foe: Enemy, pic: Image.Image | None, box, change_row
         if len(lines) == 1 or all(draw.textlength(l, font=font) <= room and not l.endswith("…") for l in lines):
             break
     mid = (x0 + x1) / 2
-    stats_y = y1 - 15 - (CHANGE_H if change_row else 0)
+    stats_y = y1 - 15 - (CHANGE_H if change_row else 0) - (VOR_H if vor_row else 0)
+    if vor_row and foe.voracity > 0 and foe.hp:  # "VORACITY +2,177,697 (30%) [LV 3]"
+        lf, vf, bf = h._raj("Bold", 11), h._raj("Bold", 14), h._raj("Bold", 10)
+        label, value = "VORACITY", _voracity(foe)
+        badge = f"LV {foe.corrosion}" if foe.corrosion else ""
+        lw = sum(draw.textlength(ch, font=lf) + 1.4 for ch in label) - 1.4
+        bw = draw.textlength(badge, font=bf) + 10 if badge else 0
+        for size in (14, 13, 12):
+            vf = h._raj("Bold", size)
+            full = lw + 5 + draw.textlength(value, font=vf) + (6 + bw if badge else 0)
+            if full <= w - 12:
+                break
+        if full > w - 12:  # still too wide: the level marker goes
+            badge, full = "", full - 6 - bw
+        x, cy = mid - full / 2, stats_y + VOR_H
+        h._spaced(draw, (x, cy), label, lf, ROSE_DIM, 1.4)
+        x += lw + 5
+        draw.text((x, cy), value, font=vf, fill=ROSE, anchor="lm")
+        if badge:
+            x += draw.textlength(value, font=vf) + 6
+            draw.rounded_rectangle((x, cy - 7, x + bw, cy + 7), radius=3, outline=ROSE_DIM, width=1)
+            draw.text((x + bw / 2, cy), badge, font=bf, fill=ROSE, anchor="mm")
     if change_row and foe.change is not None and foe.hp:
         f, sf = h._raj("Bold", 14), h._raj("SemiBold", 12)
         text, colour = _change(foe.change, f)
@@ -400,9 +438,10 @@ def _foe(card: Image.Image, foe: Enemy, pic: Image.Image | None, box, change_row
         x += pw + 14
 
 
-def _foes(card: Image.Image, foes: list[Enemy], images: dict, x0: float, x1: float, y: float, fh: int = FOE_H) -> None:
-    """A node's enemies side by side, centred, fh tall (see _foes_h); an empty screen saying so when the game data
-    doesn't know them."""
+def _foes(card: Image.Image, foes: list[Enemy], images: dict, x0: float, x1: float, y: float, fh: int = FOE_H,
+          rows: tuple[bool, bool] = (False, False)) -> None:
+    """A node's enemies side by side, centred, fh tall with these extra lines (see _foes_h and _foe_rows); an empty
+    screen saying so when the game data doesn't know them."""
     if not foes:
         box = (round(x0), round(y), round(x1), round(y + fh))
         _box(card, box, (2, 16, 26, 140), 50, 10)
@@ -416,11 +455,12 @@ def _foes(card: Image.Image, foes: list[Enemy], images: dict, x0: float, x1: flo
     w = min(FOE_MAX_W, (x1 - x0 - FOE_GAP * (n - 1)) / n)
     x = (x0 + x1 - (w * n + FOE_GAP * (n - 1))) / 2
     for foe in foes:
-        _foe(card, foe, images.get(foe.art or ""), (x, y, x + w, y + fh), fh > FOE_H)
+        _foe(card, foe, images.get(foe.art or ""), (x, y, x + w, y + fh), rows[1], rows[0])
         x += w + FOE_GAP
 
 
-def _team(card: Image.Image, team: Team, images: dict, box, chips: bool, mode: str = "", foes: int = 0) -> None:
+def _team(card: Image.Image, team: Team, images: dict, box, chips: bool, mode: str = "", foes: int = 0,
+          rows: tuple[bool, bool] = (False, False)) -> None:
     """A node on its own screen: a waypoint and its name, its enemies, the team's characters on tiles under them and
     its results under those."""
     x0, y0, x1, y1 = box
@@ -434,7 +474,7 @@ def _team(card: Image.Image, team: Team, images: dict, box, chips: bool, mode: s
     h._spaced(draw, (x0 + 32, cy), base._fit_text(draw, label, font, room - 1.6 * len(label)), font, TEXT, 1.6)
     top = y0 + LABEL_H + 6
     if foes:
-        _foes(card, team.enemies, images, x0 + 14, x1 - 14, top, foes)
+        _foes(card, team.enemies, images, x0 + 14, x1 - 14, top, foes, rows)
         top += foes + 12
     members = team.members[:4]
     row = len(members) * TILE_W + max(0, len(members) - 1) * TILE_GAP
@@ -568,7 +608,7 @@ def draw_records(uid: str, records: list[Record], images: dict[str, Image.Image]
             y += sh + GAP
             continue
         chips = any(t.chips for t in record.teams)
-        foes = _foes_h(record)
+        foes, rows = _foes_h(record), _foe_rows(record)
         th = _team_h(chips, foes)
         by = y + HEAD
         col_w = (W - 2 * PAD - 2 * INNER - 2 * GAP) // 3
@@ -581,7 +621,7 @@ def draw_records(uid: str, records: list[Record], images: dict[str, Image.Image]
             for team in row:
                 if team.plight:
                     rc._shimmer(card, (bx, by, bx + col_w, by + th))
-                _team(card, team, images, (bx, by, bx + col_w, by + th), chips, record.mode, foes)
+                _team(card, team, images, (bx, by, bx + col_w, by + th), chips, record.mode, foes, rows)
                 inset = max(16, (th - SIDE_H) // 2)  # as tall as a readout needs, centred on the screen
                 edge = bx - 2 * GAP
                 for label, value in reversed(team.left):

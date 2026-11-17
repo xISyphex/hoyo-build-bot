@@ -361,6 +361,29 @@ class HsrEnemiesTest(unittest.TestCase):
         R.set_enemies(rec, aa)
         self.assertEqual((rec.teams[1].enemies[0].change, rec.teams[1].enemies[0].prev_season), (10.0, "Past"))
 
+    def test_voracity_corrosion(self):
+        from bot.hsr_enemies import floor_enemies, voracity
+        from bot.records_hsr import _foe_rows, _foes_h, FOE_H, VOR_H, _voracity
+        invasion = {"level": 3, "maze_buff_param": [0.65, 0.3, 0.5, 1, 0.5], "monster_param": [0.6, 0.8, 1, 3, 1.44],
+                    "monster_list": [{"monster_id": 302401304, "param_list": []}, {"monster_id": 4062010, "param_list": [1, 0]}]}
+        stage = dict(_stage(90, 1, 173, [302401304, 2034010]), invasion=invasion)
+        self.assertEqual(voracity(302401304, stage), {"voracity": 0.3, "corrosion": 3})
+        self.assertEqual(voracity(2034010, stage), {})  # in the stage, but not corroded
+        self.assertEqual(voracity(302401304, _stage(90, 1, 173)), {})  # no corrosion on the stage
+        found = floor_enemies("moc", [{"id": 5513, "event_id_list": [stage]}], self.NAMES, self.TABLES)["3"]
+        knight, warhead = found
+        self.assertEqual((knight["hp"], knight["voracity"], knight["corrosion"]), (13198637, 0.3, 3))  # HP as it was
+        self.assertNotIn("voracity", warhead)
+        # the site: Judge of Oblivion "HP 7,258,991 x 2", "Voracity HP +2,177,697 (30%)"
+        self.assertEqual(_voracity(R.Enemy("a", hp=7258991, bars=2, voracity=0.3, corrosion=3)), "+2,177,697 (30%)")
+        # Asat Pramad on Plight "P1 86,546,400 / P2 86,546,400 / P3 164,438,160", "Voracity HP +34,618,560 (40%)"
+        self.assertEqual(_voracity(R.Enemy("a", hp=86546400, bars=3, phases=[1, 1, 1.9], voracity=0.4)), "+34,618,560 (40%)")
+        rec = R.hsr_moc(F.moc())
+        R.set_enemies(rec, {"1": found})
+        self.assertEqual((rec.teams[0].enemies[0].voracity, rec.teams[0].enemies[0].corrosion), (0.3, 3))
+        self.assertEqual(_foe_rows(rec), (True, False))
+        self.assertEqual(_foes_h(rec), FOE_H + VOR_H)
+
     def test_earlier_seasons_newest_first(self):
         from bot.hsr_enemies import earlier_seasons, season_slots
         index = {"1035": {"en": "Last (1.0)"}, "1036": {"en": "Now"}, "1034": {"en": None}, "120": {"en": "Old mode"},
@@ -396,6 +419,7 @@ class HsrDrawTest(unittest.TestCase):
                 team.enemies = [R.Enemy("Lord of Saṃvartasthāyi, Asat Pramad", "boss.png", 120, 86546400, 3),
                                 R.Enemy("Missing Picture", "gone.png", 95, 12345678, 2, [1, 1.25])][: 1 + i % 2]
             rec.teams[0].enemies[0].change, rec.teams[0].enemies[0].prev_season = 12.5, "A Long Season Name Over Its Screen"
+            rec.teams[0].enemies[0].voracity, rec.teams[0].enemies[0].corrosion = 0.4, 4
             rec.teams[-1].enemies = []  # not known yet: an empty screen saying so
             img = Image.open(io.BytesIO(draw_records("hsr", "800069903", [rec], {"boss.png": pic})))
             self.assertEqual(img.width, W)

@@ -46,6 +46,8 @@ class Enemy:
     phases: list[float] = field(default_factory=list)  # each bar's size, when they differ (the site's "P1 ... / P2 ...")
     change: float | None = None  # % more HP than when it last came in this mode (None: never before, or not known)
     prev_season: str = ""  # that season's name
+    voracity: float = 0  # Voracity Corrosion: its Voracity HP as a share of one bar's HP (0: not corroded)
+    corrosion: int = 0  # the corrosion level
 
 
 @dataclass
@@ -464,7 +466,8 @@ def set_enemies(record: Record, found: dict[str, list[dict]]) -> None:
             team.enemies = [Enemy(e.get("name") or "", e.get("art"), int(e.get("level") or 0), int(e.get("hp") or 0),
                                   int(e.get("bars") or 1), [float(r) for r in e.get("phases") or ()],
                                   float(e["change"]) if e.get("change") is not None else None,
-                                  str(e.get("prev_season") or ""))
+                                  str(e.get("prev_season") or ""), float(e.get("voracity") or 0),
+                                  int(e.get("corrosion") or 0))
                             for e in enemies]
 
 
