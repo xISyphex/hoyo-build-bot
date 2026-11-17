@@ -234,7 +234,8 @@ def voracity(monster_id: int, stage: dict) -> dict:
 # How much extra HP Voracity Corrosion gives an enemy, for Elation DMG and for any other DMG.
 #
 # Multi-bar bosses: the community table "多血条4级贪饕污染削弱 v3" (by 析构万理的发条公主 & Ripple of CyrLeaks) by
-# corrosion level, as a share of the HP of the bar the revive comes in (its last):
+# corrosion level, as a share of the HP of its first bar (the owner's call: for the Plight King, whose bars are
+# 1 : 1 : 1.9, the first bar's HP, not the bigger last one's):
 #   Lv 1 +20% / +20%,  Lv 2 +36% / +36%,  Lv 3 +36% / +108%,  Lv 4 +56.25% / +157.5% (Elation / other DMG)
 # These can't be worked out from Hakushin's data yet: Lv 4's Elation/other ratio there is 1 : 3 (monster_param), the
 # table's (after the Lv 4 nerf) 1 : 2.8, and no reading of the game's config below gives Lv 3's Elation figure (below
@@ -255,16 +256,16 @@ MULTI_BAR_TABLE = {1: (0.20, 0.20), 2: (0.36, 0.36), 3: (0.36, 1.08), 4: (0.5625
 
 def voracity_extra(hp: int, bars: int, phases: list[float], params: list[float], level: int) -> list[tuple[int, float]]:
     """The extra HP Voracity gives an enemy (see above): [(HP, share) for Elation DMG, (HP, share) for any other DMG],
-    as shares of its last bar's HP; [] when it isn't corroded. hp is per bar."""
+    as shares of its first bar's HP; [] when it isn't corroded. hp is per bar."""
     if not hp or len(params) < 5:
         return []
-    last = hp * (phases[-1] if phases else 1)
+    first = hp * (phases[0] if phases else 1)
     if bars > 1 and level in MULTI_BAR_TABLE:
         shares = MULTI_BAR_TABLE[level]
     else:
         revived = params[4] if bars > 1 else params[1]
         shares = tuple(params[0] * revived / rate if rate > 0 else 0 for rate in (params[3], params[2]))
-    return [(round(last * share), share) for share in shares]
+    return [(round(first * share), share) for share in shares]
 
 
 def floor_enemies(mode: str, season: Any, names: dict, tables: Tables, floor_id: str = "",

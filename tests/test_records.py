@@ -375,10 +375,11 @@ class HsrEnemiesTest(unittest.TestCase):
         knight, warhead = found
         self.assertEqual((knight["hp"], knight["voracity"], knight["corrosion"]), (13198637, lv3, 3))  # HP as it was
         self.assertNotIn("voracity", warhead)
-        # several bars: the community table by level, of the last bar's HP (Elation DMG, any other DMG)
+        # several bars: the community table by level, of the first bar's HP (Elation DMG, any other DMG)
         self.assertEqual(voracity_extra(7258991, 2, [], lv3, 3), [(2613237, 0.36), (7839710, 1.08)])  # Judge of Oblivion
-        plight = R.Enemy("a", hp=86546400, bars=3, phases=[1, 1, 1.9], voracity=lv4, corrosion=4)  # last bar 164,438,160
-        self.assertEqual(_voracity(plight), ["+92,496,465 (56.25%)", "+258,990,102 (157.5%)"])
+        plight = R.Enemy("a", hp=86546400, bars=3, phases=[1, 1, 1.9], voracity=lv4, corrosion=4)  # first bar 86,546,400
+        self.assertEqual(_voracity(plight), ["+48,682,350 (56.25%)", "+136,310,580 (157.5%)"])  # not of the 1.9x last bar
+        self.assertEqual(voracity_extra(1000000, 2, [1.5, 1], lv4, 4), [(843750, 0.5625), (2362500, 1.575)])  # first bar 1.5x
         self.assertEqual(_voracity(R.Enemy("a", hp=1000000, bars=2, voracity=lv2, corrosion=2)),
                          ["+360,000 (36%)", "+360,000 (36%)"])  # Lv 2: the same, still both lines
         # a level the table lacks, or one bar: from the config ([0] x revived share / rate)
