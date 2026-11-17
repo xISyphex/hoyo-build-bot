@@ -1252,6 +1252,9 @@ class CardMaker:
                     | {r.medal for r in records if r.medal})
         art = list({t.art for r in records for t in r.teams if t.art}  # boss pictures, kept larger
                    | {e.art for r in records for t in r.teams for e in t.enemies if e.art})  # Star Rail's enemies, whole
+        if any(e.voracity for r in records for t in r.teams for e in t.enemies):  # Voracity's Elation line
+            from .hsr_enemies import ELATION_ICON
+            urls.append(ELATION_ICON)
         loaded = await asyncio.gather(*(self._image(u, ICON_MAX) for u in urls), *(self._image(u, ART_MAX) for u in art))
         images = {u: img for u, img in zip(urls + art, loaded) if img is not None}
         return await asyncio.to_thread(draw_records, game, uid, records, images, nickname)
