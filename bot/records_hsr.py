@@ -18,6 +18,7 @@ from . import card_hsr as h
 from . import record_icons as icons
 from . import records_card as rc
 from .card_zzz import _nine_slice
+from .hsr_enemies import ELATION_ICON, voracity_extra
 from .records import Enemy, Member, Record, Team, copies_label
 from .records_zzz import _foil_text
 
@@ -39,7 +40,8 @@ ART_FADE = 0.8  # the figure at most this opaque, like the boss art behind the t
 CHANGE_H = 20  # and a line more under the HP for its change since the enemy last came, when one has one
 VOR_H = 20  # and one for its Voracity HP, when one is corroded
 UP, DOWN = (92, 222, 140), (255, 104, 104)  # more HP than last time, less
-ROSE, ROSE_DIM = (255, 128, 150), (205, 108, 128)  # Voracity Corrosion, rose as on hsr.nanoka.cc
+ROSE, ROSE_DIM = (255, 128, 150), (205, 108, 128)
+STRIKE = (232, 84, 96)  # the line through Elation's mark: any DMG but Elation  # Voracity Corrosion, rose as on hsr.nanoka.cc
 FOE_MAX_W = 300  # an enemy's screen at most this wide (one enemy doesn't fill a node)
 SIDE_H = 220  # a stage's own numbers beside its screen, centred on it
 FOE_GAP = 8
@@ -318,7 +320,7 @@ def _hp(foe: Enemy) -> str:
 
 def _extra_h(foe: Enemy) -> int:
     """The lines an enemy has under its HP: its Voracity HP and its HP change, each only if it has one."""
-    return (VOR_H if foe.voracity > 0 and foe.hp else 0) + (CHANGE_H if foe.change is not None and foe.hp else 0)
+    return VOR_H * len(_voracity(foe)) + (CHANGE_H if foe.change is not None and foe.hp else 0)
 
 
 def _foes_h(record: Record) -> int:
@@ -328,9 +330,32 @@ def _foes_h(record: Record) -> int:
     return FOE_H + max(map(_extra_h, foes)) if foes else 0
 
 
-def _voracity(foe: Enemy) -> str:
-    """Its Voracity HP as the site writes it: "+2,177,697 (30%)" (the HP of one bar times the stage's ratio)."""
-    return f"+{round(foe.hp * foe.voracity):,} ({foe.voracity * 100:.3g}%)"
+def _pct(share: float) -> str:
+    """A share as the community table writes it: 0.5625 -> "56.25%", 1.08 -> "108%"."""
+    return f"{share * 100:.2f}".rstrip("0").rstrip(".") + "%"
+
+
+def _voracity(foe: Enemy) -> list[str]:
+    """Its Voracity lines (see hsr_enemies.voracity_extra): the extra HP against Elation DMG, then against any other
+    DMG, as "+2,177,697 (30%)"; none when it isn't corroded. Both are shown even when they're the same (Lv 1 and 2),
+    each beside its own mark."""
+    return [f"+{hp:,} ({_pct(share)})" for hp, share in voracity_extra(foe.hp, foe.bars, foe.phases, foe.voracity,
+                                                                         foe.corrosion)]
+
+
+def _mark(elation: Image.Image | None, crossed: bool, size: int = 18) -> Image.Image:
+    """The Elation path's mark, or (crossed) the same mark struck through by one red diagonal line for any other
+    DMG; a plain ring when the picture couldn't be had."""
+    out = Image.new("RGBA", (size * SS, size * SS), (0, 0, 0, 0))
+    if elation is not None:
+        fig = _figure(elation, size * SS, size * SS)
+        out.alpha_composite(fig, ((out.width - fig.width) // 2, (out.height - fig.height) // 2))
+    else:
+        ImageDraw.Draw(out).ellipse((SS, SS, out.width - SS, out.height - SS), outline=TEXT, width=2 * SS)
+    if crossed:
+        d = ImageDraw.Draw(out)
+        d.line((out.width * 0.88, out.height * 0.1, out.width * 0.12, out.height * 0.9), fill=STRIKE, width=round(2.2 * SS))
+    return out.resize((size, size), Image.LANCZOS)
 
 
 def _change(change: float, font) -> tuple[str, tuple]:
@@ -373,7 +398,7 @@ def _shade(card: Image.Image, box, top: float) -> None:
     card.alpha_composite(layer, (x0, y1 - hh))
 
 
-def _foe(card: Image.Image, foe: Enemy, pic: Image.Image | None, box) -> None:
+def _foe(card: Image.Image, foe: Enemy, pic: Image.Image | None, box, elation: Image.Image | None = None) -> None:
     """One enemy on its own small screen: its whole figure, faded, as large as the screen holds it, and over its
     foot its name, level and HP, then only the lines it has: its Voracity HP with the corrosion level, and how much
     more or less HP it has than when it last came in this mode (with that season's name when it fits)."""
@@ -384,13 +409,13 @@ def _foe(card: Image.Image, foe: Enemy, pic: Image.Image | None, box) -> None:
         _art(card, pic, (x0 + 1, y0 + 1, x1 - 1, y1 - 1))
     draw = ImageDraw.Draw(card)
     # the lines from the foot up: the change, the Voracity, the numbers, then the name over them
-    has_vor = foe.voracity > 0 and bool(foe.hp)
+    vor_lines = _voracity(foe)
     has_change = foe.change is not None and bool(foe.hp)
     y = y1 - 16
     change_y = y if has_change else None
     y -= CHANGE_H if has_change else 0
-    vor_y = y if has_vor else None
-    y -= VOR_H if has_vor else 0
+    vor_ys = [y - VOR_H * (len(vor_lines) - 1 - i) for i in range(len(vor_lines))]  # Elation's, then any other's
+    y -= VOR_H * len(vor_lines)
     stats_y = y + 1
     room = w - 16
     name = foe.name.upper() or "UNKNOWN"
@@ -423,27 +448,24 @@ def _foe(card: Image.Image, foe: Enemy, pic: Image.Image | None, box) -> None:
         draw.text((cx, change_y), text, font=f, fill=colour, anchor="lm")
         if vs:
             draw.text((cx + tw + 6, change_y), vs, font=sf, fill=DIM, anchor="lm")
-    if has_vor:  # "VORACITY +2,177,697 (30%) [LV 3]"
-        lf, bf = h._raj("Bold", 11), h._raj("Bold", 10)
-        label, value = "VORACITY", _voracity(foe)
-        badge = f"LV {foe.corrosion}" if foe.corrosion else ""
-        lw = sum(draw.textlength(ch, font=lf) + 1.4 for ch in label) - 1.4
-        bw = draw.textlength(badge, font=bf) + 10 if badge else 0
+    for i, (value, vy) in enumerate(zip(vor_lines, vor_ys)):  # [Elation's mark] +x (y%), [struck mark] +x (y%)
+        icon = _mark(elation, crossed=i == 1)
         for size in (14, 13, 12):
             vf = h._raj("Bold", size)
-            full = lw + 5 + draw.textlength(value, font=vf) + (6 + bw if badge else 0)
+            full = icon.width + 6 + draw.textlength(value, font=vf)
             if full <= w - 12:
                 break
-        if badge and full > w - 12:  # still too wide: the level marker goes
-            badge, full = "", full - 6 - bw
         x = mid - full / 2
-        h._spaced(draw, (x, vor_y), label, lf, ROSE_DIM, 1.4)
-        x += lw + 5
-        draw.text((x, vor_y), value, font=vf, fill=ROSE, anchor="lm")
-        if badge:
-            x += draw.textlength(value, font=vf) + 6
-            draw.rounded_rectangle((x, vor_y - 7, x + bw, vor_y + 7), radius=3, outline=ROSE_DIM, width=1)
-            draw.text((x + bw / 2, vor_y), badge, font=bf, fill=ROSE, anchor="mm")
+        card.alpha_composite(icon, (round(x), round(vy - icon.height / 2)))
+        draw = ImageDraw.Draw(card)
+        draw.text((x + icon.width + 6, vy), value, font=vf, fill=ROSE, anchor="lm")
+    if foe.voracity and foe.corrosion:  # "VORACITY LV 4" at the top of its screen
+        f = h._raj("Bold", 12)
+        label = f"VORACITY LV {foe.corrosion}"
+        tw = sum(draw.textlength(ch, font=f) + 1.8 for ch in label) - 1.8
+        px, py = mid - tw / 2, y0 + 16
+        draw.rounded_rectangle((px - 8, py - 10, px + tw + 8, py + 10), radius=4, fill=(14, 6, 12), outline=ROSE_DIM, width=1)
+        h._spaced(draw, (px, py), label, f, ROSE, 1.8)
     small = h._raj("Bold", 11)
     parts = []
     if foe.level:
@@ -482,7 +504,7 @@ def _foes(card: Image.Image, foes: list[Enemy], images: dict, x0: float, x1: flo
     w = min(FOE_MAX_W, (x1 - x0 - FOE_GAP * (n - 1)) / n)
     x = (x0 + x1 - (w * n + FOE_GAP * (n - 1))) / 2
     for foe in foes:
-        _foe(card, foe, images.get(foe.art or ""), (x, y, x + w, y + fh))
+        _foe(card, foe, images.get(foe.art or ""), (x, y, x + w, y + fh), images.get(ELATION_ICON))
         x += w + FOE_GAP
 
 
