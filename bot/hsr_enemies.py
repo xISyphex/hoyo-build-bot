@@ -50,9 +50,8 @@ log = logging.getLogger(__name__)
 PATHS = {"moc": "en/maze/{season}.json", "pf": "en/story/{season}.json", "apoc": "en/boss/{season}.json",
          "aa": "en/peak/{season}.json"}
 INDEXES = {"moc": "maze.json", "pf": "maze_extra.json", "apoc": "maze_boss.json", "aa": "maze_peak.json"}  # seasons
-ELATION_ICON = "https://raw.githubusercontent.com/Mar-7th/StarRailRes/master/icon/path/Elation.png"  # the path's mark
 MAX_SHOWN = 3  # enemies per node, at most
-CACHE_VERSION = 7  # 7: with all of Voracity Corrosion's numbers
+CACHE_VERSION = 6  # 6: with Voracity Corrosion
 
 
 def base_id(monster_id) -> int:
@@ -220,37 +219,16 @@ def enemy(monster_id: int, stage: dict, waves: list[dict], names: dict, tables: 
 
 
 def voracity(monster_id: int, stage: dict) -> dict:
-    """Voracity Corrosion on this enemy, found as hsr.nanoka.cc finds it: the stage's "invasion" lists the corroded
-    enemies by id. {"voracity": its maze_buff_param (see voracity_dmg), "corrosion": level}, or {} when it isn't
-    corroded."""
+    """Voracity Corrosion on this enemy, as hsr.nanoka.cc finds it: the stage's "invasion" lists the corroded
+    enemies by id, and its maze_buff_param[1] is their Voracity HP as a share of one bar's HP. {"voracity": share,
+    "corrosion": level}, or {} when it isn't corroded."""
     inv = stage.get("invasion") if isinstance(stage.get("invasion"), dict) else {}
     level = int(_num(inv.get("level", inv.get("Level"))))
-    params = [_num(p) for p in inv.get("maze_buff_param", inv.get("MazeBuffParam")) or ()]
+    params = inv.get("maze_buff_param", inv.get("MazeBuffParam")) or []
+    share = _num(params[1]) if len(params) > 1 else 0
     listed = {int(_num(m.get("monster_id", m.get("MonsterID")))) for m in inv.get("monster_list", inv.get("MonsterList")) or ()
               if isinstance(m, dict)}
-    return {"voracity": params, "corrosion": level} if level > 0 and len(params) >= 5 and monster_id in listed else {}
-
-
-# What Voracity Corrosion asks of a team, read from the game's own config (DimbreathBot/TurnBasedGameData): the stage
-# ability ChallengePeakBattle_GluttonyAbility_LV<n> (Config/ConfigAbility/BattleEventAbility_ChallengePeakBattle.json)
-# hands the maze buff's ParamList (MazeBuff 303400<n>, the season file's maze_buff_param) to the monster modifier
-# MCommon_Gluttony_LV<n> (Config/ConfigGlobalModifier/GlobalModifier_Common_Gluttony.json) as MDF_Param1..5:
-#   [1] / [4]  on the killing blow in its last HP bar the enemy revives with its Max HP times this share and heals to
-#              full: [1] for an enemy with one bar, [4] for one with several (MDF_HealHPRatio by MaxMonsterPhase > 1)
-#   [2] / [3]  after that, each hit's DMG is turned into "suppression" at this rate: [3] for Elation DMG, [2] for any
-#              other (MDF_ConvertRatio by attack type; 0.5 and 1 from Lv 3, both 1 at Lv 2)
-#   [0]        once suppression reaches this share of the revived Max HP, its HP lock is lifted and it can be defeated
-# So the DMG needed to break it is [0] x revived HP / rate, shown once per kind of DMG ("VORACITY +x" and, with the
-# Elation icon, "+y"; one line when both rates are the same). hsr.nanoka.cc shows only bar HP x [1] instead.
-def voracity_dmg(hp: int, bars: int, phases: list[float], params: list[float]) -> tuple[int, int]:
-    """The DMG needed to break an enemy's Voracity (see above): (any other DMG, Elation DMG). hp is per bar; the
-    revive comes in its last bar."""
-    if not hp or len(params) < 5:
-        return 0, 0
-    last = hp * (phases[-1] if phases else 1)
-    revived = last * (params[4] if bars > 1 else params[1])
-    need = params[0] * revived
-    return tuple(round(need / rate) if rate > 0 else 0 for rate in (params[2], params[3]))
+    return {"voracity": share, "corrosion": level} if level > 0 and share > 0 and monster_id in listed else {}
 
 
 def floor_enemies(mode: str, season: Any, names: dict, tables: Tables, floor_id: str = "",
