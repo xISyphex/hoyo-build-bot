@@ -50,8 +50,9 @@ log = logging.getLogger(__name__)
 PATHS = {"moc": "en/maze/{season}.json", "pf": "en/story/{season}.json", "apoc": "en/boss/{season}.json",
          "aa": "en/peak/{season}.json"}
 INDEXES = {"moc": "maze.json", "pf": "maze_extra.json", "apoc": "maze_boss.json", "aa": "maze_peak.json"}  # seasons
+ELATION_ICON = "https://raw.githubusercontent.com/Mar-7th/StarRailRes/master/icon/path/Elation.png"  # the path's mark
 MAX_SHOWN = 3  # enemies per node, at most
-CACHE_VERSION = 6  # 6: with Voracity Corrosion
+CACHE_VERSION = 7  # 7: with all of Voracity Corrosion's numbers
 
 
 def base_id(monster_id) -> int:
@@ -219,16 +220,51 @@ def enemy(monster_id: int, stage: dict, waves: list[dict], names: dict, tables: 
 
 
 def voracity(monster_id: int, stage: dict) -> dict:
-    """Voracity Corrosion on this enemy, as hsr.nanoka.cc finds it: the stage's "invasion" lists the corroded
-    enemies by id, and its maze_buff_param[1] is their Voracity HP as a share of one bar's HP. {"voracity": share,
-    "corrosion": level}, or {} when it isn't corroded."""
+    """Voracity Corrosion on this enemy, found as hsr.nanoka.cc finds it: the stage's "invasion" lists the corroded
+    enemies by id. {"voracity": its maze_buff_param (see voracity_dmg), "corrosion": level}, or {} when it isn't
+    corroded."""
     inv = stage.get("invasion") if isinstance(stage.get("invasion"), dict) else {}
     level = int(_num(inv.get("level", inv.get("Level"))))
-    params = inv.get("maze_buff_param", inv.get("MazeBuffParam")) or []
-    share = _num(params[1]) if len(params) > 1 else 0
+    params = [_num(p) for p in inv.get("maze_buff_param", inv.get("MazeBuffParam")) or ()]
     listed = {int(_num(m.get("monster_id", m.get("MonsterID")))) for m in inv.get("monster_list", inv.get("MonsterList")) or ()
               if isinstance(m, dict)}
-    return {"voracity": share, "corrosion": level} if level > 0 and share > 0 and monster_id in listed else {}
+    return {"voracity": params, "corrosion": level} if level > 0 and len(params) >= 5 and monster_id in listed else {}
+
+
+# How much extra HP Voracity Corrosion gives an enemy, for Elation DMG and for any other DMG.
+#
+# Multi-bar bosses: the community table "多血条4级贪饕污染削弱 v3" (by 析构万理的发条公主 & Ripple of CyrLeaks) by
+# corrosion level, as a share of the HP of the bar the revive comes in (its last):
+#   Lv 1 +20% / +20%,  Lv 2 +36% / +36%,  Lv 3 +36% / +108%,  Lv 4 +56.25% / +157.5% (Elation / other DMG)
+# These can't be worked out from Hakushin's data yet: Lv 4's Elation/other ratio there is 1 : 3 (monster_param), the
+# table's (after the Lv 4 nerf) 1 : 2.8, and no reading of the game's config below gives Lv 3's Elation figure (below
+# the revived HP itself). So the table is used as it is, and a level it doesn't have falls back to the reading below.
+#
+# Other enemies, and levels the table lacks: read from the game's own config (DimbreathBot/TurnBasedGameData). The
+# stage ability ChallengePeakBattle_GluttonyAbility_LV<n> (Config/ConfigAbility/BattleEventAbility_ChallengePeakBattle
+# .json) hands the maze buff's ParamList (MazeBuff 303400<n>, the season file's maze_buff_param) to the monster
+# modifier MCommon_Gluttony_LV<n> (Config/ConfigGlobalModifier/GlobalModifier_Common_Gluttony.json) as MDF_Param1..5:
+#   [1] / [4]  on the killing blow in its last HP bar the enemy revives with its Max HP times this share and heals to
+#              full: [1] for an enemy with one bar, [4] for one with several (MDF_HealHPRatio by MaxMonsterPhase > 1)
+#   [2] / [3]  after that, each hit's DMG is turned into "suppression" at this rate: [3] for Elation DMG, [2] for any
+#              other (MDF_ConvertRatio by attack type)
+#   [0]        once suppression reaches this share of the revived Max HP, its HP lock is lifted and it can be defeated
+# giving [0] x revived HP / rate as the extra HP for each kind of DMG.
+MULTI_BAR_TABLE = {1: (0.20, 0.20), 2: (0.36, 0.36), 3: (0.36, 1.08), 4: (0.5625, 1.575)}  # level: (Elation, other)
+
+
+def voracity_extra(hp: int, bars: int, phases: list[float], params: list[float], level: int) -> list[tuple[int, float]]:
+    """The extra HP Voracity gives an enemy (see above): [(HP, share) for Elation DMG, (HP, share) for any other DMG],
+    as shares of its last bar's HP; [] when it isn't corroded. hp is per bar."""
+    if not hp or len(params) < 5:
+        return []
+    last = hp * (phases[-1] if phases else 1)
+    if bars > 1 and level in MULTI_BAR_TABLE:
+        shares = MULTI_BAR_TABLE[level]
+    else:
+        revived = params[4] if bars > 1 else params[1]
+        shares = tuple(params[0] * revived / rate if rate > 0 else 0 for rate in (params[3], params[2]))
+    return [(round(last * share), share) for share in shares]
 
 
 def floor_enemies(mode: str, season: Any, names: dict, tables: Tables, floor_id: str = "",
