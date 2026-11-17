@@ -51,7 +51,7 @@ PATHS = {"moc": "en/maze/{season}.json", "pf": "en/story/{season}.json", "apoc":
          "aa": "en/peak/{season}.json"}
 INDEXES = {"moc": "maze.json", "pf": "maze_extra.json", "apoc": "maze_boss.json", "aa": "maze_peak.json"}  # seasons
 MAX_SHOWN = 3  # enemies per node, at most
-CACHE_VERSION = 4  # 4: with the HP change since the boss's last appearance
+CACHE_VERSION = 6  # 6: with Voracity Corrosion
 
 
 def base_id(monster_id) -> int:
@@ -120,7 +120,8 @@ class Tables:
             params = wave["param_list"]
             hp *= 1 + _num(params[1] if len(params) > 1 else None)
         bars = int(_num(value.get("MaxMonsterPhase"), 1)) or 1
-        phases = [_num(p.get("PhaseMaxHPRatio"), 1) for p in value.get("PhaseList") or () if isinstance(p, dict)]
+        phases = [_num(p.get("PhaseMaxHPRatio", p.get("phase_max_hp_ratio")), 1)  # Hakushin writes it both ways
+                  for p in value.get("PhaseList") or () if isinstance(p, dict)]
         return {"hp": int(hp + 0.5) if hp > 0 else None, "bars": max(1, bars), "phases": phases or [1.0]}
 
 
@@ -211,9 +212,23 @@ def enemy(monster_id: int, stage: dict, waves: list[dict], names: dict, tables: 
     wave = waves[min(count, len(waves)) - 1] if waves else None
     worked = tables.hp(monster_id, stage, wave) or {}
     phases = worked.get("phases") or [1.0]
-    return {"id": monster_id, "name": clean(info.get("en")), "level": int(_num(stage.get("level"))),
-            "hp": worked.get("hp"), "bars": worked.get("bars", 1),
-            "phases": phases if len(phases) > 1 and len(set(phases)) > 1 else [], "art": art_url(info.get("icon"))}
+    out = {"id": monster_id, "name": clean(info.get("en")), "level": int(_num(stage.get("level"))),
+           "hp": worked.get("hp"), "bars": worked.get("bars", 1),
+           "phases": phases if len(phases) > 1 and len(set(phases)) > 1 else [], "art": art_url(info.get("icon"))}
+    return out | voracity(monster_id, stage)
+
+
+def voracity(monster_id: int, stage: dict) -> dict:
+    """Voracity Corrosion on this enemy, as hsr.nanoka.cc finds it: the stage's "invasion" lists the corroded
+    enemies by id, and its maze_buff_param[1] is their Voracity HP as a share of one bar's HP. {"voracity": share,
+    "corrosion": level}, or {} when it isn't corroded."""
+    inv = stage.get("invasion") if isinstance(stage.get("invasion"), dict) else {}
+    level = int(_num(inv.get("level", inv.get("Level"))))
+    params = inv.get("maze_buff_param", inv.get("MazeBuffParam")) or []
+    share = _num(params[1]) if len(params) > 1 else 0
+    listed = {int(_num(m.get("monster_id", m.get("MonsterID")))) for m in inv.get("monster_list", inv.get("MonsterList")) or ()
+              if isinstance(m, dict)}
+    return {"voracity": share, "corrosion": level} if level > 0 and share > 0 and monster_id in listed else {}
 
 
 def floor_enemies(mode: str, season: Any, names: dict, tables: Tables, floor_id: str = "",
