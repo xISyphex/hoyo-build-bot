@@ -1206,6 +1206,23 @@ async def hsr_mvp_autocomplete(interaction: discord.Interaction, current: str):
     return options[:25]
 
 
+async def scold_roster(bot: HoyoBot, uids: list[str]) -> tuple[set[str] | None, str]:
+    """Every Star Rail character ID the person owns, read from HoYoLAB the same way the other commands do
+    (hoyolab.available/fetch: their own /hoyolab link, else the bot's HOYOLAB_COOKIES login), trying their UIDs in
+    order (claimed first). Returns (None, the UID for Enka) when HoYoLAB can't tell, logging why."""
+    for uid in uids:
+        if not bot.hoyolab.available("hsr", uid):
+            log.warning("/scold: no HoYoLAB login can read hsr %s (not linked and no HOYOLAB_COOKIES)", uid)
+            continue
+        try:
+            return {b.character_id for b in await bot.hoyolab.fetch("hsr", uid)}, uid
+        except HoyolabError as exc:
+            log.warning("/scold: HoYoLAB couldn't read hsr %s, using the Enka showcase: %s", uid, exc)
+        except Exception:
+            log.exception("/scold: HoYoLAB failed for hsr %s, using the Enka showcase", uid)
+    return None, uids[0]
+
+
 @app_commands.command(name="scold", description="Have Fairy scold someone for the MVP Star Rail characters they lack")
 @app_commands.describe(user="Who to scold. Leave empty to scold yourself")
 async def scold_command(interaction: discord.Interaction, user: discord.User | None = None) -> None:
@@ -1223,9 +1240,8 @@ async def scold_command(interaction: discord.Interaction, user: discord.User | N
         await interaction.response.send_message("The MVP list is empty, so there's nothing to scold for. "
                                                 "The owner sets it with `/hsr-mvp`.", ephemeral=True)
         return
-    linked = ((bot.links.uids(target.id) or {}).get("hsr")) or []
-    claimed = bot.claims.get(target.id, "hsr")
-    if not linked and not claimed:
+    uids = my_uids(bot.claims, bot.links, target.id, "hsr")  # the claimed UID first, then any linked ones
+    if not uids:
         await interaction.response.send_message(
             f"{target.mention} has no linked or claimed Star Rail account (`/hoyolab link` or `/hsr-claim`), so Fairy "
             "can't check them.", ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
@@ -1238,15 +1254,9 @@ async def scold_command(interaction: discord.Interaction, user: discord.User | N
                 f"You can look up again <t:{math.ceil(next_free)}:R>.", ephemeral=True)
             return
     await interaction.response.defer(thinking=True)
-    owned, showcase = None, False
-    if linked:  # HoYoLAB has every character the account owns
-        uid = claimed if claimed in linked else linked[0]
-        try:
-            owned = {b.character_id for b in await bot.hoyolab.fetch("hsr", uid)}
-        except HoyolabError as exc:
-            log.info("No HoYoLAB characters for /scold on %s: %s", uid, exc)
+    owned, uid = await scold_roster(bot, uids)
+    showcase = owned is None
     if owned is None:  # only the in-game showcase, from Enka
-        uid = claimed or linked[0]
         try:
             profile = await bot.enka.fetch("hsr", uid)
         except EnkaError as exc:
@@ -1256,7 +1266,7 @@ async def scold_command(interaction: discord.Interaction, user: discord.User | N
             log.exception("Failed to load hsr profile %s for /scold", uid)
             await interaction.followup.send("Something went wrong reading that profile. Try again later.")
             return
-        owned, showcase = {c.character_id for c in profile.characters}, True
+        owned = {c.character_id for c in profile.characters}
     lacking = scold.missing(bot.scold.mvp, owned, hsr_character_names(bot))
     if lacking:
         content, art = scold.scold_text(target.id, text, lacking, showcase), "fairy-scold.jpg"
