@@ -86,6 +86,15 @@ class AccessCheckTest(unittest.TestCase):
             self.assertEqual(asyncio.run(self.tree.interaction_check(interaction)), ok)
             self.assertEqual(interaction.response.sent, [] if ok else [(PRIVATE, True)])
 
+    def test_people_enabled_to_scold_may_run_only_scold(self):
+        from bot.scold import ScoldStore
+        self.tree.client.scold = ScoldStore(Path(self.dir.name) / "scold.json")
+        self.tree.client.scold.enable([STRANGER], "shame on you")
+        for name, ok in (("scold", True), ("hsr", False)):
+            interaction = _interaction(self.access, STRANGER)
+            interaction.data = {"name": name}
+            self.assertEqual(asyncio.run(self.tree.interaction_check(interaction)), ok)
+
     def test_autocomplete_gives_strangers_nothing(self):
         interaction = _interaction(self.access, STRANGER, discord.InteractionType.autocomplete)
         self.assertFalse(asyncio.run(self.tree.interaction_check(interaction)))

@@ -19,7 +19,7 @@ import genshin
 from discord import app_commands
 from discord.ext import tasks
 
-from . import borrow, matching, news, patch, optimize, records, timezones
+from . import borrow, matching, news, patch, optimize, records, scold, timezones
 from .access import PRIVATE, AccessList
 from .assets import Assets
 from .claims import ClaimStore
@@ -54,6 +54,10 @@ class PrivateTree(app_commands.CommandTree):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if self.client.access.allowed(interaction.user.id):
             return True
+        # People the owner enabled with /scold-enable may run /scold even without access to the rest of the bot.
+        store = getattr(self.client, "scold", None)
+        if (getattr(interaction, "data", None) or {}).get("name") == "scold" and store and store.text(interaction.user.id) is not None:
+            return True
         if interaction.type == discord.InteractionType.application_command:
             await interaction.response.send_message(PRIVATE, ephemeral=True)
         return False  # autocomplete just shows no suggestions
@@ -74,6 +78,7 @@ class HoyoBot(discord.Client):
         # Lives next to the game data, which the VM setup script and the Docker volume keep across updates.
         self.claims = ClaimStore(os.environ.get("CLAIMS_FILE", os.path.join(cache_dir, "claims.json")))
         self.timezones = timezones.TimezoneStore(os.environ.get("TIMEZONES_FILE", os.path.join(cache_dir, "timezones.json")))
+        self.scold = scold.ScoldStore(os.environ.get("SCOLD_FILE", os.path.join(cache_dir, "scold.json")))
         self.access = AccessList(os.environ.get("ACCESS_FILE", os.path.join(cache_dir, "access.json")))
         # New lookups per person per hour (the owner has no limit); the dropdown and buttons don't count.
         self.lookups = LookupLimit(int(os.environ.get("LOOKUPS_PER_HOUR", "15")))
@@ -136,6 +141,8 @@ class HoyoBot(discord.Client):
         self.tree.add_command(help_command)
         self.tree.add_command(timezone_command)
         self.tree.add_command(pat_command)
+        for command in (scold_enable_command, scold_disable_command, scold_list_command, hsr_mvp_command, scold_command):
+            self.tree.add_command(command)
         self.add_dynamic_items(PageButton, OpenGuideButton)  # the guide's buttons, also on old messages
         guild_id = os.environ.get("DEV_GUILD_ID")
         if guild_id:
@@ -1086,6 +1093,177 @@ async def pat_command(interaction: discord.Interaction) -> None:
     real stickers in command replies, and an emoji next to text shows small.)"""
     await interaction.response.send_message(random.choice(PAT_LINES),
                                             file=discord.File(ART / "fairy-happy.png", filename="fairy-happy.png"))
+
+
+SCOLD_OWNER_ONLY = "Only the bot's owner can choose who Fairy scolds for."
+
+
+def hsr_character_names(bot: HoyoBot) -> dict[str, str]:
+    """Every Star Rail character ID and its name, from the game data (the beta's characters too)."""
+    names = {}
+    for cid, info in bot.assets.data.get("hsr_characters", {}).items():
+        name = info.get("Name") or bot.assets.hsr_text(info.get("AvatarName", {}).get("Hash"))
+        if name and "{" not in name:
+            names[str(cid)] = name
+    return names
+
+
+@app_commands.command(name="scold-enable", description="Let people make Fairy scold for missing MVP units (owner only)")
+@app_commands.describe(users="The people to enable: @mentions or user IDs, several at once",
+                       text="What Fairy says, e.g. 'shame on you'. She adds 'for not pulling ...' after it")
+async def scold_enable_command(interaction: discord.Interaction, users: str, text: str) -> None:
+    bot: HoyoBot = interaction.client  # type: ignore[assignment]
+    if not bot.access.is_owner(interaction.user.id):
+        await interaction.response.send_message(SCOLD_OWNER_ONLY, ephemeral=True)
+        return
+    ids = scold.parse_users(users)
+    text = " ".join(text.split())
+    if not ids or not text:
+        await interaction.response.send_message("Name at least one person (@mention or user ID) and a scold text.",
+                                                ephemeral=True)
+        return
+    bot.scold.enable(ids, text[:1500])
+    who = " ".join(f"<@{u}>" for u in ids)
+    await interaction.response.send_message(
+        f"{who} can now use `/scold`. Fairy will say: \"{text[:1500]} for not pulling ...\"",
+        ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+
+@app_commands.command(name="scold-disable", description="Stop people from using /scold (owner only)")
+@app_commands.describe(users="The people to disable: @mentions or user IDs, several at once")
+async def scold_disable_command(interaction: discord.Interaction, users: str) -> None:
+    bot: HoyoBot = interaction.client  # type: ignore[assignment]
+    if not bot.access.is_owner(interaction.user.id):
+        await interaction.response.send_message(SCOLD_OWNER_ONLY, ephemeral=True)
+        return
+    ids = scold.parse_users(users)
+    if not ids:
+        await interaction.response.send_message("Name at least one person (@mention or user ID).", ephemeral=True)
+        return
+    removed = bot.scold.disable(ids)
+    others = [u for u in ids if u not in removed]
+    msg = (f"{' '.join(f'<@{u}>' for u in removed)} can no longer use `/scold`." if removed else "")
+    if others:
+        msg += f"\n{' '.join(f'<@{u}>' for u in others)} weren't enabled."
+    await interaction.response.send_message(msg.strip(), ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+
+@app_commands.command(name="scold-list", description="Show who can use /scold and their scold text (owner only)")
+async def scold_list_command(interaction: discord.Interaction) -> None:
+    bot: HoyoBot = interaction.client  # type: ignore[assignment]
+    if not bot.access.is_owner(interaction.user.id):
+        await interaction.response.send_message(SCOLD_OWNER_ONLY, ephemeral=True)
+        return
+    lines = [f"• <@{uid}>: {text}" for uid, text in bot.scold.enabled.items()]
+    msg = ("These people can use `/scold`:\n" + "\n".join(lines)) if lines else (
+        "Nobody can use `/scold` yet. Enable people with `/scold-enable`.")
+    names = hsr_character_names(bot)
+    mvp = list(dict.fromkeys(names.get(c, c) for c in bot.scold.mvp))
+    msg += f"\nMVP list: {', '.join(mvp) if mvp else 'empty (set it with `/hsr-mvp`)'}."
+    await interaction.response.send_message(msg[:2000], ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+
+@app_commands.command(name="hsr-mvp", description="Set the Star Rail characters everyone should own, for /scold (owner only)")
+@app_commands.describe(characters="Characters separated by commas (e.g. Acheron, Castorice). Replaces the whole list; "
+                                  "leave empty to see it")
+async def hsr_mvp_command(interaction: discord.Interaction, characters: str | None = None) -> None:
+    bot: HoyoBot = interaction.client  # type: ignore[assignment]
+    if not bot.access.is_owner(interaction.user.id):
+        await interaction.response.send_message("Only the bot's owner can change the MVP list.", ephemeral=True)
+        return
+    names = hsr_character_names(bot)
+    if not (characters or "").strip():
+        mvp = list(dict.fromkeys(names.get(c, c) for c in bot.scold.mvp))
+        await interaction.response.send_message(
+            f"The MVP list: {', '.join(mvp)}." if mvp else "The MVP list is empty. Set it with `/hsr-mvp characters:`.",
+            ephemeral=True)
+        return
+    by_name = scold.name_ids(names)
+    found, unknown = excluded_names(characters, sorted(by_name))
+    if not found:
+        await interaction.response.send_message(
+            f"I don't know **{', '.join(unknown)}**. Nothing was changed. Separate several names with commas.",
+            ephemeral=True)
+        return
+    bot.scold.set_mvp([cid for name in found for cid in by_name[name]])
+    msg = f"The MVP list is now: {', '.join(found)}."
+    if unknown:
+        msg += f"\nI didn't recognise **{', '.join(unknown)}**, so they were left out."
+    await interaction.response.send_message(msg, ephemeral=True)
+
+
+@hsr_mvp_command.autocomplete("characters")
+async def hsr_mvp_autocomplete(interaction: discord.Interaction, current: str):
+    """Completes the name after the last comma, keeping the ones before it."""
+    bot: HoyoBot = interaction.client  # type: ignore[assignment]
+    *done, last = [part.strip() for part in current.split(",")]
+    done = [d for d in done if d]
+    options = []
+    for name in matching.suggest(last, [n for n in bot.assets.character_names("hsr") if n not in done]):
+        value = ", ".join([*done, name])
+        if len(value) <= 100:
+            options.append(app_commands.Choice(name=value, value=value))
+    return options[:25]
+
+
+@app_commands.command(name="scold", description="Have Fairy scold someone for the MVP Star Rail characters they lack")
+@app_commands.describe(user="Who to scold. Leave empty to scold yourself")
+async def scold_command(interaction: discord.Interaction, user: discord.User | None = None) -> None:
+    bot: HoyoBot = interaction.client  # type: ignore[assignment]
+    caller = interaction.user.id
+    owner = bot.access.is_owner(caller)
+    target = user or interaction.user
+    text = bot.scold.text(caller)
+    if text is None and not owner:
+        await interaction.response.send_message(scold.NOT_ENABLED, ephemeral=True)
+        return
+    if text is None:  # the owner, not enabled themselves
+        text = bot.scold.text(target.id) or scold.DEFAULT_TEXT
+    if not bot.scold.mvp:
+        await interaction.response.send_message("The MVP list is empty, so there's nothing to scold for. "
+                                                "The owner sets it with `/hsr-mvp`.", ephemeral=True)
+        return
+    linked = ((bot.links.uids(target.id) or {}).get("hsr")) or []
+    claimed = bot.claims.get(target.id, "hsr")
+    if not linked and not claimed:
+        await interaction.response.send_message(
+            f"{target.mention} has no linked or claimed Star Rail account (`/hoyolab link` or `/hsr-claim`), so Fairy "
+            "can't check them.", ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+        return
+    if not owner:
+        next_free = bot.lookups.take(caller)
+        if next_free is not None:
+            await interaction.response.send_message(
+                f"You've used your {bot.lookups.per_hour} lookups for this hour. "
+                f"You can look up again <t:{math.ceil(next_free)}:R>.", ephemeral=True)
+            return
+    await interaction.response.defer(thinking=True)
+    owned, showcase = None, False
+    if linked:  # HoYoLAB has every character the account owns
+        uid = claimed if claimed in linked else linked[0]
+        try:
+            owned = {b.character_id for b in await bot.hoyolab.fetch("hsr", uid)}
+        except HoyolabError as exc:
+            log.info("No HoYoLAB characters for /scold on %s: %s", uid, exc)
+    if owned is None:  # only the in-game showcase, from Enka
+        uid = claimed or linked[0]
+        try:
+            profile = await bot.enka.fetch("hsr", uid)
+        except EnkaError as exc:
+            await interaction.followup.send(str(exc))
+            return
+        except Exception:
+            log.exception("Failed to load hsr profile %s for /scold", uid)
+            await interaction.followup.send("Something went wrong reading that profile. Try again later.")
+            return
+        owned, showcase = {c.character_id for c in profile.characters}, True
+    lacking = scold.missing(bot.scold.mvp, owned, hsr_character_names(bot))
+    if lacking:
+        content, art = scold.scold_text(target.id, text, lacking, showcase), "fairy-guide.jpg"
+    else:
+        content, art = scold.nothing_text(target.id, showcase), "fairy-happy.png"
+    await interaction.followup.send(content[:2000], file=discord.File(ART / art, filename=art),
+                                    allowed_mentions=discord.AllowedMentions(users=[target], everyone=False, roles=False))
 
 
 GAME_SHORT = {"genshin": "Genshin", "hsr": "Star Rail", "zzz": "ZZZ"}

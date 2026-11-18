@@ -90,6 +90,7 @@ hour to appear the first time.
 | `CACHE_DIR` | no | Where game data is cached (default `data`). |
 | `ENKA_USER_AGENT` | no | User-Agent sent to Enka.Network. |
 | `CLAIMS_FILE` | no | Where claimed UIDs are saved (default `claims.json` in `CACHE_DIR`). |
+| `SCOLD_FILE` | no | Where `/scold-enable` and `/hsr-mvp` are saved (default `scold.json` in `CACHE_DIR`). |
 | `HOYOLAB_LINKS_FILE` | no | Where `/hoyolab link` logins are saved, encrypted (default `hoyolab_links.json` in `CACHE_DIR`). |
 | `HOYOLAB_KEY_FILE` | no | The key for that file, made on first use (default `.hoyolab.key` in the bot's folder, outside `CACHE_DIR`). Without it the links can't be read and people link again. |
 | `HOYOLAB_LINKS_KEY` | no | The key itself instead of a key file (for Docker, where the bot's folder is rebuilt). |
@@ -111,6 +112,19 @@ character's copies and their weapon's (E2S1, C0R1, M6P1). HoYoLAB's records
 only carry the character's own copies, so the weapon's come from the player's
 HoYoLAB character list or showcase, when one is available. Needs a HoYoLAB
 login (the server's or the player's own `/hoyolab link`) and counts as a lookup.
+
+## Scolding (/scold)
+
+The owner keeps an MVP list of Star Rail characters with
+`/hsr-mvp characters:Acheron, Castorice` (it replaces the whole list; empty
+shows it) and picks who may use `/scold` with
+`/scold-enable users:@someone @another text:shame on you`, each with their own
+scold text. `/scold user:@someone` (empty means yourself) then checks that
+person's Star Rail account, through their `/hoyolab link` (every character) or
+else their `/hsr-claim` showcase, and Fairy tags them: "@someone shame on you
+for not pulling Acheron and Castorice." `/scold-disable` and `/scold-list`
+manage the list. Saved to `scold.json` in the cache folder (override with
+`SCOLD_FILE`).
 
 ## Characters off the showcase (HoYoLAB)
 
@@ -167,6 +181,7 @@ bot/
   embeds.py      All-text fallback reply, used if the card can't be drawn
   matching.py    Forgiving name matching ("raiden", "hutao", typos)
   claims.py      Claimed UIDs per Discord user and game, saved as JSON
+  scold.py       /scold's enabled people, MVP list and message, saved as JSON
   access.py      Who may use the bot (owner + /access list), saved as JSON
   set_emojis.py  Uploads gear piece pictures as emojis (text fallback)
 tests/           Parser tests with sample responses
