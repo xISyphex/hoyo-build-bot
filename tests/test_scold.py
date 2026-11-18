@@ -1,7 +1,12 @@
+import asyncio
 import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
+
+from cryptography.fernet import Fernet
 
 from bot import scold
 
@@ -84,6 +89,97 @@ class MessageTest(unittest.TestCase):
         text = scold.scold_text(ALICE, "", ["Acheron"], showcase=True)
         self.assertTrue(text.startswith(f"<@{ALICE}> {scold.DEFAULT_TEXT} for not pulling **Acheron**."))
         self.assertIn("\n-# ", text)
+
+
+class _Response:
+    def __init__(self):
+        self.sent = []
+
+    async def send_message(self, content, **kwargs):
+        self.sent.append((content, kwargs.get("ephemeral")))
+
+    async def defer(self, **kwargs):
+        pass
+
+
+class _Followup:
+    def __init__(self):
+        self.sent = []
+
+    async def send(self, content=None, **kwargs):
+        self.sent.append(content)
+
+
+class ScoldLookupTest(unittest.TestCase):
+    """/scold reads HoYoLAB the same way the other commands do, so the owner's own account (served by the bot-wide
+    HOYOLAB_COOKIES, not a /hoyolab link) gets their whole roster, not the Enka showcase."""
+
+    UID = "800000001"  # made up
+
+    def setUp(self):
+        from bot.access import AccessList
+        from bot.claims import ClaimStore
+        from bot.hoyolab import HoyolabClient
+        from bot.hoyolab_links import LinkStore
+
+        self.dir = tempfile.TemporaryDirectory()
+        d = Path(self.dir.name)
+        self.access = AccessList(d / "access.json")
+        self.access.owners = {ALICE}
+        self.store = scold.ScoldStore(d / "scold.json")
+        self.store.set_mvp(["1308", "1407"])
+        self.claims = ClaimStore(d / "claims.json")
+        self.claims.set(ALICE, "hsr", self.UID)  # claimed with /hsr-claim; nothing linked with /hoyolab link
+        self.links = LinkStore(d / "links.json", Fernet.generate_key())
+        assets = SimpleNamespace(data={"hsr_characters": {c: {"Name": n} for c, n in NAMES.items()}},
+                                 hsr_text=lambda h: None)
+        self.hoyolab = HoyolabClient("ltuid_v2=1; ltoken_v2=x", assets, self.links)  # the bot's HOYOLAB_COOKIES
+        self.enka = SimpleNamespace(fetch=mock.AsyncMock(return_value=SimpleNamespace(
+            characters=[SimpleNamespace(character_id="1102")])))
+        self.bot = SimpleNamespace(access=self.access, scold=self.store, claims=self.claims, links=self.links,
+                                   hoyolab=self.hoyolab, enka=self.enka, assets=assets)
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def _run(self):
+        from bot.main import scold_command
+        me = SimpleNamespace(id=ALICE, mention=f"<@{ALICE}>")
+        it = SimpleNamespace(client=self.bot, user=me, response=_Response(), followup=_Followup())
+        asyncio.run(scold_command.callback(it, None))
+        return it.followup.sent
+
+    def test_owner_on_server_cookies_gets_their_hoyolab_roster(self):
+        builds = [SimpleNamespace(character_id="1308"), SimpleNamespace(character_id="1102")]
+        with mock.patch.object(self.hoyolab, "_fetch", mock.AsyncMock(return_value=builds)) as fetch:
+            sent = self._run()
+        fetch.assert_awaited_once_with(self.hoyolab.client, "hsr", int(self.UID))
+        self.enka.fetch.assert_not_awaited()
+        self.assertIn("**Castorice**", sent[0])
+        self.assertNotIn("showcase", sent[0])
+
+    def test_hoyolab_failure_falls_back_to_the_showcase_and_logs_why(self):
+        import genshin
+        with mock.patch.object(self.hoyolab, "_fetch", mock.AsyncMock(side_effect=genshin.DataNotPublic({}))), \
+                self.assertLogs("hoyo-bot", "WARNING") as logs:
+            sent = self._run()
+        self.enka.fetch.assert_awaited_once_with("hsr", self.UID)
+        self.assertIn("showcase", sent[0])
+        self.assertTrue(any("/scold" in line and self.UID in line for line in logs.output))
+
+
+    def test_only_the_owner_manages_scold(self):
+        from bot.main import hsr_mvp_command, scold_disable_command, scold_enable_command, scold_list_command
+        calls = ((scold_enable_command, (f"<@{BOB}>", "shame")), (scold_disable_command, (f"<@{BOB}>",)),
+                 (scold_list_command, ()), (hsr_mvp_command, ("Seele",)), (hsr_mvp_command, (None,)))
+        for command, args in calls:
+            it = SimpleNamespace(client=self.bot, user=SimpleNamespace(id=BOB), response=_Response())
+            asyncio.run(command.callback(it, *args))
+            self.assertEqual(len(it.response.sent), 1, command.name)
+            self.assertIn("owner", it.response.sent[0][0], command.name)
+            self.assertTrue(it.response.sent[0][1], command.name)
+        self.assertEqual(self.store.mvp, ["1308", "1407"])
+        self.assertIsNone(self.store.text(BOB))
 
 
 if __name__ == "__main__":
