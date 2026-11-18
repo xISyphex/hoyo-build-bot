@@ -150,6 +150,9 @@ def guide_message(bot_name: str, per_hour: int, app_id: int | None = None, welco
             " `/access remove` revokes it, and `/access list` shows everyone with access. You have no lookup limit."
             " `/genshin-news`, `/hsr-news` and `/zzz-news` post every new video from each game's"
             " YouTube channel in the channel you pick; leave `channel` empty to stop them."
+            " `/hsr-mvp` sets the Star Rail characters everyone ought to own, and `/scold-enable` lets people have me"
+            " scold someone with `/scold` for each one they never pulled, in their own words."
+            " `/scold-disable` and `/scold-list` manage them."
             "\nExample: `/access add user:@Proxy`",
         )
 
