@@ -1259,7 +1259,7 @@ async def scold_command(interaction: discord.Interaction, user: discord.User | N
         owned, showcase = {c.character_id for c in profile.characters}, True
     lacking = scold.missing(bot.scold.mvp, owned, hsr_character_names(bot))
     if lacking:
-        content, art = scold.scold_text(target.id, text, lacking, showcase), "fairy-guide.jpg"
+        content, art = scold.scold_text(target.id, text, lacking, showcase), "fairy-scold.jpg"
     else:
         content, art = scold.nothing_text(target.id, showcase), "fairy-happy.png"
     await interaction.followup.send(content[:2000], file=discord.File(ART / art, filename=art),
