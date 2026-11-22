@@ -1,20 +1,22 @@
 """ZZZ's battle records drawn as the same retro dashboard as its build card: a console with screws, each mode a
-panel cut into it, the totals on small readout screens, each team a cartridge holding its agents on little CRT
-monitors, and the ratings on dome lamps."""
+panel cut into it, the totals on small readout screens, each battle a cartridge with its boss on a dark screen at the
+top (its whole picture, faded, with its name, level and HP on a band over its foot), its agents on little CRT monitors
+under that and its results under those."""
 
 from __future__ import annotations
 
 import functools
 import io
+import unicodedata
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFilter, ImageOps
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageOps
 
 from . import card as base
 from . import card_zzz as z
 from . import record_icons
 from . import records_card as rc
-from .records import Member, Record, Team, copies_label
+from .records import Enemy, Member, Record, Team, copies_label
 
 W = rc.W  # as wide as the other games' records
 BADGES = Path(__file__).parent / "record_badges"  # each mode's emblem, from the game (zzz-<mode>.png)
@@ -29,8 +31,13 @@ HEAD = 88  # a mode panel's header
 LABEL_H = 34  # a team's name over its monitors
 CHIPS_H = 40  # a team's results under them
 TEAM_H = LABEL_H + 8 + MON_H + 10 + CHIPS_H
+FOE_H = 330  # the boss's screen over the agents: its whole picture, and its name, level and HP over its foot
+CHANGE_H = 20  # and a line more under the HP for its change since the boss last came, when it has one
+ART_FADE = 0.8  # the picture at most this opaque, fading further towards the text at its foot
+UP, DOWN, SAME = (110, 226, 120), (255, 96, 96), (150, 146, 168)  # more HP than last time, less, the same
 STAGE_H = 40  # the line over a stage of its own (Adversity Mode)
 SIDE_W = 150  # a stage's own numbers, as readouts beside its cartridge
+SIDE_H = 200  # and at most this tall, centred on it
 MODE_LAMP = {"sd": (94, 200, 255), "da": (255, 86, 86)}  # each mode's pilot lamp
 RARITY_GLASS = {5: ((150, 108, 30), (40, 28, 8)), 4: ((104, 58, 150), (28, 14, 44))}  # S gold, A purple: top, bottom
 LETTERS = {5: "S", 4: "A"}
@@ -296,8 +303,151 @@ def _chips(card: Image.Image, chips: list[tuple[str, str]], cx: float, cy: float
         x += w + 2 * pad + gap
 
 
-def _team(card: Image.Image, team: Team, images: dict, box, mode: str, stars_style: str = "") -> None:
-    """A team as a cartridge: its name, its agents (and Bangboo) on monitors, its results under them."""
+def _team_h(foes: int = 0) -> int:
+    """A team's cartridge, foes tall for the boss's screen (0 for none, see _foes_h)."""
+    return TEAM_H + (foes + 10 if foes else 0)
+
+
+def _has_change(foe: Enemy) -> bool:
+    return foe.change is not None and bool(foe.hp)
+
+
+def _foes_h(record: Record) -> int:
+    """The boss's screen's height on this record's battles: 0 without bosses, a line taller when any boss has an HP
+    change to show (every screen as tall, each showing only its own lines)."""
+    foes = [e for t in record.teams for e in t.enemies]
+    return FOE_H + (CHANGE_H if any(map(_has_change, foes)) else 0) if foes else 0
+
+
+@functools.lru_cache(maxsize=1024)
+def _has_glyph(font, ch: str) -> bool:
+    def look(c):
+        m = font.getmask(c)
+        return m.size, bytes(m)
+    return look(ch) != look("\U000F0000")
+
+
+def _typeable(text: str, font) -> str:
+    """The text with each letter the font lacks swapped for its plain one."""
+    return "".join(ch if ch.isascii() or _has_glyph(font, ch) else
+                   ("".join(c for c in unicodedata.normalize("NFKD", ch) if not unicodedata.combining(c)) or ch) for ch in text)
+
+
+def _change(change: float, font) -> tuple[str, tuple]:
+    """An HP change as the card writes it, and its colour: "+12.5%" green, "−8.0%" red, "±0%" grey."""
+    if round(change, 1) == 0:
+        return "±0%", SAME
+    minus = "−" if _has_glyph(font, "−") else "-"
+    return (f"+{change:,.1f}%", UP) if change > 0 else (f"{minus}{-change:,.1f}%", DOWN)
+
+
+def _figure(pic: Image.Image, w: int, hh: int) -> Image.Image:
+    """The boss's whole picture, scaled to fit w x hh with its shape kept: only its empty margins are left out."""
+    pic = pic.convert("RGBA")
+    if bbox := pic.getchannel("A").getbbox():
+        pic = pic.crop(bbox)
+    scale = min(w / pic.width, hh / pic.height)
+    return pic.resize((max(1, round(pic.width * scale)), max(1, round(pic.height * scale))), Image.LANCZOS)
+
+
+def _foe_art(pic: Image.Image, w: int, hh: int) -> Image.Image:
+    """The boss's whole picture on a w x hh layer: as large as it fits, at most ART_FADE opaque, fading out towards
+    its foot (where the text goes) and at its sides (the game's card pictures are cut off straight there)."""
+    fig = _figure(pic, w, hh)
+    layer = Image.new("RGBA", (w, hh), (0, 0, 0, 0))
+    left = round((w - fig.width) / 2)
+    layer.alpha_composite(fig, (left, hh - fig.height))
+    fade = Image.linear_gradient("L").resize((w, hh)).point(lambda v: round(255 * ART_FADE * (1 - max(0, v - 120) / 200)))
+    sides = Image.new("L", (w, hh), 0)
+    edge = min(36, fig.width // 5)
+    sides.paste(255, (left + edge, 0, left + fig.width - edge, hh))
+    if edge > 1:  # clear at the picture's edge, full a little way in
+        ramp = Image.new("L", (edge, 1))
+        ramp.putdata([round(255 * i / (edge - 1)) for i in range(edge)])
+        ramp = ramp.resize((edge, hh))
+        sides.paste(ramp, (left, 0))
+        sides.paste(ramp.transpose(Image.FLIP_LEFT_RIGHT), (left + fig.width - edge, 0))
+    layer.putalpha(ImageChops.multiply(layer.getchannel("A"), ImageChops.multiply(fade, sides)))
+    return layer
+
+
+def _hp(foe: Enemy) -> str:
+    return f"{foe.hp:,}" + (f" ×{foe.bars}" if foe.bars > 1 else "")
+
+
+def _foe(card: Image.Image, foe: Enemy | None, pic: Image.Image | None, box) -> None:
+    """The battle's boss on a dark screen: its whole picture, faded, and on a dark band over its foot its name, its
+    level and HP, then (only when it has one) how much more or less HP it has than when it last came in this mode."""
+    sx0, sy0, sx1, sy1 = z._bezel(card, box, 10, 5)
+    w, hh = sx1 - sx0, sy1 - sy0
+    mask = Image.new("L", (w, hh), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, w - 1, hh - 1), 6, fill=255)
+    screen = Image.new("RGBA", (w, hh), (0, 0, 0, 0))
+    if pic is not None:
+        screen.alpha_composite(_foe_art(pic, w - 8, hh - 6), (4, 2))
+    draw = ImageDraw.Draw(card)
+    f = z.FONTS
+    if foe is None:  # the game data doesn't know it, and HoYoLAB sent no picture
+        z._silk(draw, ((sx0 + sx1) / 2, (sy0 + sy1) / 2 + 4), "BOSS NOT KNOWN YET", centre=True)
+        return
+    has_change = _has_change(foe)
+    lines = (1 if foe.name else 0) + (1 if foe.level or foe.hp else 0) + (1 if has_change else 0)
+    band = 16 + 28 * lines if lines else 0
+    if band:  # the dark band the text sits on, rising softly out of the picture
+        rise = 70
+        ramp = Image.linear_gradient("L").resize((w, band + rise)).point(lambda v: round(min(1, v / 90) * 232))
+        shade = Image.new("RGBA", (w, band + rise), (6, 6, 10, 255))
+        shade.putalpha(ramp)
+        screen.alpha_composite(shade, (0, hh - band - rise))
+    screen.putalpha(ImageChops.multiply(screen.getchannel("A"), mask))
+    card.alpha_composite(screen, (sx0, sy0))
+    draw = ImageDraw.Draw(card)
+    mid = (sx0 + sx1) / 2
+    y = sy1 - band + 22
+    if foe.name:
+        font = z._rubik(19, 800)
+        for size in (19, 17, 15):
+            font = z._rubik(size, 800)
+            if draw.textlength(foe.name.upper(), font=font) <= w - 20:
+                break
+        name = base._fit_text(draw, _typeable(foe.name.upper(), font), font, w - 20)
+        draw.text((mid, y), name, font=font, fill=base.TEXT, anchor="mm")
+        y += 28
+    if foe.level or foe.hp:
+        parts = []  # (label, value, colour)
+        if foe.level:
+            parts.append(("LV", str(foe.level), base.TEXT))
+        if foe.hp:
+            parts.append(("HP", _hp(foe), z.AMBER))
+        label_w = lambda t: sum(draw.textlength(ch, font=f.silk) for ch in t) + 2.4 * (len(t) - 1)  # noqa: E731
+        for size in (20, 18, 16):
+            big = z._rubik(size, 700)
+            widths = [label_w(a) + 6 + draw.textlength(b, font=big) for a, b, _ in parts]
+            if sum(widths) + 18 * (len(parts) - 1) <= w - 16:
+                break
+        x = mid - (sum(widths) + 18 * (len(parts) - 1)) / 2
+        for (label, value, colour), pw in zip(parts, widths):
+            z._silk(draw, (x, y + 4), label)
+            draw.text((x + label_w(label) + 6, y + 1), value, font=big, fill=colour, anchor="lm")
+            x += pw + 18
+        y += 28
+    if has_change:  # "+12.5%  VS 30 OCT · V3.3"
+        cf = z._rubik(16, 700)
+        text, colour = _change(foe.change, cf)
+        tw = draw.textlength(text, font=cf)
+        vs = f"VS {foe.prev_season.upper()}" if foe.prev_season else ""
+        vw = sum(draw.textlength(ch, font=f.silk) for ch in vs) + 2.4 * (len(vs) - 1) if vs else 0
+        if vs and tw + 10 + vw > w - 16:
+            vs, vw = "", 0
+        x = mid - (tw + (10 + vw if vs else 0)) / 2
+        draw.text((x, y), text, font=cf, fill=colour, anchor="lm")
+        if vs:
+            z._silk(draw, (x + tw + 10, y + 4), vs)
+
+
+def _team(card: Image.Image, team: Team, images: dict, box, mode: str, stars_style: str = "", foes: int = 0) -> None:
+    """A team as a cartridge: its name, its boss on a screen (foes tall, 0 for none), its agents (and Bangboo) on
+    monitors under that, its results under them."""
     x0, y0, x1, y1 = box
     sx0, sy0, sx1, sy1 = z._bezel(card, box, 12, 5)
     art = images.get(team.art or "")
@@ -308,10 +458,14 @@ def _team(card: Image.Image, team: Team, images: dict, box, mode: str, stars_sty
     draw.text((sx0 + 12, sy0 + LABEL_H / 2 + 1), base._fit_text(draw, team.label, z._rubik(17, 700), room),
               font=z._rubik(17, 700), fill=base.TEXT, anchor="lm")
     draw.line((sx0 + 8, sy0 + LABEL_H, sx1 - 8, sy0 + LABEL_H), fill=(44, 42, 58), width=1)
+    top = sy0 + LABEL_H + 8
+    if foes:
+        foe = team.enemies[0] if team.enemies else None
+        _foe(card, foe, images.get(foe.art or "") if foe else None, (sx0 + 6, top, sx1 - 6, top + foes))
+        top += foes + 10
     members = team.members[:4]
     row = len(members) * MON_W + max(0, len(members) - 1) * MON_GAP + (MON_GAP + BANGBOO if team.bangboo else 0)
     x = round((sx0 + sx1 - row) / 2)
-    top = sy0 + LABEL_H + 8
     for m in members:
         _monitor(card, m, images.get(m.icon_url or ""), x, top, MON_W, MON_H)
         x += MON_W + MON_GAP
@@ -339,7 +493,8 @@ def _section_h(record: Record) -> int:
     if record.empty or not record.teams:
         return HEAD + 50
     rows = _rows(record)
-    return HEAD + sum(TEAM_H + GAP + (STAGE_H if head else 0) for head, _ in rows) - GAP + INNER
+    th = _team_h(_foes_h(record))
+    return HEAD + sum(th + GAP + (STAGE_H if head else 0) for head, _ in rows) - GAP + INNER
 
 
 def draw_records(uid: str, records: list[Record], images: dict[str, Image.Image], nickname: str | None = None) -> bytes:
@@ -385,6 +540,9 @@ def draw_records(uid: str, records: list[Record], images: dict[str, Image.Image]
             y += h + GAP
             continue
         by = y + HEAD
+        foes = _foes_h(record)
+        th = _team_h(foes)
+        inset = max(30, (th - SIDE_H) // 2)  # the readouts beside a stage, centred on its cartridge
         col_w = (W - 2 * PAD - 2 * INNER - 2 * GAP) // 3
         for head, row in _rows(record):
             style = ("da-hard" if "adversity" in (head or "").lower() else "da") if record.mode == "da" else ""
@@ -395,18 +553,18 @@ def draw_records(uid: str, records: list[Record], images: dict[str, Image.Image]
             bx = (W - row_w) // 2
             for team in row:
                 if team.plight:
-                    rc._shimmer(card, (bx, by, bx + col_w, by + TEAM_H))
-                _team(card, team, images, (bx, by, bx + col_w, by + TEAM_H), record.mode, style)
+                    rc._shimmer(card, (bx, by, bx + col_w, by + th))
+                _team(card, team, images, (bx, by, bx + col_w, by + th), record.mode, style, foes)
                 edge = bx - 2 * GAP
                 for label, value in reversed(team.left):
-                    _readout(card, (edge - SIDE_W, by + 30, edge, by + TEAM_H - 30), label, value, True, stars_style=style)
+                    _readout(card, (edge - SIDE_W, by + inset, edge, by + th - inset), label, value, True, stars_style=style)
                     edge -= SIDE_W + 12
                 edge = bx + col_w + 2 * GAP
                 for label, value in team.right:
-                    _readout(card, (edge, by + 30, edge + SIDE_W, by + TEAM_H - 30), label, value, True, stars_style=style)
+                    _readout(card, (edge, by + inset, edge + SIDE_W, by + th - inset), label, value, True, stars_style=style)
                     edge += SIDE_W + 12
                 bx += col_w + GAP
-            by += TEAM_H + GAP
+            by += th + GAP
         y += h + GAP
 
     out = io.BytesIO()

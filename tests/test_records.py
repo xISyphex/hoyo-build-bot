@@ -76,7 +76,11 @@ class ReadersTest(unittest.TestCase):
         self.assertEqual(len(da.teams), 4)
         self.assertEqual((sd.teams[0].bangboo.rarity, sd.teams[1].bangboo), (5, None))
         self.assertEqual(da.teams[0].bangboo.level, 60)
-        self.assertEqual((da.teams[3].stage, da.teams[3].label), ("Adversity Mode", "Notorious - Miasma Priest"))
+        self.assertEqual((da.teams[3].stage, da.teams[3].label), ("Adversity Mode", "Adversity"))
+        self.assertEqual(da.teams[3].enemies, [R.Enemy("Notorious - Miasma Priest")])  # HoYoLAB's, until the game data's
+        self.assertEqual([t.key for t in da.teams], ["name:notoriousdeadendbutcher|1", "name:notoriousmarionette|2",
+                                                     "name:notoriouspompey|3", "adversity-name:notoriousmiasmapriest|adversity"])
+        self.assertEqual((da.season_id, da.starts), ("", "2026-10-13"))  # the fakes have no zone id: found by the day
         self.assertEqual((da.teams[3].left, da.teams[3].right), ([("Stars", "2/3")], [("Top", "0.16%")]))
         self.assertEqual(dict(da.headline)["Score"], "60,120")
 
@@ -156,21 +160,174 @@ class ZzzDashboardTest(unittest.TestCase):
                          ["platinum", "gold", "purple", "blue"])
 
 
-class ShiyuBossNameTest(unittest.TestCase):
-    def test_rooms_are_named_by_their_boss_icon(self):
-        from bot.shiyu_bosses import boss_names
-        icons = "Assets/NapResources/UI/Sprite/A1DynamicLoad/IconBossGeneral/UnPacker/"
-        season = {"zone": {"6205905": {"layer_room": {}}, "62059051": {"layer_room": {
-            "62059051": {"monster_icon": icons + "IconMonster_MiasmaThracian.png"},
-            "62059052": {"monster_icon": icons + "IconMonster_Unknown.png"}, "62059053": {"monster_icon": ""}}}}}
-        monsters = {"930178": {"icon": "UI/Sprite/BossCard/Monster_MiasmaThracian.png", "en": "Miasmic - Thracian"},
-                    "30023": {"icon": "UI/Sprite/BossCard/Monster_Thracian.png", "en": "Thracian"}}
-        self.assertEqual(boss_names(season, monsters), {"62059051": "Miasmic - Thracian"})
+ICONS = "Assets/NapResources/UI/Sprite/A1DynamicLoad/IconBossGeneral/UnPacker/"
+CARDS = "UI/Sprite/A1DynamicLoad/BossCard/UnPacker/BossCardLv04/"
 
-    def test_labels_get_the_boss_name(self):
-        rec = R.Record("sd", "Shiyu Defense", teams=[R.Team("Battle 1", key="62059051"), R.Team("Battle 2", key="62059052")])
-        R.name_bosses(rec, {"62059051": "Miasmic - Thracian"})
-        self.assertEqual([t.label for t in rec.teams], ["Battle 1 · Miasmic - Thracian", "Battle 2"])
+
+def _zzz_monster(mid, name, image, hp):
+    return {"id": mid, "name": name, "image": CARDS + image, "stats": {"hp": hp, "attack": 1}}
+
+
+def _shiyu(zone, boss_hp=50615124.48):
+    """A Shiyu Defense season file as Hakushin writes it: a frontier, then the final one's three battles."""
+    battle = lambda n, icon, monsters: {"name": f"Room {n}", "stage_num": 5, "monster_level": 70, "goal_type": 2,  # noqa: E731
+                                        "layer_room": {f"{zone}05{n}": {"monster_icon": ICONS + icon, "monster_list": monsters}}}
+    return {"id": zone, "zone": {
+        f"{zone}04": {"name": "Fourth Frontier", "stage_num": 4, "monster_level": 65, "goal_type": 0, "layer_room": {
+            "1": {"monster_icon": ICONS + "IconMonster_MiasmaTerrorBird.png",
+                  "monster_list": {"31262": _zzz_monster(1, "Terror Bird", "Monster_MiasmaTerrorBird.png", 9)}}}},
+        f"{zone}05": {"name": "", "stage_num": 5, "monster_level": 0, "goal_type": 3, "layer_room": {}},
+        f"{zone}051": battle(1, "IconMonster_Sentinel.png", {
+            "31303": _zzz_monster(20026, "Miasmic - Frenzied Maniac", "Monster_MiasmaFrenziedManiac.png", 4276096.11),
+            "31531": _zzz_monster(30048, "Airspace Sentinel", "Monster_Sentinel.png", boss_hp)}),
+        f"{zone}052": battle(2, "", {  # no icon: the one with the most HP
+            "31491": _zzz_monster(20034, "Mushussu", "Monster_Mushussu.png", 10698745),
+            "31214": _zzz_monster(300372, "Miasmic - Doppelganger - The Defector", "Monster_X.png", 52688086)}),
+    }}
+
+
+def _assault(regular, hard):
+    """A Deadly Assault season file: Adversity Mode (zone type 1002), then the three regular bosses (1001)."""
+    def zone(n, name, vid, mid, image, hp):
+        return {"name": name, "stage_num": n, "monster_level": 70, "goal_type": 2, "layer_room": {
+            "r": {"monster_icon": ICONS + "Icon" + image, "monster_list": {vid: _zzz_monster(mid, name, image, hp)}}}}
+    return {"id": 690501, "modes": [
+        {"id": 690502, "zone_type": 1002, "zone": {"69050201": zone(1, *hard)}},
+        {"id": 690501, "zone_type": 1001, "zone": {f"6905010{i}": zone(i, *b) for i, b in enumerate(regular, 1)}}]}
+
+
+class ZzzEnemiesTest(unittest.TestCase):
+    KUSARIKKU = ("Kusarikku", "31711", 40010, "Monster_Larval.png", 26755094.34)
+    REVENANT = ("Infernal Revenant", "31635", 30052, "Monster_SymbioticEtherealSinner.png", 22538010.33)
+    PHAETHON = ("Phaethon of the Scorched Horizon", "31431", 40005, "Monster_Mutant.png", 23723285.715)
+    GIRTABLULLU = ("Integrated - Girtablullu", "31662", 40009, "Monster_Girtablu_HC.png", 37045515.24)
+
+    def test_shiyu_defense_final_battles_by_their_boss(self):
+        from bot.zzz_enemies import season_bosses
+        found = season_bosses("sd", _shiyu(62061))
+        self.assertEqual(found.keys(), {"62061051", "62061052"})  # the final frontier's battles only
+        self.assertEqual(found["62061051"], [{"id": 31531, "monster": 30048, "name": "Airspace Sentinel", "level": 70,
+                                              "hp": 50615124, "art": "https://static.nanoka.cc/assets/zzz/Monster_Sentinel.webp"}])
+        self.assertEqual(found["62061052"][0]["name"], "Miasmic - Doppelganger - The Defector")
+
+    def test_deadly_assault_by_name_and_place(self):
+        from bot.zzz_enemies import season_bosses
+        found = season_bosses("da", _assault([self.KUSARIKKU, self.REVENANT, self.PHAETHON], self.GIRTABLULLU))
+        self.assertEqual(found["2"][0]["name"], "Infernal Revenant")
+        self.assertIs(found["name:kusarikku"][0], found["1"][0])
+        self.assertEqual(found["adversity"][0]["hp"], 37045515)
+        self.assertIn("adversity-name:integratedgirtablullu", found)
+        self.assertNotIn("name:integratedgirtablullu", found)  # Adversity Mode's boss isn't a regular one
+        rec = R.zzz_da(F.da())
+        rec.teams[0].key = "name:nobodyknown|1"  # a name the game data doesn't know: by place
+        rec.teams[1].key = "name:kusarikku|2"  # a known name first
+        R.set_enemies(rec, found)
+        self.assertEqual([t.enemies[0].name for t in rec.teams],
+                         ["Kusarikku", "Kusarikku", "Phaethon of the Scorched Horizon", "Integrated - Girtablullu"])  # Adversity: by place
+        self.assertEqual((rec.teams[0].enemies[0].level, rec.teams[0].enemies[0].hp), (70, 26755094))
+
+    def test_seasons_found_and_ordered(self):
+        from bot.zzz_enemies import earlier_seasons, find_season
+        index = {"69040": {"live_begin": "2026-07-03 04:00:00"}, "69041": {"live_begin": "2026-07-17 04:00:00"},
+                 "690421": {"live_begin": "2026-07-29 04:00:00"}, "690501": {"live_begin": "2026-11-20 04:00:00"},
+                 "690511": {"begin": "2026-10-21 04:00:00"}}  # a beta's: after the live ones, whatever its date
+        self.assertEqual(find_season(index, "690501"), "690501")
+        self.assertEqual(find_season(index, 69050), "690501")
+        self.assertEqual(find_season(index, "", "2026-11-20"), "690501")
+        self.assertEqual(find_season(index, "1", "2026-01-01"), "")
+        self.assertEqual(earlier_seasons(index, "690501"),
+                         [("690421", "29 Jul · v3.1"), ("69041", "17 Jul · v3.0"), ("69040", "3 Jul · v3.0")])
+        self.assertEqual(earlier_seasons({"62060": {"begin": "2026-10-30 04:00:00"}, "62061": {}, "620631": {}}, "62061"),
+                         [("62060", "30 Oct · v3.3")])
+
+    def test_game_version_by_date(self):
+        from bot.zzz_enemies import game_version, season_label
+        self.assertEqual(game_version("2026-10-09"), "3.2")
+        self.assertEqual(game_version("2026-10-21"), "3.3")  # its first day
+        self.assertEqual(game_version("2025-09-03"), "2.1")
+        self.assertEqual(game_version("2024-07-04 04:00:00"), "1.0")
+        self.assertEqual(game_version("2024-07-03"), "")  # before release
+        self.assertEqual(game_version("2027-03-01"), "")  # past the last known version: not guessed
+        self.assertEqual(season_label("2026-11-06"), "6 Nov · v3.3")
+        self.assertEqual(season_label("2023-01-01"), "1 Jan")  # the date alone
+        self.assertEqual(season_label(""), "")
+
+    def test_hp_change_since_the_boss_last_came(self):
+        from bot.zzz_enemies import add_changes, season_bosses, season_slots
+        now = season_bosses("sd", _shiyu(62061))
+        before = season_slots("sd", _shiyu(62060, boss_hp=40492099.58))
+        self.assertEqual(before.keys(), {"final"})
+        add_changes("sd", now, [("62060", "30 Oct", before)])
+        sentinel, defector = now["62061051"][0], now["62061052"][0]
+        self.assertEqual((round(sentinel["change"], 2), sentinel["prev_season"]), (25.0, "30 Oct"))
+        self.assertAlmostEqual(defector["change"], 0)
+        # Deadly Assault: regular bosses with regular bosses, Adversity Mode's with its own; the latest season wins
+        found = season_bosses("da", _assault([self.KUSARIKKU, self.REVENANT, self.PHAETHON], self.GIRTABLULLU))
+        older = season_slots("da", _assault([(*self.KUSARIKKU[:4], 22124405), self.PHAETHON, self.PHAETHON],
+                                            ("Kusarikku", "31711", 40010, "Monster_Larval.png", 1)))
+        newer = {"boss": [{"id": 1, "monster": 30052, "name": "Infernal Revenant", "hp": 19464645}]}
+        add_changes("da", found, [("690491", "6 Nov", newer), ("690471", "9 Oct", older)])
+        self.assertAlmostEqual(found["1"][0]["change"], 20.9302, 3)  # same variant, a season further back
+        self.assertEqual(found["name:kusarikku"][0]["prev_season"], "9 Oct")  # the same boss under its name
+        self.assertAlmostEqual(found["2"][0]["change"], 15.7895, 3)  # same monster, another variant
+        self.assertNotIn("change", found["adversity"][0])  # never in Adversity Mode before
+        rec = R.zzz_da(F.da())
+        R.set_enemies(rec, found)
+        self.assertEqual((round(rec.teams[0].enemies[0].change, 1), rec.teams[0].enemies[0].prev_season), (20.9, "9 Oct"))
+
+    def test_cached_lookup(self):
+        import asyncio
+        import tempfile
+
+        from bot.zzz_enemies import ZzzEnemies
+
+        files = {"manifest.json": {"zzz": {"live": "3.3", "latest": "3.4"}},
+                 "zzz/3.3/boss.json": {"690491": {"live_begin": "2026-11-06"}, "690501": {"live_begin": "2026-11-20"}},
+                 "zzz/3.3/en/boss/690501.json": _assault([self.KUSARIKKU, self.REVENANT, self.PHAETHON], self.GIRTABLULLU),
+                 "zzz/3.3/en/boss/690491.json": _assault([self.REVENANT, self.REVENANT, self.REVENANT], self.GIRTABLULLU)}
+        asked = []
+
+        class Resp:
+            def __init__(self, body):
+                self.status, self.body = (200 if body is not None else 404), body
+            async def __aenter__(self): return self  # noqa: E301,E704
+            async def __aexit__(self, *a): return False  # noqa: E301,E704
+            async def json(self, content_type=None): return self.body  # noqa: E301,E704
+
+        class Session:
+            def get(self, url):
+                asked.append(url)
+                return Resp(files.get(url.split("static.nanoka.cc/")[1]))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            found = asyncio.run(ZzzEnemies(tmp).enemies(Session(), "da", "69050", "2026-11-20"))
+            self.assertAlmostEqual(found["adversity"][0]["change"], 0)
+            self.assertNotIn("change", found["1"][0])  # Kusarikku: never before
+            again = asyncio.run(ZzzEnemies(tmp).enemies(Session(), "da", "69050"))  # from the file, nothing asked
+            self.assertEqual(again["2"][0]["hp"], 22538010)
+            self.assertEqual(len([u for u in asked if "690501" in u]), 1)
+
+    def test_draws_with_bosses(self):
+        pic = Image.new("RGBA", (484, 668), (200, 40, 40, 255))
+        sd, da = R.zzz_sd(F.sd()), R.zzz_da(F.da())
+        for rec in (sd, da):
+            for team in rec.teams:
+                team.enemies = [R.Enemy("Lord of Saṃvartasthāyi", "boss.png", 70, 52688086)]
+            rec.teams[0].enemies[0].change, rec.teams[0].enemies[0].prev_season = -8.5, "30 Oct"
+            rec.teams[1].enemies = [R.Enemy("", "gone.png")]  # HoYoLAB's picture only, and it didn't load
+            rec.teams[2].enemies = []  # not known at all
+            img = Image.open(io.BytesIO(draw_records("zzz", "1300000001", [rec], {"boss.png": pic})))
+            self.assertEqual(img.width, W)
+            self.assertGreater(img.height, 800, rec.mode)
+
+    def test_hp_change_written_and_coloured(self):
+        from bot import card, card_zzz
+        from bot.records_zzz import DOWN, SAME, UP, _change
+        card.FONTS = card.FONTS or card.Fonts()
+        f = card_zzz._rubik(16, 700)
+        self.assertEqual(_change(12.5, f), ("+12.5%", UP))
+        self.assertEqual(_change(-8, f)[1], DOWN)
+        self.assertEqual(_change(0.04, f), ("±0%", SAME))
 
 
 class HsrPerfectTest(unittest.TestCase):

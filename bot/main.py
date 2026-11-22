@@ -35,7 +35,7 @@ from .ratelimit import LookupLimit
 from .set_emojis import SetEmojis
 from .unreleased import Unreleased
 from .hsr_enemies import HsrEnemies
-from .shiyu_bosses import ShiyuBosses
+from .zzz_enemies import ZzzEnemies
 from .stats import add_enka
 from .unit_traits import UnitTraits
 
@@ -94,7 +94,7 @@ class HoyoBot(discord.Client):
         self.effective = EffectiveStats(cache_dir)
         self.unreleased = Unreleased(cache_dir)  # the beta's new characters, for trying gear on them
         self.assets.extras.append(self.unreleased.apply)
-        self.shiyu_bosses = ShiyuBosses(cache_dir)  # Shiyu Defense boss names for /zzz-records
+        self.zzz_enemies = ZzzEnemies(cache_dir)  # each battle's boss, level and HP for /zzz-sd, /zzz-da
         self.hsr_enemies = HsrEnemies(cache_dir)  # each node's enemies, level and HP for /hsr-moc, /hsr-pf, /hsr-apoc, /hsr-aa
         self.hoyolab = HoyolabClient(cookies or None, self.assets, self.links, self.effective)
         # Element and path symbols for the patch card's banners, newer units included.
@@ -127,9 +127,9 @@ class HoyoBot(discord.Client):
         for game in GAME_NAMES:
             self.tree.add_command(make_command(game))
             self.tree.add_command(make_claim_command(game))
-            if game == "hsr":  # a command per mode: /hsr-moc, /hsr-pf, /hsr-apoc, /hsr-aa
+            if game in ("hsr", "zzz"):  # a command per mode: /hsr-moc, /hsr-pf, /hsr-apoc, /hsr-aa, /zzz-sd, /zzz-da
                 for mode in records.MODES[game]:
-                    self.tree.add_command(make_hsr_mode_command(mode))
+                    self.tree.add_command(make_mode_command(game, mode))
             else:
                 self.tree.add_command(make_records_command(game))
             self.tree.add_command(make_stats_command(game))
@@ -704,14 +704,14 @@ def make_records_command(game: str) -> app_commands.Command:
     return command
 
 
-def make_hsr_mode_command(mode: records.Mode) -> app_commands.Command:
-    """One Star Rail mode's record: /hsr-moc, /hsr-pf, /hsr-apoc or /hsr-aa."""
+def make_mode_command(game: str, mode: records.Mode) -> app_commands.Command:
+    """One mode's record: /hsr-moc, /hsr-pf, /hsr-apoc, /hsr-aa, /zzz-sd or /zzz-da."""
 
-    @app_commands.command(name=f"hsr-{mode.key}", description=f"Show a player's {mode.title} record")
-    @app_commands.describe(uid="In-game UID. Leave empty to use the one you claimed with /hsr-claim", server=SERVER_HELP)
+    @app_commands.command(name=f"{game}-{mode.key}", description=f"Show a player's {mode.title} record")
+    @app_commands.describe(uid=f"In-game UID. Leave empty to use the one you claimed with /{game}-claim", server=SERVER_HELP)
     @app_commands.choices(server=SERVER_CHOICES)
     async def command(interaction: discord.Interaction, uid: str | None = None, server: str | None = None) -> None:
-        await send_records(interaction, "hsr", [mode.key], uid, server)
+        await send_records(interaction, game, [mode.key], uid, server)
 
     return command
 
@@ -771,14 +771,14 @@ async def send_records(interaction: discord.Interaction, game: str, picked: list
         raise found
     builds = list(builds) if isinstance(builds, list) else []
     profile = None if isinstance(profile, BaseException) else profile
-    if game == "zzz":  # the agents' builds, and the Shiyu Defense bosses' names, at the same time
+    if game == "zzz":  # the agents' builds, and each battle's boss with its level and HP, at the same time
         ids = list(dict.fromkeys(m.id for r in found for t in r.teams for m in t.members))
-        shiyu = [r for r in found if r.season_id]
-        builds, *names = await asyncio.gather(
+        looked = [r for r in found if r.teams and (r.season_id or r.starts)]
+        builds, *enemies = await asyncio.gather(
             bot.hoyolab.zzz_agents(uid, ids),
-            *(bot.shiyu_bosses.name(bot.session, r.season_id, [t.key for t in r.teams]) for r in shiyu))
-        for r, n in zip(shiyu, names):
-            records.name_bosses(r, n)
+            *(bot.zzz_enemies.enemies(bot.session, r.mode, r.season_id, r.starts) for r in looked))
+        for r, e in zip(looked, enemies):
+            records.set_enemies(r, e)
     if game == "hsr":  # each node's enemies with their level and HP, from the game data
         looked = [r for r in found if r.season_id]
         enemies = await asyncio.gather(*(bot.hsr_enemies.enemies(bot.session, r.mode, r.season_id, r.floor_id, r.floor_no)
