@@ -1,5 +1,5 @@
 """Battle records: a player's endgame runs from HoYoLAB's Battle Chronicle, for /hsr-moc, /hsr-pf, /hsr-apoc,
-/hsr-aa, /zzz-records and /genshin-records.
+/hsr-aa, /zzz-sd, /zzz-da and /genshin-records.
 
 Each mode is read with genshin.py and boiled down to a Record: a few headline numbers and the teams that were used,
 each character with their copies (eidolons / constellations / mindscapes) and their weapon's copies. HoYoLAB's
@@ -19,6 +19,7 @@ from typing import Any, Awaitable, Callable
 import genshin
 
 from .hsr_enemies import floor_number  # 'Crossing the Afterlife (XII)' -> 12, '04' -> 4
+from .zzz_enemies import name_key  # 'Notorious - Dead End Butcher' -> 'notoriousdeadendbutcher'
 from .models import CharacterBuild
 
 log = logging.getLogger(__name__)
@@ -37,7 +38,8 @@ class Member:
 
 @dataclass
 class Enemy:
-    """A Star Rail node's enemy: its full figure, name, level and HP (level and HP 0 when unknown)."""
+    """A Star Rail node's enemy, or a ZZZ battle's boss: its full figure, name, level and HP (level and HP 0 when
+    unknown)."""
     name: str
     art: str | None = None
     level: int = 0
@@ -63,8 +65,10 @@ class Team:
     right: list[tuple[str, str]] = field(default_factory=list)
     plight: bool = False  # the King beaten on Plight (hard) mode: a red shimmer around the box
     bangboo: Member | None = None  # ZZZ: the Bangboo that came along
-    key: str = ""  # ZZZ Shiyu Defense: the battle's layer id; Star Rail: the node ("3" Starward), to look its boss up by
-    enemies: list[Enemy] = field(default_factory=list)  # Star Rail: the node's enemies, shown over its team
+    # To look its enemies up by (see set_enemies). Star Rail: the node ("3" Starward); ZZZ Shiyu Defense: the battle's
+    # layer id; Deadly Assault: the boss's name, then its place
+    key: str = ""
+    enemies: list[Enemy] = field(default_factory=list)  # the node's enemies (ZZZ: the boss), shown over its team
 
 
 @dataclass
@@ -76,7 +80,8 @@ class Record:
     teams: list[Team] = field(default_factory=list)
     empty: str | None = None  # why there's nothing to show, e.g. "No runs this season yet."
     medal: str | None = None  # Anomaly Arbitration's medal picture from HoYoLAB
-    season_id: str = ""  # ZZZ Shiyu Defense: HoYoLAB's zone id for the season; Star Rail: the season's schedule id
+    season_id: str = ""  # ZZZ: HoYoLAB's zone id for the season; Star Rail: the season's schedule id
+    starts: str = ""  # ZZZ Deadly Assault: the day the season started ("2026-11-20"), to find it by when its id differs
     floor_id: str = ""  # Star Rail Memory of Chaos / Pure Fiction / Apocalyptic Shadow: the shown floor's maze id
     floor_no: int = 0  # and its number (Memory of Chaos XII -> 12, Apocalyptic Shadow difficulty 04 -> 4)
     # Star Rail Memory of Chaos: every floor played this season, shallowest first, as (floor, stars, cycles, quick clear)
@@ -425,9 +430,9 @@ def zzz_sd(data) -> Record:
             chips = [("rating", layer.rating), ("score", _num(layer.score))]
             if layer.clear_time:
                 chips.append(("time", _clock(layer.clear_time)))
-            rec.teams.append(Team(f"Battle {i}", chips, [_zzz_member(c) for c in layer.characters],
-                                  art=getattr(layer, "boss_icon", None), bangboo=_bangboo(layer),
-                                  key=str(getattr(layer, "id", ""))))
+            boss = getattr(layer, "boss_icon", None)  # HoYoLAB sends the boss's picture only, without its name
+            rec.teams.append(Team(f"Battle {i}", chips, [_zzz_member(c) for c in layer.characters], bangboo=_bangboo(layer),
+                                  key=str(getattr(layer, "id", "")), enemies=[Enemy("", boss)] if boss else []))
         rec.season_id = str(getattr(data, "schedule_id", "") or "")
         return rec
     # The older Shiyu Defense (v1): floors with a rating each
@@ -457,9 +462,9 @@ def _boss_lookup(rec: Record, season, floor) -> None:
 
 
 def set_enemies(record: Record, found: dict[str, list[dict]]) -> None:
-    """Gives each Star Rail node its enemies from the game data (see hsr_enemies), in place of HoYoLAB's (picture
-    and name only). A team's key may name several ways to find it, split by "|" (Anomaly Arbitration: the maze id,
-    then the knight's place)."""
+    """Gives each node its enemies from the game data (see hsr_enemies and zzz_enemies), in place of HoYoLAB's
+    (picture and name only). A team's key may name several ways to find it, split by "|" (Anomaly Arbitration: the
+    maze id, then the knight's place; Deadly Assault: the boss's name, then its place)."""
     for team in record.teams:
         enemies = next((found[k] for k in team.key.split("|") if k and found.get(k)), None)
         if enemies:
@@ -471,16 +476,14 @@ def set_enemies(record: Record, found: dict[str, list[dict]]) -> None:
                             for e in enemies]
 
 
-def name_bosses(record: Record, names: dict[str, str]) -> None:
-    """Puts each Shiyu Defense battle's boss in its label: "Battle 1 · Miasmic - Thracian"."""
-    for team in record.teams:
-        if team.key in names:
-            team.label = f"{team.label} · {names[team.key]}"
-
-
-def _da_team(c, stage: str = "") -> Team:
-    return Team(c.boss.name, [("stars", f"{c.star}/3"), ("score", _num(c.score))], [_zzz_member(a) for a in c.agents],
-                stage=stage, art=getattr(c.boss, "icon", None), bangboo=_bangboo(c))
+def _da_team(c, label: str, place: str) -> Team:
+    """A Deadly Assault boss's team, its boss from HoYoLAB (picture and name) until the game data's is found. place:
+    "1" to "3" for the regular bosses by order, "adversity" for Adversity Mode's."""
+    name = getattr(c.boss, "name", "") or ""
+    named = f"{'adversity-name' if place == 'adversity' else 'name'}:{name_key(name)}" if name_key(name) else ""
+    return Team(label, [("stars", f"{c.star}/3"), ("score", _num(c.score))], [_zzz_member(a) for a in c.agents],
+                stage="Adversity Mode" if place == "adversity" else "", bangboo=_bangboo(c),
+                key="|".join(filter(None, (named, place))), enemies=[Enemy(name, getattr(c.boss, "icon", None) or None)])
 
 
 @_dated(lambda d: (d.start_time, d.end_time))
@@ -492,15 +495,18 @@ def zzz_da(data) -> Record:
     # The header has the three regular bosses only; Adversity Mode's numbers sit beside its own box
     rec.headline = [("Score", _num(sum(c.score for c in data.challenges))), ("Stars", str(sum(c.star for c in data.challenges))),
                     ("Top", data.rank_percent)]
-    for c in data.challenges:
-        rec.teams.append(_da_team(c))
+    for i, c in enumerate(data.challenges, 1):
+        rec.teams.append(_da_team(c, f"Boss {i}", str(i)))
     for c in getattr(data, "hard_challenges", None) or ():  # Adversity Mode, the extra boss
-        team = _da_team(c, "Adversity Mode")
+        team = _da_team(c, "Adversity", "adversity")
         team.chips = [("score", _num(c.score))]
         team.left = [("Stars", f"{c.star}/3")]
         if getattr(data, "hard_rank_percent", None):
             team.right = [("Top", data.hard_rank_percent)]
         rec.teams.append(team)
+    rec.season_id = str(getattr(data, "id", "") or "")
+    start = getattr(data, "start_time", None)
+    rec.starts = start.date().isoformat() if isinstance(start, dt.datetime) else ""
     return rec
 
 
