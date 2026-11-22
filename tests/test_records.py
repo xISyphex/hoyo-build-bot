@@ -235,9 +235,22 @@ class ZzzEnemiesTest(unittest.TestCase):
         self.assertEqual(find_season(index, 69050), "690501")
         self.assertEqual(find_season(index, "", "2026-11-20"), "690501")
         self.assertEqual(find_season(index, "1", "2026-01-01"), "")
-        self.assertEqual(earlier_seasons(index, "690501"), [("690421", "29 Jul"), ("69041", "17 Jul"), ("69040", "3 Jul")])
+        self.assertEqual(earlier_seasons(index, "690501"),
+                         [("690421", "29 Jul · v3.1"), ("69041", "17 Jul · v3.0"), ("69040", "3 Jul · v3.0")])
         self.assertEqual(earlier_seasons({"62060": {"begin": "2026-10-30 04:00:00"}, "62061": {}, "620631": {}}, "62061"),
-                         [("62060", "30 Oct")])
+                         [("62060", "30 Oct · v3.3")])
+
+    def test_game_version_by_date(self):
+        from bot.zzz_enemies import game_version, season_label
+        self.assertEqual(game_version("2026-10-09"), "3.2")
+        self.assertEqual(game_version("2026-10-21"), "3.3")  # its first day
+        self.assertEqual(game_version("2025-09-03"), "2.1")
+        self.assertEqual(game_version("2024-07-04 04:00:00"), "1.0")
+        self.assertEqual(game_version("2024-07-03"), "")  # before release
+        self.assertEqual(game_version("2027-03-01"), "")  # past the last known version: not guessed
+        self.assertEqual(season_label("2026-11-06"), "6 Nov · v3.3")
+        self.assertEqual(season_label("2023-01-01"), "1 Jan")  # the date alone
+        self.assertEqual(season_label(""), "")
 
     def test_hp_change_since_the_boss_last_came(self):
         from bot.zzz_enemies import add_changes, season_bosses, season_slots

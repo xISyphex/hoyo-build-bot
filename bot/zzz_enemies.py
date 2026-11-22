@@ -46,7 +46,18 @@ log = logging.getLogger(__name__)
 INDEXES = {"sd": "shiyu.json", "da": "boss.json"}  # each mode's season list
 PATHS = {"sd": "en/shiyu/{season}.json", "da": "en/boss/{season}.json"}
 REGULAR, ADVERSITY = 1001, 1002  # Deadly Assault's zone types
-CACHE_VERSION = 1
+CACHE_VERSION = 2  # 2: the game version beside the day a boss last came
+
+# The day each ZZZ version went live (global), to tell which one a season ran in: Hakushin's season lists have only
+# dates. From the publisher's announcements as reported by Gematsu, RPGSite and others (1.0 to 1.3 from the same
+# outlets at the time). A date after the last one counts as that version for VERSION_SPAN days at most.
+VERSIONS = (("1.0", "2024-07-04"), ("1.1", "2024-08-14"), ("1.2", "2024-09-25"), ("1.3", "2024-11-06"),
+            ("1.4", "2024-12-18"), ("1.5", "2025-01-22"), ("1.6", "2025-03-12"), ("1.7", "2025-04-23"),
+            ("2.0", "2025-06-06"), ("2.1", "2025-07-16"), ("2.2", "2025-09-04"), ("2.3", "2025-10-15"),
+            ("2.4", "2025-11-26"), ("2.5", "2025-12-30"), ("2.6", "2026-02-06"), ("2.7", "2026-03-24"),
+            ("2.8", "2026-05-06"), ("3.0", "2026-06-17"), ("3.1", "2026-07-29"), ("3.2", "2026-09-09"),
+            ("3.3", "2026-10-21"))
+VERSION_SPAN = 56  # a version runs about six weeks
 
 
 def clean(name: str | None) -> str:
@@ -183,7 +194,8 @@ def last_seen(boss: dict, slot: str, history: list[tuple[str, str, dict[str, lis
 
 
 def add_changes(mode: str, found: dict[str, list[dict]], history: list[tuple[str, str, dict[str, list[dict]]]]) -> None:
-    """Notes on each boss its HP change since it last appeared ("change", %, and "prev_season", when that was). A boss
+    """Notes on each boss its HP change since it last appeared ("change", %, and "prev_season", when that was:
+    "9 Oct · v3.2"). A boss
     listed under several keys is one dict, so it's noted once."""
     for key, bosses in found.items():
         slot = node_slot(mode, key)
@@ -206,6 +218,26 @@ def season_date(entry) -> str:
     if not isinstance(entry, dict):
         return ""
     return str(entry.get("live_begin") or entry.get("begin") or "")[:10]
+
+
+def game_version(day: str) -> str:
+    """The version live on this day ('2026-10-09' -> '3.2'); empty when it's unknown (before 1.0, or past the last
+    listed version's span)."""
+    try:
+        d = dt.date.fromisoformat(day[:10])
+    except ValueError:
+        return ""
+    starts = [(v, dt.date.fromisoformat(s)) for v, s in VERSIONS]
+    live = [(v, s) for v, s in starts if s <= d]
+    if not live or (live[-1] == starts[-1] and (d - live[-1][1]).days >= VERSION_SPAN):
+        return ""
+    return live[-1][0]
+
+
+def season_label(day: str) -> str:
+    """How the card names a past season: '30 Oct · v3.3', or just '30 Oct' when the version isn't known."""
+    version = game_version(day)
+    return " · ".join(filter(None, (short_date(day), f"v{version}" if version else "")))
 
 
 def short_date(day: str) -> str:
@@ -234,9 +266,9 @@ def find_season(index: dict, season_id="", starts: str = "") -> str:
 
 
 def earlier_seasons(index: dict, season: str) -> list[tuple[str, str]]:
-    """The seasons before this one, newest first, as (id, the day it started as "30 Oct")."""
+    """The seasons before this one, newest first, as (id, when it started: "30 Oct · v3.3", see season_label)."""
     now = order(season)
-    past = [(order(k), str(k), short_date(season_date(e))) for k, e in (index or {}).items()
+    past = [(order(k), str(k), season_label(season_date(e))) for k, e in (index or {}).items()
             if str(k).isdigit() and 0 <= order(k) < now]
     return [(k, d) for _, k, d in sorted(past, reverse=True)]
 

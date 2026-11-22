@@ -431,7 +431,7 @@ def _foe(card: Image.Image, foe: Enemy | None, pic: Image.Image | None, box) -> 
             draw.text((x + label_w(label) + 6, y + 1), value, font=big, fill=colour, anchor="lm")
             x += pw + 18
         y += 28
-    if has_change:  # "+12.5%  vs 30 Oct"
+    if has_change:  # "+12.5%  VS 30 OCT · V3.3"
         cf = z._rubik(16, 700)
         text, colour = _change(foe.change, cf)
         tw = draw.textlength(text, font=cf)
